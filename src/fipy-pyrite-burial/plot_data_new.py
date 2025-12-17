@@ -53,7 +53,15 @@ import pandas as pd
 MAX_RIGHT_AXES = 10
 
 
-def plot(df, display_length, outfile, show=True, isotopes=False, plot_description=None):
+def plot(
+    df,
+    display_length,
+    outfile,
+    show=True,
+    isotopes=False,
+    plot_description=None,
+    measured_data_path=None,
+):
     """Plot data dynamically based on plot_description.
 
     Args:
@@ -96,6 +104,42 @@ def plot(df, display_length, outfile, show=True, isotopes=False, plot_descriptio
 
     if n_subplots == 0:
         raise ValueError("No valid subplots to create")
+
+    # Load measured data if path provided
+    df2 = None
+    if measured_data_path:
+        mpath = pl.Path(measured_data_path)
+        if mpath.exists():
+            df2 = pd.read_csv(mpath)
+        else:
+            warnings.warn(f"Measured data file not found: {measured_data_path}")
+
+    def _get_df2_col(series_name, df2):
+        if df2 is None or series_name is None:
+            return None
+
+        # Handle series_name if it's a pandas Series
+        if hasattr(series_name, "name"):
+            name = series_name.name
+        elif isinstance(series_name, str):
+            name = series_name
+        else:
+            return None
+
+        # Matching strategy:
+        # 1. Exact match
+        # 2. Strip 'c_' prefix
+        # 3. Handle isotope 'd_' vs 'c_d'
+        candidates = [name]
+        if name.startswith("c_"):
+            candidates.append(name[2:])
+        if name.startswith("d_"):
+            candidates.append("c_d" + name[2:])
+        
+        for cand in candidates:
+            if cand in df2.columns:
+                return cand
+        return None
 
     # Create figure and subplots
     fig, axes = plt.subplots(n_subplots, 1)
@@ -163,6 +207,19 @@ def plot(df, display_length, outfile, show=True, isotopes=False, plot_descriptio
                     left_lines.append(line)
                     left_labels.append(label)
 
+                    # Plot measured data if available
+                    df2_col = _get_df2_col(y_data, df2)
+                    if df2_col and "z" in df2.columns:
+                        ax_main.scatter(
+                            df2.z,
+                            df2[df2_col],
+                            color=line.get_color(),
+                            marker="o",
+                            s=20,
+                            alpha=0.6,
+                            label="_nolegend_",
+                        )
+
             # Set left axis properties
             if left_lines:
                 # If there's a ylabel specified in config, use it; otherwise use first label
@@ -182,6 +239,19 @@ def plot(df, display_length, outfile, show=True, isotopes=False, plot_descriptio
                 label = series[1]
                 plot_kwargs = series[2] if len(series) > 2 else {}
                 (line,) = twin_ax.plot(x_data, y_data, label=label, **plot_kwargs)
+
+                # Plot measured data if available
+                df2_col = _get_df2_col(y_data, df2)
+                if df2_col and "z" in df2.columns:
+                    twin_ax.scatter(
+                        df2.z,
+                        df2[df2_col],
+                        color=line.get_color(),
+                        marker="o",
+                        s=20,
+                        alpha=0.6,
+                        label="_nolegend_",
+                    )
 
                 # Set y-axis label:
                 # For the first series in each config group (e.g., first in "right", first in "right2"),
@@ -416,7 +486,7 @@ def _get_default_plot_description(df, isotopes=False):
             "right2_ylabel": r"O$_{2}$ [$\mu$mol/l]",
             "right3": [[df.c_poc, "OM [mol/l]", {"color": "C1"}]],
             "right3_ylabel": "OM [mol/l]",
-            "right4": [[df.c_fe, "Fe [mol/l]", {"color": "C3"}]],
+            "right4": [[df.c_fe3, "Fe [mol/l]", {"color": "C3"}]],
             "right4_ylabel": "Fe [mol/l]",
         },
     }
@@ -466,9 +536,11 @@ if __name__ == "__main__":
     parser.add_argument("input_file")
     parser.add_argument("-l", "--display_length", default=0, type=int)
     parser.add_argument("-o", "--output_file", default="None", type=str)
+    parser.add_argument("-m", "--measured_data", default=None, type=str)
     args = parser.parse_args()
     display_length = args.display_length
     out_file = args.output_file
+    measured_data = args.measured_data
     fn: str = args.input_file  # file name
     cwd: pl.Path = pl.Path.cwd()  # get the current working directory
     fqfn: pl.Path = pl.Path(f"{cwd}/{fn}")  # fully qualified file name
@@ -486,4 +558,4 @@ if __name__ == "__main__":
 
     fqfn_out: pl.Path = pl.Path(f"{out_file}")
 
-    plot(df, display_length, fqfn_out)
+    plot(df, display_length, fqfn_out, measured_data_path=measured_data)
