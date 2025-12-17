@@ -28,6 +28,8 @@ from diff_lib import (
     relax_solution,
     get_l_mass,
     get_delta,
+    run_solver,
+    save_data,
 )
 from reactions_new import diagenetic_reactions
 
@@ -241,95 +243,12 @@ for species_name in species_list:
 # -----------------------------------------------------------------------------
 # 7. SOLVE
 # -----------------------------------------------------------------------------
-dt = 1e-2 * 3600 * 24 * 365.0  # Start with 0.01 years
-elapsed_time = 0.0
-target_time = mp.run_time * 3600 * 24 * 365.0  # 10,000 years
-
-print(f"Starting Solver... Target Time: {target_time / 3600 / 24 / 365:.1f} years")
-solver = LinearLUSolver(tolerance=mp.tolerance)
-
-step = 0
-while elapsed_time < target_time and step < mp.max_steps:
-    step += 1
-
-    # f_res, _ = diagenetic_reactions(mp, None, c, k, data_container(), None, None)
-    # Update Old values
-    for var in vars(c).values():
-        if isinstance(var, CellVariable):
-            var.updateOld()
-
-    res = 1e10
-    sweeps = 0
-    while res > mp.tolerance and sweeps < 20:
-        # Store previous iteration values for relaxation
-        last_sol = {s: getattr(c, s).value.copy() for s in species_list}
-
-        res = 0
-        for var, eq in equations:
-            res += eq.sweep(var=var, dt=dt, solver=solver)
-
-        # Apply relaxation
-        for species_name in species_list:
-            var = getattr(c, species_name)
-            var.setValue(relax_solution(var.value, last_sol[species_name], mp.relax))
-
-        sweeps += 1
-
-    elapsed_time += dt
-    # Increase time step geometrically
-    dt *= 1.2
-    # Cap dt to prevent loss of accuracy
-    if dt > mp.dt_max * 3600 * 24 * 365.0:
-        dt = mp.dt_max * 3600 * 24 * 365.0
-
-    if step % 10 == 0:
-        print(
-            f"Step {step}: Time {elapsed_time / 3600 / 24 / 365:.2f} yr (dt={dt / 3600 / 24 / 365:.2f} yr) - Residual {res:.2e}"
-        )
-
-print("Simulation Complete.")
+run_solver(mp, equations, c, species_list)
 
 # -----------------------------------------------------------------------------
 # 8. EXPORT DATA
 # -----------------------------------------------------------------------------
-f_final = diagenetic_reactions(mp, c, k, data_container())
-
-data = {"z": z}
-for species_name in species_list:
-    data[f"c_{species_name}"] = getattr(c, species_name).value
-
-for species_name in species_list:
-    rates_val = getattr(f_final, species_name)[2]
-    if hasattr(rates_val, "value"):
-        data[f"f_{species_name}"] = rates_val.value
-    else:
-        data[f"f_{species_name}"] = np.array(rates_val)
-
-# calculate delta values
-for species_name in species_list:
-    if "_32" in species_name:
-        base_species = species_name[:-3]
-        s = data[f"c_{base_species}"]
-        """fes2_32 tracks the number of S-atoms, not molecules of FeS2.
-        Since FeS2 tracks the number of molecules, fes2_32 is two times
-        larger than fes2. To get the correct delta value, we beed to devide
-        by two.
-        """
-        if species_name == "fes2_32":
-            s32 = data[f"c_{species_name}"] / 2
-        else:
-            s32 = data[f"c_{species_name}"]
-        data[f"d_{base_species}"] = get_delta(s, s32, mp.VPDB)
-
-
-data["w"] = np.ones(nx) * mp.w
-data["phi"] = np.ones(nx) * mp.phi
-data["so4_diff"] = D_mol.so4 + D_bio
-
-df = pd.DataFrame(data)
-fqfn = pl.Path.cwd() / mp.plot_name
-df.to_csv(fqfn, index=False)
-print(f"Data saved to {fqfn}")
+df, fqfn = save_data(mp, c, k, species_list, z, D_mol, D_bio, diagenetic_reactions)
 
 # -----------------------------------------------------------------------------
 # 9. PLOTTING
