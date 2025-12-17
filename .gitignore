@@ -8,7 +8,15 @@ wheels/
 TAGS
 *.pdf
 *.csv
+*.egg
+*.py[cod]
+*.pyo
+*.pyd
+*.code-workspace
+
 
 
 # Virtual environments
 .venv
+env/
+venv/
