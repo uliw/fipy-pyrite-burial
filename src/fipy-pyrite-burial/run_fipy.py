@@ -22,9 +22,9 @@ from diff_lib import (
     relax_solution,
     get_l_mass,
     get_delta,
-    run_solver,
+    run_non_steady_solver,
     save_data,
-    build_equations,
+    build_non_steady_equations,
 )
 from reactions_new import diagenetic_reactions
 
@@ -178,14 +178,14 @@ for species_name, props in bc_map.items():
 # -----------------------------------------------------------------------------
 # 6. BUILD EQUATIONS
 # -----------------------------------------------------------------------------
-equations = build_equations(
+equations = build_non_steady_equations(
     mp, c, k, species_list, mesh, D_mol, D_bio, D_irr, bc_map, diagenetic_reactions
 )
 
 # -----------------------------------------------------------------------------
 # 7. SOLVE
 # -----------------------------------------------------------------------------
-run_solver(mp, equations, c, species_list)
+run_non_steady_solver(mp, equations, c, species_list)
 
 # -----------------------------------------------------------------------------
 # 8. EXPORT DATA

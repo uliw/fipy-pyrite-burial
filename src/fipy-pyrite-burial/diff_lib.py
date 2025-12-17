@@ -331,7 +331,7 @@ def make_grid(L, N, initial_spacing):
     return mesh, z_centers
 
 
-def run_solver(mp, equations, c, species_list):
+def run_non_steady_solver(mp, equations, c, species_list):
     """
     Run the FiPy solver loop.
     """
@@ -436,7 +436,7 @@ def save_data(mp, c, k, species_list, z, D_mol, D_bio, diagenetic_reactions):
     return df, fqfn
 
 
-def build_equations(
+def build_non_steady_equations(
     mp, c, k, species_list, mesh, D_mol, D_bio, D_irr, bc_map, diagenetic_reactions
 ):
     """
