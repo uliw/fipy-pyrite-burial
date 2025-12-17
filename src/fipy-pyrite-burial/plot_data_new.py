@@ -5,13 +5,20 @@ This module provides flexible plotting functionality for diagenetic modeling dat
 The main `plot()` function can be used with default settings or with a custom
 plot_description dictionary for complete control over plot structure.
 
+It also supports overlaying measured data from a CSV file and loading plot
+layouts dynamically from external Python files.
+
 Basic Usage:
 -----------
-    import plot_data
+    import plot_data_new
     import pandas as pd
 
     df = pd.read_csv("model_output.csv")
-    plot_data.plot(df, display_length=10, outfile="output.pdf", isotopes=True)
+    plot_data_new.plot(df, display_length=4, outfile="output.pdf")
+
+Overlaying Measured Data:
+------------------------
+    plot_data_new.plot(df, 4, "output.pdf", measured_data_path="measured.csv")
 
 Custom Plot Description:
 -----------------------
@@ -27,16 +34,8 @@ Custom Plot Description:
             "right_ylabel": "O2 [μmol/l]",
             "options-left": "set_ylim(0, 30)",  # Apply matplotlib methods
         },
-        "second_subplot": {
-            "xaxis": [df.z, "Depth [m]"],
-            "left": [[df.f_so4, "f_so4"]],
-            "yscale": "log",
-            "options-left": "set_ylim(1e-10, 1e-5)",  # Multiple calls supported
-        },
     }
-    plot_data.plot(df, 10, "output.pdf", plot_description=plot_description)
-
-See plot_data_examples.py for more detailed examples.
+    plot_data_new.plot(df, 10, "output.pdf", plot_description=plot_description)
 """
 
 import argparse
@@ -45,6 +44,7 @@ import warnings
 
 import matplotlib.pyplot as plt
 import pandas as pd
+import importlib.util
 
 # import matplotlib
 # matplotlib.use("TkAgg")
@@ -58,18 +58,17 @@ def plot(
     display_length,
     outfile,
     show=True,
-    isotopes=False,
     plot_description=None,
     measured_data_path=None,
 ):
     """Plot data dynamically based on plot_description.
 
-    Args:
+    Args
+    ----
         df: DataFrame with data to plot
         display_length: Length of x-axis to display
         outfile: Output file path
         show: Whether to show the plot
-        isotopes: Legacy parameter for backward compatibility
         plot_description: Dictionary describing plot structure. If None, uses default structure.
             Example structure:
             {
@@ -83,7 +82,7 @@ def plot(
                 },
                 "second": {
                     "xaxis": [df.z, "Depth [m]"],
-                    "left": [[df.d_so4, "d34S [mUr]"]],
+                    "left": [[df.f_so4, "f_so4"]],
                     "yscale": "log",
                     "options-left": "set_ylim(1e-10, 1e-5), set_title('Title')",
                 },
@@ -93,10 +92,11 @@ def plot(
             you to specify arbitrary matplotlib method calls to apply to the corresponding
             axis. Multiple method calls can be separated by commas.
             Examples: "set_ylim(0, 100)", "set_title('My Title'), grid(True)"
+        measured_data_path: Path to CSV containing measured data to overlay as scatter plots.
     """
     # Use default plot structure if none provided
     if plot_description is None:
-        plot_description = _get_default_plot_description(df, isotopes)
+        plot_description = _get_default_plot_description(df)
 
     # Filter out None subplots and count valid subplots
     valid_subplots = {k: v for k, v in plot_description.items() if v is not None}
@@ -135,7 +135,7 @@ def plot(
             candidates.append(name[2:])
         if name.startswith("d_"):
             candidates.append("c_d" + name[2:])
-        
+
         for cand in candidates:
             if cand in df2.columns:
                 return cand
@@ -357,22 +357,56 @@ def plot(
     for ax in all_axes:
         ax.set_xlim(0, display_length)
 
+    fig.tight_layout()
+    if outfile:
+        fig.savefig(outfile)
+
     if show:
-        fig.tight_layout()
-        plt.savefig(f"{outfile.stem}.pdf")
         plt.show()
-        return
+    else:
+        plt.close(fig)
 
     return fig, ax_objects
+
+
+def load_layout_from_file(df, layout_path):
+    """
+    Load a plot layout from a Python file.
+
+    Args
+    ----
+    df: DataFrame containing the data to plot.
+    layout_path: Path to the Python file containing the layout.
+
+    Returns
+    -------
+    dict: The plot description dictionary.
+    """
+    path = pl.Path(layout_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Layout file not found: {layout_path}")
+
+    # Use importlib to load the module from a file path
+    spec = importlib.util.spec_from_file_location("dynamic_layout", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    if not hasattr(module, "get_layout"):
+        raise AttributeError(
+            f"Layout file {layout_path} must contain a 'get_layout(df)' function."
+        )
+
+    return module.get_layout(df)
 
 
 def _apply_matplotlib_options(ax, options_str):
     """Apply arbitrary matplotlib method calls to an axis.
 
-    Args:
-        ax: Matplotlib axis object
-        options_str: String containing matplotlib method calls, separated by commas.
-                    Example: "set_ylim(1e-10,1e-5), set_title('My Title')"
+    Args
+    ----
+    ax: Matplotlib axis object
+    options_str: String containing matplotlib method calls, separated by commas.
+                Example: "set_ylim(1e-10,1e-5), set_title('My Title')"
 
     The function safely parses and executes each method call on the provided axis.
     Each method call should be in the format: method_name(arg1, arg2, ...)
@@ -448,21 +482,22 @@ def _apply_matplotlib_options(ax, options_str):
             warnings.warn(f"Failed to execute {method_name}({args_str}): {e}")
 
 
-def _get_default_plot_description(df, isotopes=False):
+def _get_default_plot_description(df):
     """Generate default plot description for backward compatibility.
 
     This function creates a plot_description dictionary that replicates
     the original hard-coded plot structure from the legacy implementation.
 
-    Args:
-        df: DataFrame containing the data to plot
-        isotopes: If True, includes isotope data subplot (second subplot)
+    Args
+    ----
+    df: DataFrame containing the data to plot
 
-    Returns:
-        dict: A plot_description dictionary with the default plot structure:
-            - First subplot: Concentrations (SO4, H2S, FeS2, O2, OM, Fe)
-            - Second subplot (if isotopes=True): Isotope deltas (dSO4, dH2S, dFeS2)
-            - Last subplot: Reaction rates (f_o2, f_so4, f_fes2, f_h2s, f_poc)
+    Returns
+    -------
+    dict: A plot_description dictionary with the default plot structure:
+        - First subplot: Concentrations (SO4, H2S, FeS2, O2, OM, Fe)
+        - Second subplot (if isotopes=True): Isotope deltas (dSO4, dH2S, dFeS2)
+        - Last subplot: Reaction rates (f_o2, f_so4, f_fes2, f_h2s, f_poc)
     """
     plot_desc = {
         "first": {
@@ -491,28 +526,8 @@ def _get_default_plot_description(df, isotopes=False):
         },
     }
 
-    if isotopes:
-        plot_desc["second"] = {
-            "xaxis": [df.z, "Depth [m]"],
-            "left": [
-                [df.c_dso4, r"$\delta^{34}$S SO$_4$", {"color": "C0"}],
-                [
-                    df.c_dh2s,
-                    r"$\delta^{34}$S H$_2$S",
-                    {
-                        "color": "C0",
-                        "linestyle": (0, (0.1, 2)),
-                        "dash_capstyle": "round",
-                    },
-                ],
-            ],
-            "left_ylabel": r"$\delta^{34}$ SO$_4$ & H$_2$S [mUr VCDT]",
-            "right": [[df.c_dfes2, r"$\delta^{34}$ FeS$_2$", {"color": "k"}]],
-            "right_ylabel": r"$\delta^{34}$ FeS$_2$ [mUr VCDT]",
-        }
-
     # Reaction rates plot
-    subplot_key = "third" if isotopes else "second"
+    subplot_key = "second"
     plot_desc[subplot_key] = {
         "xaxis": [df.z, "Depth [m]"],
         "left": [
@@ -531,31 +546,98 @@ def _get_default_plot_description(df, isotopes=False):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Plot diagenetic modeling results with optional measured data overlay.",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
 
-    parser.add_argument("input_file")
-    parser.add_argument("-l", "--display_length", default=0, type=int)
-    parser.add_argument("-o", "--output_file", default="None", type=str)
-    parser.add_argument("-m", "--measured_data", default=None, type=str)
+    parser.add_argument("input_file", help="Path to the model output CSV file.")
+    parser.add_argument(
+        "-d",
+        "--display-length",
+        dest="display_length",
+        default=0,
+        type=float,
+        help="Depth limit for the x-axis (default: full length of data).",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        dest="output_file",
+        default=None,
+        type=str,
+        help="Path for the output PDF (default: <input_file_stem>.pdf).",
+    )
+    parser.add_argument(
+        "-m",
+        "--measured-data",
+        dest="measured_data",
+        default=None,
+        type=str,
+        help="Path to CSV containing measured data to overlay as scatter points.",
+    )
+    parser.add_argument(
+        "-l",
+        "--layout",
+        dest="layout_file",
+        default=None,
+        type=str,
+        help=(
+            "Path to a Python file defining the plot layout.\n"
+            "The file must contain a 'get_layout(df)' function.\n\n"
+            "Example layout file content:\n"
+            "--------------------------------------------------\n"
+            "def get_layout(df):\n"
+            "    return {\n"
+            "        'subplot1': {\n"
+            "            'xaxis': [df.z, 'Depth [m]'],\n"
+            "            'left':  [[df.c_so4, 'SO4', {'color': 'C0'}]]\n"
+            "        }\n"
+            "    }\n"
+            "--------------------------------------------------"
+        ),
+    )
+    parser.add_argument(
+        "--hide",
+        action="store_false",
+        dest="show",
+        help="If set, do not show the plot window, only save the PDF.",
+    )
+    parser.set_defaults(show=True)
+
     args = parser.parse_args()
-    display_length = args.display_length
-    out_file = args.output_file
-    measured_data = args.measured_data
-    fn: str = args.input_file  # file name
-    cwd: pl.Path = pl.Path.cwd()  # get the current working directory
-    fqfn: pl.Path = pl.Path(f"{cwd}/{fn}")  # fully qualified file name
 
-    if not fqfn.exists():  # check if file exist
-        raise FileNotFoundError(f"Cannot find file {fqfn}")
+    input_path = pl.Path(args.input_file)
+    if not input_path.exists():
+        parser.error(f"Input file not found: {input_path}")
 
-    df: pd.DataFrame = pd.read_csv(fqfn)  # read csv data
+    df = pd.read_csv(input_path)
 
-    if out_file == "None":
-        out_file = f"{fqfn.stem}.pdf"
-
-    if display_length == 0:
+    # Determine display length
+    if args.display_length > 0:
+        display_length = args.display_length
+    elif "z" in df.columns:
         display_length = df.z.iat[-1]
+    else:
+        display_length = len(df)
 
-    fqfn_out: pl.Path = pl.Path(f"{out_file}")
+    # Determine output file
+    if args.output_file:
+        outfile = pl.Path(args.output_file)
+    else:
+        outfile = input_path.with_suffix(".pdf")
 
-    plot(df, display_length, fqfn_out, measured_data_path=measured_data)
+    # Load custom layout if provided
+    plt_desc = None
+    if args.layout_file:
+        plt_desc = load_layout_from_file(df, args.layout_file)
+
+    plot(
+        df,
+        display_length,
+        outfile,
+        show=args.show,
+        plot_description=plt_desc,
+        measured_data_path=args.measured_data,
+    )
+    print(f"Plot generated: {outfile}")
