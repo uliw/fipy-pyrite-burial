@@ -1,7 +1,33 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm[toml]>=8"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "fipy-pyrite-burial"
 version = "0.1.0"
-description = "Add your description here"
+description = "A reaction transport model of pyrite formation"
 readme = "README.md"
-requires-python = ">=3.13"
-dependencies = []
+requires-python = ">=3.12"
+dependencies = ["fipy", "numpy", "pandas", "matplotlib", "scipy",]
+
+license = {text = "GPL3"}          # keep in sync with LICENSE file
+authors = [
+    {name = "Uli Wortmann", email = "uli.wortmann@utoronto.ca"},
+]
+keywords = ["reaction transport modeling"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GPL3",
+    "Operating System :: OS Independent",
+]
+
+
+# Optional extras (e.g. for development, testing, docs)
+[project.optional-dependencies]
+dev = ["ruff"]
+test = ["pytest", "pytest-cov"]
+doc = ["sphinx"]
+
+# Automatic version from git tags
+[tool.setuptools_scm]
+write_to = "src/fipy-pyrite-burial/_version.py"
