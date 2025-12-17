@@ -434,3 +434,75 @@ def save_data(mp, c, k, species_list, z, D_mol, D_bio, diagenetic_reactions):
     print(f"Data saved to {fqfn}")
 
     return df, fqfn
+
+
+def build_equations(
+    mp, c, k, species_list, mesh, D_mol, D_bio, D_irr, bc_map, diagenetic_reactions
+):
+    """
+    Build the reaction-transport equations.
+    """
+    from fipy import CellVariable
+    from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
+    from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
+    from fipy.terms.diffusionTerm import DiffusionTerm
+    from fipy.terms.transientTerm import TransientTerm
+
+    equations = []
+    # Call reaction function once to set up the Terms
+    # We pass None for z, sc, results as they might not be used or needed for setup
+    f_res = diagenetic_reactions(mp, c, k, f=data_container())
+
+    for species_name in species_list:
+        var = getattr(c, species_name)
+        props = bc_map[species_name]
+        # 1. Transport
+        D_total = getattr(D_mol, species_name) + D_bio
+
+        vel = mp.w
+        if props["type"] == "dissolved":
+            vel = mp.w - mp.advection
+
+        # Explicitly create Rank 1 CellVariable for velocity to avoid shape errors
+        u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
+
+        # Use VanLeerConvectionTerm to minimize numerical dispersion artifacts in isotope ratios
+        # conv_term = VanLeerConvectionTerm(coeff=u_var)
+        conv_term = PowerLawConvectionTerm(coeff=u_var)
+
+        # Wrap D_total in CellVariable to avoid shape ambiguity
+        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total))
+
+        # 2. Reactions
+        # Imported diagenetic_reactions returns (LHS_coeff, RHS_val, rate)
+        lhs_val = getattr(f_res, species_name)[0]
+        rhs_val = getattr(f_res, species_name)[1]
+
+        # LHS from reactions_new is a constant or CellVariable expression.
+        # We pass it directly to ImpicitSourceTerm to ensure it stays dynamic.
+        lhs_term = ImplicitSourceTerm(coeff=lhs_val)
+
+        # RHS from reactions_new is " - rate". We want "+ rate".
+        # Use dynamic expression if it's a Variable, otherwise wrap static values
+        if hasattr(rhs_val, "rank"):
+            rhs_term = -rhs_val
+        else:
+            # It's an array or number (static)
+            rhs_term = CellVariable(mesh=mesh, value=-rhs_val)
+
+        # 3. Irrigation
+        # Wrap D_irr to ensure Rank 0
+        irr_sink = ImplicitSourceTerm(coeff=-CellVariable(mesh=mesh, value=D_irr))
+
+        # FIX: Wrap in SourceTerm
+        # irr_source_val is an array, wrapping in CellVariable is safer than SourceTerm
+        irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"])
+
+        # Assemble
+        eq = (
+            TransientTerm(coeff=mp.phi) + conv_term
+            == diff_term + lhs_term + rhs_term + irr_sink + irr_source
+        )
+        equations.append((var, eq))
+
+    return equations
