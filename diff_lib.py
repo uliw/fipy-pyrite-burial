@@ -1,0 +1,331 @@
+"""
+Utility library for the /fastfd/ package.
+
+This package provides a small collection of functions and a lightweight container class
+used throughout the Pyrite Burial model.
+
+The module contains:
+
+    - :class:=data_container= – a simple container that can be initialised from a
+      space‑separated string of attribute names with optional default values, or from a
+      dictionary mapping attribute names to values.
+
+    - :func:=diff_coeff= – computes the diffusion coefficient (m² s⁻¹) for a given
+      temperature (°C), porosity (percent) and the linear parameters /m0/ and /m1/ from
+      Boudreau (1996).
+
+    - :func:=get_delta= – calculates the isotopic delta value (‰) from the total
+      concentration of an isotope pair and a reference ratio.
+
+    - :func:=get_l_mass= – derives the concentration of the light isotope from a
+      measured total concentration, a delta value and the reference ratio.
+
+    - :func:=relax_solution= – blends a current solution vector with a previous one,
+      limiting the change to a specified fraction and enforcing non‑negative values.
+
+These helpers are primarily intended for modelling isotope diffusion and fractionation
+processes in geological simulations.
+"""
+
+import numpy as np
+
+
+class data_container:
+    """A simple container.
+
+    Initialised from a space‑separated string of attribute names with optional default
+    values, or from a dictionary mapping attribute names to values.
+    """
+
+    def __init__(self, names=None, defaults=None):
+        if isinstance(names, str):
+            names = names.split(" ")
+            if isinstance(defaults, list):
+                for i, name in enumerate(names):
+                    if name != "":
+                        setattr(self, name, defaults[i])
+            else:
+                for name in names:
+                    if name != "":
+                        setattr(self, name, defaults)
+
+        elif isinstance(names, dict):
+            for k, v in names.items():
+                if k != "":
+                    setattr(self, k, v)
+
+    def __getitem__(self, key):
+        """Return the value of the attribute ``key`` (e.g. obj['so4'])."""
+        try:
+            return getattr(self, key)
+        except AttributeError as exc:
+            raise KeyError(key) from exc
+
+    def __setitem__(self, key, value):
+        """Set the attribute ``key`` to ``value`` (e.g. obj['so4'] = 10)."""
+        if not isinstance(key, str):
+            raise TypeError("dictionary keys must be strings")
+        setattr(self, key, value)
+
+    def __contains__(self, key):
+        """Allow ``key in obj`` syntax."""
+        return hasattr(self, key)
+
+    def keys(self):
+        """Return a list of attribute names stored on the instance."""
+        return [k for k in self.__dict__.keys()]
+
+    def items(self):
+        """Return (key, value) pairs like ``dict.items()``."""
+        return self.__dict__.items()
+
+    def __repr__(self):
+        """Define the the default repr."""
+        return f"{self.__class__.__name__}({self.__dict__})"
+
+
+"""
+Utility library for the /fastfd/ package that provides a small collection of
+functions and a lightweight container class used throughout the Pyrite Burial
+model.
+
+The module contains:
+
+- :class:=data_container= – a simple container that can be initialised from a
+  space‑separated string of attribute names with optional default values, or
+  from a dictionary mapping attribute names to values.
+
+- :func:=diff_coeff= – computes the diffusion coefficient (m² s⁻¹) for a given
+  temperature (°C), porosity (percent) and the linear parameters /m0/ and /m1/
+  from Boudreau (1996).
+
+- :func:=get_delta= – calculates the isotopic delta value (‰) from the total
+  concentration of an isotope pair and a reference ratio.
+
+- :func:=get_l_mass= – derives the concentration of the light isotope from a
+  measured total concentration, a delta value and the reference ratio.
+
+- :func:=relax_solution= – blends a current solution vector with a previous one,
+  limiting the change to a specified fraction and enforcing non‑negative values.
+
+These helpers are primarily intended for modelling isotope diffusion and
+fractionation processes in geological simulations."""
+
+
+def diff_coeff(T, m0, m1, phi):
+    """Calculate the diffusion coeefficien in m^2/s.
+
+    T: temperature in C
+    phi: porosity in percent
+    m0, m1: parameter as from table X in Boudreau 1996
+    """
+    return (m0 + m1 * T) * 1e-10 / (1 - np.log(phi**2))
+
+
+def get_delta(c, li, r):
+    """Calculate the delta from the mass of light and heavy isotope.
+
+    :param li: light isotope mass/concentration
+    :param h: heavy isotope mass/concentration
+    :param r: reference ratio
+
+    :return : delta
+
+    """
+    h = c - li
+
+    return np.where(li < 0.001, float("nan"), 1000 * (h / li - r) / r)
+
+
+def get_delta_from_concentration(c, li, r):
+    """Calculate the delta from the mass of light and heavy isotope.
+
+    :param c: total mass/concentration
+    :param l: light isotope mass/concentration
+    :param r: reference ratio
+
+    """
+    h = c - li
+    d = 1000 * (h / li - r) / r
+    return d
+
+
+def get_l_mass(m, d, r):
+    """Derive the concentration of the light isotope.
+
+    From a measured total concentration, a delta value and the reference ratio.
+    :param m: mass or concentration
+    :param d: delta value
+    :param r: isotopic reference ratio
+
+    return mass or concentration of the light isotopeb
+    """
+    return (1000.0 * m) / ((d + 1000.0) * r + 1000.0)
+
+
+def relax_solution(curr_sol, last_sol, fraction):
+    """Blend two solution vectors.
+
+    In such away that they only chance by a given fraction
+    """
+    sol = last_sol * (1 - fraction) + curr_sol * fraction
+    return sol * (sol >= 0)  # exclude negative solutions
+
+
+def bioturbation_profile(z, D_max, cutoff_depth, threshold=1e-12):
+    """
+    Calculate the necessary steepness.
+
+    To fit a mixing profile into 'cutoff_depth', ensuring D_max at surface and
+    'threshold' at cutoff.
+    """
+    # 1. Safety Checks
+    if cutoff_depth <= 0 or D_max <= threshold:
+        return np.zeros_like(z)
+
+    # 2. Calculate the Magnitude of the Drop
+    # We need to drop from D_max down to threshold.
+    # ratio represents the magnitude of this drop (e.g., 10,000,000x)
+    ratio = (D_max / threshold) - 1
+    log_ratio = np.log(ratio)
+
+    # 3. Dynamic Steepness Calculation
+    # We want the "slide" to start at z=0 and finish exactly at z=cutoff_depth.
+    # To fit the full drop (log_ratio) into the distance (cutoff_depth):
+    # k = total_drop_in_log_units / distance
+    # We add a safety factor (e.g., 1.1) to ensure the 'shoulder' is slightly below surface
+    calculated_steepness = (log_ratio / cutoff_depth) * 1.05
+
+    # 4. Calculate Inflection Point
+    # The inflection point is where the value is half of D_max.
+    # Based on the calculated steepness, we shift the curve so the tail hits
+    # 'threshold' exactly at 'cutoff_depth'.
+    shift = log_ratio / calculated_steepness
+    inflection_point = cutoff_depth - shift
+
+    # 5. Generate Sigmoid
+    sigmoid = D_max / (1 + np.exp(calculated_steepness * (z - inflection_point)))
+
+    # 6. Hard Clamp
+    sigmoid[z > cutoff_depth] = 0.0
+
+    return sigmoid
+
+
+def bioturbation_profile_2(z, D_max, cutoff_depth, threshold=1e-12):
+    """
+    Generate a sigmoid mixing profile.
+
+    That fits EXACTLY within 'cutoff_depth'.  Calculates dynamic steepness so shallow
+    depths get sharper curves automatically.
+    """
+    # Safety: If depth is zero or D_max is negligible, return zeros
+    if cutoff_depth <= 0 or D_max <= threshold:
+        return np.zeros_like(z)
+
+    # 1. Calculate how "steep" we need to be to drop from D_max to threshold
+    #    within the allocated depth.
+    #    formula: D_max / (1 + exp(k * z)) = threshold
+    ratio = (D_max / threshold) - 1
+    if ratio <= 0:
+        return np.zeros_like(z)
+
+    total_drop_log = np.log(ratio)
+
+    # We want the drop to finish slightly before the cutoff (95% of depth)
+    # to ensure the clamp is clean.
+    effective_depth = cutoff_depth * 0.95
+    calculated_steepness = total_drop_log / effective_depth
+
+    # 2. Calculate the "Shift" (Inflection Point)
+    #    We shift the curve so it starts flat at surface and drops at the end.
+    #    Shifting by log(ratio)/k moves the tail to the cutoff.
+    #    We shift slightly less to keep the 'shoulder' near the surface.
+    shift = total_drop_log / calculated_steepness
+    inflection_point = cutoff_depth - shift
+
+    # 3. Generate Profile
+    sigmoid = D_max / (1 + np.exp(calculated_steepness * (z - inflection_point)))
+
+    # 4. Hard Clamp to ensure true zero below the cutoff
+    sigmoid[z > cutoff_depth] = 0.0
+
+    return sigmoid
+
+
+def make_grid(L, N, initial_spacing):
+    """
+    Construct a 1D grid with variable spacing (geometric progression).
+
+    The grid is finer near z=0 and coarser at depth.
+
+    Args:
+    -----
+        L (float): Total length of the domain (max depth).
+        N (int): Number of cells.
+        initial_spacing (float): The size of the first cell (at z=0).
+
+    Returns:
+    -------
+        tuple (mesh, z_centers)
+            mesh: A fipy.Grid1D object.
+            z_centers: A numpy array of cell center coordinates.
+    """
+    from fipy import Grid1D
+    import numpy as np
+    from scipy.optimize import brentq
+
+    # Case 1: Uniform Grid is sufficient or requested spacing is large
+    if abs(initial_spacing * N - L) < 1e-9:
+        dx = L / N
+        return Grid1D(nx=N, dx=dx), np.linspace(dx / 2, L - dx / 2, N)
+
+    if initial_spacing * N > L:
+        # Fallback to uniform if initial spacing is too large
+        print("Warning: initial_spacing * N > L. Reverting to uniform grid.")
+        dx = L / N
+        return Grid1D(nx=N, dx=dx), np.linspace(dx / 2, L - dx / 2, N)
+
+    # Case 2: Geometric Progression
+    # Sum = a * (r^N - 1) / (r - 1) = L
+    # We look for r > 1.
+    # Function to zero: a * (r^N - 1) / (r - 1) - L
+    # But to avoid division by zero near 1, we can use the multiplied form but search strictly > 1.
+
+    def func(r):
+        return initial_spacing * (r**N - 1) - L * (r - 1)
+
+    # Bracket search.
+    # r=1 produces a*N - L < 0 (since a*N < L)
+    # r=2 produces massive number.
+    # Root is between 1+epsilon and 2 (usually very close to 1).
+
+    try:
+        r_solution = brentq(func, 1.00000001, 2.0)
+    except Exception as e:
+        print(f"Grid generation optimization failed: {e}. Reverting to linear.")
+        dx = L / N
+        return Grid1D(nx=N, dx=dx), np.linspace(dx / 2, L - dx / 2, N)
+
+    # Generate faces
+    faces = np.zeros(N + 1)
+    current_dx = initial_spacing
+
+    faces[0] = 0
+    for i in range(1, N + 1):
+        faces[i] = faces[i - 1] + current_dx
+        current_dx *= r_solution
+
+    # Force the last one to be exactly L, but check error
+    if abs(faces[-1] - L) > 1e-3:
+        # If divergence is high, something went wrong, but usually we just clip.
+        pass
+    faces[-1] = L
+
+    # Calculate dx array for fipy
+    dx_array = np.diff(faces)
+
+    mesh = Grid1D(dx=dx_array)
+    z_centers = mesh.cellCenters[0].value
+
+    return mesh, z_centers
