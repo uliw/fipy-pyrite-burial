@@ -18,7 +18,7 @@ import plot_data_new
 from diff_lib import (
     data_container,
     diff_coeff,
-    bioturbation_profile_2,
+    bioturbation_profile,
     relax_solution,
     get_l_mass,
     get_delta,
@@ -58,14 +58,14 @@ mp = data_container({
     "bc_so4": 28.0,  # mmol/l
     "bc_s0": 0.0,  # mmol/l
     "bc_fe3": 60.0,  # mmol/l
-    # "bc_fe3": 600.0,  # mmol/l
-    "DB_depth": 0.0,  # Bioturbation depth in m
-    "DB0": 1e-6,  # Bioturbation coefficient
-    "BI_depth": 1.0,  # Irrigation depth (0 = off)
+    "bc_fe3": 600.0,  # mmol/l
+    "DB0": 1e-8,  # Bioturbation coefficient
     "BI0": 0.001,  # Irrigation coefficient
+    "DB_depth": 1.0,  # Bioturbation depth in m
+    "BI_depth": 0.0,  # Irrigation depth (0 = off)
     "eps": 1e-4,  # limiters
     "relax": 0.8,  # relaxation parameter
-    "tolerance": 1e-7,  # convergence criterion
+    "tolerance": 1e-6,  # convergence criterion
     "dt_max": 100,  # time step in years
     "max_steps": 2000,  # max number of iterations
     "run_time": 3e4,  # run time in years
@@ -74,16 +74,14 @@ mp = data_container({
 
 # Reaction Constants (k)
 k = data_container({
-    "poc_o2": 3e-11,  # POC + O2 -> CO2
-    "poc_so4": 3e-11,  # POC + SO4 -> H2S
-    "h2s_ox": 1e-14,  # 1e-11 H2S + O2 -> S0
-    "s0_fes": 4e-10,  # FeS + S0 -> FeS2
-    "fes_h2s": 4e-10,  # Fes with H2S -> FeS2
-    "fes_ox": 4e-14,  # 1e-11 FeS + O2 -> Fe3+ + SO4
-    "fes2_s0": 1e-11,  # Pyrite Precipitation from S0
-    "fes2_h2s": 1e-11,  # Pyrite Precipitation from H2S
-    "fes2_ox": 1e-14,  # Pyrite Oxidation
-    "fe3_h2s": 4e-10,  # Fe3 + H2S -> FeS * S0
+    "poc_o2": 9e-10,  # POC + O2 -> CO2
+    "poc_so4": 7e-13,  # POC + SO4 -> H2S
+    "h2s_ox": 1e-10,  # H2S + O2 -> S0
+    "fes_ox": 5e-12,  # FeS + O2 -> Fe3 + SO4
+    "fes2_ox": 5e-12,  # FeS2 + O2 -> SO4
+    "fes_s0": 1e-10,  # FeS + S0 -> FeS2
+    "fes_h2s": 1e-11,  # FeS + H2S -> FeS2
+    "fe3_h2s": 5e-11,  # Fe3 + H2S -> FeS * S0
 })
 
 mp.bc_so4_32 = get_l_mass(mp.bc_so4, mp.so4_d, mp.VPDB)
@@ -150,8 +148,8 @@ for species_name in ["poc", "fe3", "fes", "fes_32", "s0", "s0_32", "fes2", "fes2
 
 
 # -- Bioturbation Profile (Robust Sigmoid) --
-D_mol.D_bio = bioturbation_profile_2(z, mp.DB0, mp.DB_depth)
-D_mol.D_irr = bioturbation_profile_2(z, mp.BI0, mp.BI_depth)
+D_mol.D_bio = bioturbation_profile(z, mp.DB0, mp.DB_depth)
+D_mol.D_irr = bioturbation_profile(z, mp.BI0, mp.BI_depth)
 
 # -----------------------------------------------------------------------------
 # 4. BOUNDARY CONDITIONS
@@ -195,7 +193,16 @@ if mp.steady_state:
     )
 else:
     equations = build_non_steady_equations(
-        mp, c, k, species_list, mesh, D_mol, D_mol.D_bio, D_mol.D_irr, bc_map, diagenetic_reactions
+        mp,
+        c,
+        k,
+        species_list,
+        mesh,
+        D_mol,
+        D_mol.D_bio,
+        D_mol.D_irr,
+        bc_map,
+        diagenetic_reactions,
     )
     run_non_steady_solver(mp, equations, c, species_list)
 
@@ -206,14 +213,14 @@ df, fqfn = save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions)
 
 # 9. PLOTTING
 # -----------------------------------------------------------------------------
-plt_desc = plot_data_new.load_layout_from_file(df, mp.layout_file)
+# plt_desc = plot_data_new.load_layout_from_file(df, mp.layout_file)
 
-plot_data_new.plot(
-    df,
-    mp.display_length,
-    fqfn.with_suffix(".pdf"),
-    # show=True,
-    plot_description=plt_desc,
-    measured_data_path="goldhaber_unified.csv",
-)
-print("Plot generated.")
+# plot_data_new.plot(
+#     df,
+#     mp.display_length,
+#     fqfn.with_suffix(".pdf"),
+#     show=False,
+#     plot_description=plt_desc,
+#     measured_data_path="goldhaber_unified.csv",
+# )
+# print("Plot generated.")

@@ -235,17 +235,17 @@ def pyrite_formation_s0(c, k, lim, LHS, RHS, RATES, mp):
     """
 
     # S0 Sink
-    coeff_s0 = k.fes2_s0 * c.fes
+    coeff_s0 = k.fes_s0 * c.fes
     add_implicit_sink(LHS, RATES, "s0", coeff_s0, coeff_s0 * c.s0)
     add_implicit_sink(LHS, RATES, "s0_32", coeff_s0, coeff_s0 * c.s0_32)
 
     # FeS Sink (1.0x)
-    coeff_fes = k.fes2_s0 * c.s0
+    coeff_fes = k.fes_s0 * c.s0
     add_implicit_sink(LHS, RATES, "fes", coeff_fes, coeff_fes * c.fes)
     add_implicit_sink(LHS, RATES, "fes_32", coeff_fes, coeff_fes * c.fes_32)
 
     # FeS2 Source (1.0x)
-    fes2_rate = k.fes2_s0 * c.fes * c.s0
+    fes2_rate = k.fes_s0 * c.fes * c.s0
     fes2_32_rate = coeff_s0 * c.s0_32 + coeff_fes * c.fes_32
     add_explicit_source(RHS, RATES, "fes2", fes2_rate)
     add_explicit_source(RHS, RATES, "fes2_32", fes2_32_rate)
@@ -257,17 +257,17 @@ def pyrite_formation_h2s(c, k, lim, LHS, RHS, RATES, mp):
     Ref: FeS (k.fes_h2s)
     """
     # FeS Sink
-    coeff_fes = k.fes2_h2s * c.h2s
+    coeff_fes = k.fes_h2s * c.h2s
     add_implicit_sink(LHS, RATES, "fes", coeff_fes, coeff_fes * c.fes)
     add_implicit_sink(LHS, RATES, "fes_32", coeff_fes, coeff_fes * c.fes_32)
 
     # H2S Sink (1.0x)
-    coeff_h2s = k.fes2_h2s * c.fes
+    coeff_h2s = k.fes_h2s * c.fes
     add_implicit_sink(LHS, RATES, "h2s", coeff_h2s, coeff_h2s * c.h2s)
     add_implicit_sink(LHS, RATES, "h2s_32", coeff_h2s, coeff_h2s * c.h2s_32)
 
     # FeS2 Source (1.0x)
-    add_explicit_source(RHS, RATES, "fes2", k.fes2_h2s * c.h2s * c.fes)
+    add_explicit_source(RHS, RATES, "fes2", k.fes_h2s * c.h2s * c.fes)
     fes2_32_rate = coeff_fes * c.fes_32 + coeff_h2s * c.h2s_32
     add_explicit_source(RHS, RATES, "fes2_32", fes2_32_rate)
 
