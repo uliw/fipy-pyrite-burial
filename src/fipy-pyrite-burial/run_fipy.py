@@ -22,9 +22,11 @@ from diff_lib import (
     relax_solution,
     get_l_mass,
     get_delta,
-    run_non_steady_solver,
     save_data,
+    run_non_steady_solver,
+    run_steady_state_solver,
     build_non_steady_equations,
+    build_steady_state_equations,
 )
 from reactions_new import diagenetic_reactions
 
@@ -67,6 +69,7 @@ mp = data_container({
     "dt_max": 100,  # time step in years
     "max_steps": 2000,  # max number of iterations
     "run_time": 2e4,  # run time in years
+    "steady_state": False,  # assume steady state?
 })
 
 # Reaction Constants (k)
@@ -175,17 +178,16 @@ for species_name, props in bc_map.items():
     var.constrain(props["top"], mesh.facesLeft)
     var.faceGrad.constrain(0.0, mesh.facesRight)
 
-# -----------------------------------------------------------------------------
-# 6. BUILD EQUATIONS
-# -----------------------------------------------------------------------------
-equations = build_non_steady_equations(
-    mp, c, k, species_list, mesh, D_mol, D_bio, D_irr, bc_map, diagenetic_reactions
-)
-
-# -----------------------------------------------------------------------------
-# 7. SOLVE
-# -----------------------------------------------------------------------------
-run_non_steady_solver(mp, equations, c, species_list)
+# build equation system and solve
+if mp.steady_state:
+    run_steady_state_solver(
+        mp, None, c, species_list, k, diagenetic_reactions, mesh, D_mol, D_bio, D_irr, bc_map
+    )
+else:
+    equations = build_non_steady_equations(
+        mp, c, k, species_list, mesh, D_mol, D_bio, D_irr, bc_map, diagenetic_reactions
+    )
+    run_non_steady_solver(mp, equations, c, species_list)
 
 # -----------------------------------------------------------------------------
 # 8. EXPORT DATA

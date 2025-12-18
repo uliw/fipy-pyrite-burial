@@ -84,34 +84,6 @@ class data_container:
         return f"{self.__class__.__name__}({self.__dict__})"
 
 
-"""
-Utility library for the /fastfd/ package that provides a small collection of
-functions and a lightweight container class used throughout the Pyrite Burial
-model.
-
-The module contains:
-
-- :class:=data_container= – a simple container that can be initialised from a
-  space‑separated string of attribute names with optional default values, or
-  from a dictionary mapping attribute names to values.
-
-- :func:=diff_coeff= – computes the diffusion coefficient (m² s⁻¹) for a given
-  temperature (°C), porosity (percent) and the linear parameters /m0/ and /m1/
-  from Boudreau (1996).
-
-- :func:=get_delta= – calculates the isotopic delta value (‰) from the total
-  concentration of an isotope pair and a reference ratio.
-
-- :func:=get_l_mass= – derives the concentration of the light isotope from a
-  measured total concentration, a delta value and the reference ratio.
-
-- :func:=relax_solution= – blends a current solution vector with a previous one,
-  limiting the change to a specified fraction and enforcing non‑negative values.
-
-These helpers are primarily intended for modelling isotope diffusion and
-fractionation processes in geological simulations."""
-
-
 def diff_coeff(T, m0, m1, phi):
     """Calculate the diffusion coeefficien in m^2/s.
 
@@ -330,12 +302,121 @@ def make_grid(L, N, initial_spacing):
 
     return mesh, z_centers
 
+def run_steady_state_solver(mp, equations, c, species_list, k, diagenetic_reactions, mesh, D_mol, D_bio, D_irr, bc_map):
+    """
+    Run the FiPy solver loop for steady state with Picard iteration for non-linearity.
+    """
+    from fipy import LinearLUSolver, CellVariable
+    import numpy as np
+    import time
+
+    start_wall = time.time()
+    print("Starting Steady State Solver (Coupled Picard Iteration)...")
+    solver = LinearLUSolver(tolerance=mp.tolerance)
+
+    max_change = 1e10
+    step = 0
+    
+    # Pre-build the transport part of the equations (they are linear and constant)
+    # Re-use build_steady_state_equations logic but only for transport
+    transport_eqs = {}
+    for species_name in species_list:
+        var = getattr(c, species_name)
+        props = bc_map[species_name]
+        
+        D_total = getattr(D_mol, species_name) + D_bio
+        vel = mp.w
+        if props["type"] == "dissolved":
+            vel = mp.w - mp.advection
+        
+        # Divided form: no theta scaling for convection and diffusion coefficients
+        u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
+        from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
+        from fipy.terms.diffusionTerm import DiffusionTerm
+        conv_term = PowerLawConvectionTerm(coeff=u_var)
+        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total))
+        transport_eqs[species_name] = (conv_term, diff_term)
+
+    while max_change > mp.tolerance and step < mp.max_steps:
+        step += 1
+
+        # Store previous iteration values for relaxation and convergence check
+        last_sol = {s: getattr(c, s).value.copy() for s in species_list}
+
+        # 1. Update reaction terms based on CURRENT concentration values
+        f_res = diagenetic_reactions(mp, c, k, f=data_container())
+
+        res = 0
+        total_change = 0
+        
+        from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
+
+        for species_name in species_list:
+            var = getattr(c, species_name)
+            props = bc_map[species_name]
+            
+            # Reconstruct the equation with UPDATED reaction terms
+            conv_term, diff_term = transport_eqs[species_name]
+            
+            lhs_val = getattr(f_res, species_name)[0]
+            rhs_val = getattr(f_res, species_name)[1]
+            
+            lhs_term = ImplicitSourceTerm(coeff=lhs_val)
+            
+            if hasattr(rhs_val, "rank"):
+                rhs_term = -rhs_val
+            else:
+                rhs_term = CellVariable(mesh=mesh, value=-rhs_val)
+                
+            # Irrigation only affects dissolved species
+            if props["type"] == "dissolved":
+                irr_sink = ImplicitSourceTerm(coeff=-CellVariable(mesh=mesh, value=D_irr))
+                irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"])
+            else:
+                irr_sink = 0.0
+                irr_source = 0.0
+
+            eq = conv_term == diff_term + lhs_term + rhs_term + irr_sink + irr_source
+            
+            # Sweep to update the variable
+            res += eq.sweep(var=var, solver=solver)
+
+        # 2. Apply relaxation and calculate max relative change
+        max_change = 0
+        for species_name in species_list:
+            var = getattr(c, species_name)
+            
+            # Relaxation
+            new_val = relax_solution(var.value, last_sol[species_name], mp.relax)
+            var.setValue(new_val)
+            
+            # Convergence check: max change relative to scale
+            # We use absolute change here but could use relative if values are large
+            change = np.max(np.abs(var.value - last_sol[species_name]))
+            # Scale by typical value if needed, for now just max absolute
+            max_change = max(max_change, change)
+
+        if step % 10 == 0 or step == 1:
+            print(f"Iteration {step}: Max Var Change {max_change:.2e}, Linear Residual {res:.2e}")
+
+    if step >= mp.max_steps:
+        print(
+            f"Warning: Steady state solver did not converge after {mp.max_steps} steps. Last change: {max_change:.2e}"
+        )
+    else:
+        print(f"Steady state converged in {step} iterations (Max change: {max_change:.2e}).")
+    
+    end_wall = time.time()
+    print(f"Steady State Wall Time: {end_wall - start_wall:.2f} seconds")
 
 def run_non_steady_solver(mp, equations, c, species_list):
     """
     Run the FiPy solver loop.
     """
     from fipy import LinearLUSolver, CellVariable
+    import time
+
+    start_wall = time.time()
 
     dt = 1e-2 * 3600 * 24 * 365.0  # Start with 0.01 years
     elapsed_time = 0.0
@@ -386,6 +467,8 @@ def run_non_steady_solver(mp, equations, c, species_list):
             )
 
     print("Simulation Complete.")
+    end_wall = time.time()
+    print(f"Non-Steady State Wall Time: {end_wall - start_wall:.2f} seconds")
 
 
 def save_data(mp, c, k, species_list, z, D_mol, D_bio, diagenetic_reactions):
@@ -456,6 +539,7 @@ def build_non_steady_equations(
     for species_name in species_list:
         var = getattr(c, species_name)
         props = bc_map[species_name]
+        
         # 1. Transport
         D_total = getattr(D_mol, species_name) + D_bio
 
@@ -491,18 +575,29 @@ def build_non_steady_equations(
             rhs_term = CellVariable(mesh=mesh, value=-rhs_val)
 
         # 3. Irrigation
-        # Wrap D_irr to ensure Rank 0
-        irr_sink = ImplicitSourceTerm(coeff=-CellVariable(mesh=mesh, value=D_irr))
-
-        # FIX: Wrap in SourceTerm
-        # irr_source_val is an array, wrapping in CellVariable is safer than SourceTerm
-        irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"])
+        if props["type"] == "dissolved":
+            irr_sink = ImplicitSourceTerm(coeff=-CellVariable(mesh=mesh, value=D_irr))
+            irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"])
+        else:
+            irr_sink = 0.0
+            irr_source = 0.0
 
         # Assemble
+        # Divided form uses coefficient 1.0 for TransientTerm
         eq = (
-            TransientTerm(coeff=mp.phi) + conv_term
+            TransientTerm(coeff=1.0) + conv_term
             == diff_term + lhs_term + rhs_term + irr_sink + irr_source
         )
         equations.append((var, eq))
 
     return equations
+
+
+def build_steady_state_equations(
+    mp, c, k, species_list, mesh, D_mol, D_bio, D_irr, bc_map, diagenetic_reactions
+):
+    """
+    DEPRECATED: Steady state solver now builds equations inside the loop.
+    This function remains for compatibility but returns None.
+    """
+    return None
