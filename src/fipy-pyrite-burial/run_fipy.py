@@ -45,7 +45,7 @@ mp = data_container({
     "plot_name": "pyrite_model_fipy.csv",
     "layout_file": "plot_layout.py",  # Plot layout file
     "max_depth": 4.0,  # meters
-    "display_length": 4,  # meters
+    "display_length": 2,  # meters
     "grid_points": 300,  # number of cells
     "temp": [0, 10.2],  # temp top, bottom, in C
     "phi": 0.65,  # porosity
@@ -60,16 +60,16 @@ mp = data_container({
     "bc_fe3": 60.0,  # mmol/l
     # "bc_fe3": 600.0,  # mmol/l
     "DB_depth": 0.0,  # Bioturbation depth in m
-    "DB0": 1e-8,  # Bioturbation coefficient
-    "BI_depth": 0.0,  # Irrigation depth (0 = off)
-    "BI0": 0.0001,  # Irrigation coefficient
+    "DB0": 1e-6,  # Bioturbation coefficient
+    "BI_depth": 1.0,  # Irrigation depth (0 = off)
+    "BI0": 0.001,  # Irrigation coefficient
     "eps": 1e-4,  # limiters
-    "relax": 0.5,  # relaxation parameter
+    "relax": 0.8,  # relaxation parameter
     "tolerance": 1e-7,  # convergence criterion
     "dt_max": 100,  # time step in years
     "max_steps": 2000,  # max number of iterations
-    "run_time": 2e4,  # run time in years
-    "steady_state": False,  # assume steady state?
+    "run_time": 3e4,  # run time in years
+    "steady_state": True,  # assume steady state?
 })
 
 # Reaction Constants (k)
@@ -150,8 +150,8 @@ for species_name in ["poc", "fe3", "fes", "fes_32", "s0", "s0_32", "fes2", "fes2
 
 
 # -- Bioturbation Profile (Robust Sigmoid) --
-D_bio = bioturbation_profile_2(z, mp.DB0, mp.DB_depth)
-D_irr = bioturbation_profile_2(z, mp.BI0, mp.BI_depth)
+D_mol.D_bio = bioturbation_profile_2(z, mp.DB0, mp.DB_depth)
+D_mol.D_irr = bioturbation_profile_2(z, mp.BI0, mp.BI_depth)
 
 # -----------------------------------------------------------------------------
 # 4. BOUNDARY CONDITIONS
@@ -181,18 +181,28 @@ for species_name, props in bc_map.items():
 # build equation system and solve
 if mp.steady_state:
     run_steady_state_solver(
-        mp, None, c, species_list, k, diagenetic_reactions, mesh, D_mol, D_bio, D_irr, bc_map
+        mp,
+        None,
+        c,
+        species_list,
+        k,
+        diagenetic_reactions,
+        mesh,
+        D_mol,
+        D_mol.D_bio,
+        D_mol.D_irr,
+        bc_map,
     )
 else:
     equations = build_non_steady_equations(
-        mp, c, k, species_list, mesh, D_mol, D_bio, D_irr, bc_map, diagenetic_reactions
+        mp, c, k, species_list, mesh, D_mol, D_mol.D_bio, D_mol.D_irr, bc_map, diagenetic_reactions
     )
     run_non_steady_solver(mp, equations, c, species_list)
 
 # -----------------------------------------------------------------------------
 # 8. EXPORT DATA
 # -----------------------------------------------------------------------------
-df, fqfn = save_data(mp, c, k, species_list, z, D_mol, D_bio, diagenetic_reactions)
+df, fqfn = save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions)
 
 # 9. PLOTTING
 # -----------------------------------------------------------------------------

@@ -471,7 +471,7 @@ def run_non_steady_solver(mp, equations, c, species_list):
     print(f"Non-Steady State Wall Time: {end_wall - start_wall:.2f} seconds")
 
 
-def save_data(mp, c, k, species_list, z, D_mol, D_bio, diagenetic_reactions):
+def save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions):
     """
     Save the model results to a CSV file.
     """
@@ -491,6 +491,13 @@ def save_data(mp, c, k, species_list, z, D_mol, D_bio, diagenetic_reactions):
         else:
             data[f"f_{species_name}"] = np.array(rates_val)
 
+    # Save all items in D_mol
+    for d_name, d_val in D_mol.items():
+        if hasattr(d_val, "value"):
+            data[d_name] = d_val.value
+        else:
+            data[d_name] = np.array(d_val)
+
     # calculate delta values
     for species_name in species_list:
         if "_32" in species_name:
@@ -509,7 +516,6 @@ def save_data(mp, c, k, species_list, z, D_mol, D_bio, diagenetic_reactions):
 
     data["w"] = np.ones(len(z)) * mp.w
     data["phi"] = np.ones(len(z)) * mp.phi
-    data["so4_diff"] = D_mol.so4 + D_bio
 
     df = pd.DataFrame(data)
     fqfn = pl.Path.cwd() / mp.plot_name
