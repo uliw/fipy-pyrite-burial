@@ -32,25 +32,25 @@ def diagenetic_reactions(mp, c, k, f):
     limiters = {}
 
     # O2 Inhibition (1.0 -> 0.0)
-    limiters["inhib_o2"] = eps / (c.o2 + eps)
+    limiters["inhib_o2"] = eps / (c.o2.value + eps)
 
     # Sulfate Limiter (Implicit 1/[S+K] and Explicit [S]/[S+K])
     K_so4 = 0.1
-    limiters["so4_implicit"] = 1.0 / (c.so4 + K_so4)
-    limiters["so4_32_implicit"] = 1.0 / (c.so4_32 + K_so4)
+    limiters["so4_implicit"] = 1.0 / (c.so4.value + K_so4)
+    limiters["so4_32_implicit"] = 1.0 / (c.so4_32.value + K_so4)
 
-    limiters["so4_explicit"] = c.so4 / (c.so4 + K_so4)
-    limiters["so4_32_explicit"] = c.so4_32 / (c.so4_32 + K_so4)
+    limiters["so4_explicit"] = c.so4.value / (c.so4.value + K_so4)
+    limiters["so4_32_explicit"] = c.so4_32.value / (c.so4_32.value + K_so4)
 
     limiters["fe3_explicit"] = 1.0  # c.fe3 / (c.fe3 + 1e-3)
     limiters["fe3_implicit"] = 1.0  # 1.0 / (c.fe3 + 1e-3)
 
     K_alpha = 0.2
-    limiters["alpha_explicit"] = c.so4 / (c.so4 + K_alpha)
-    limiters["alpha_implicit"] = 1.0 / (c.so4 + K_alpha)
+    limiters["alpha_explicit"] = c.so4.value / (c.so4.value + K_alpha)
+    limiters["alpha_implicit"] = 1.0 / (c.so4.value + K_alpha)
 
     # update k-values
-    k.fe3_h2s = calculate_k_iron_reduction(c.fe3, c.h2s)
+    k.fe3_h2s = calculate_k_iron_reduction(c.fe3.value, c.h2s.value)
 
     # 3. RUN PROCESSES
     # ----------------
@@ -132,9 +132,14 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, mp):
     add_implicit_sink(LHS, RATES, "so4", coeff_so4 * 0.5, rate_explicit * 0.5)
     add_explicit_source(RHS, RATES, "h2s", rate_explicit * 0.5)
 
-    # isotopes
-    alpha = mp.msr_alpha * lim["alpha_explicit"]
-    f_32 = alpha / (c.so4 + (alpha - 1) * c.so4_32 + 1e-30)
+    # isotopes: fractionation disappears at low concentrations
+    alpha = 1.0 + (mp.msr_alpha - 1.0) * lim["alpha_explicit"]
+
+    # Use a larger epsilon (1e-10) and .value for substrate concentrations
+    # to stabilize the sequential solver at trace levels
+    s_val = c.so4.value + 1e-12
+    s32_val = c.so4_32.value + 1e-12
+    f_32 = alpha / (s_val + (alpha - 1) * s32_val + 1e-30)
     coeff_so4_32 = f_32 * rate_explicit
 
     # sulfate 32

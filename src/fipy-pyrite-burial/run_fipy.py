@@ -66,11 +66,11 @@ mp = data_container({
     "DB_depth": 0.0,  # Bioturbation depth in m
     "BI_depth": 0.0,  # Irrigation depth (0 = off)
     "eps": 1e-4,  # limiters
-    "relax": 0.1,  # relaxation parameter
-    "tolerance": 1e-6,  # convergence criterion
+    "relax": 0.8,  # relaxation parameter
+    "tolerance": 1e-11,  # convergence criterion
     "dt_max": 100,  # time step in years
     "max_steps": 2000,  # max number of iterations
-    "run_time": 3e4,  # run time in years
+    "run_time": 3e5,  # run time in years
     "VPDB": 0.044162589,  # VPDB reference ratio
 })
 
