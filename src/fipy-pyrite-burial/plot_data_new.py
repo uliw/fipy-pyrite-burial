@@ -167,6 +167,10 @@ def plot(
         # Apply scale and any special axis properties
         if "yscale" in subplot_config:
             ax_main.set_yscale(subplot_config["yscale"])
+        if "xscale" in subplot_config:
+            ax_main.set_xscale(subplot_config["xscale"])
+        if "xlim" in subplot_config:
+            ax_main.set_xlim(subplot_config["xlim"])
 
         # Handle legend display
         _add_unified_legend(ax_main, right_axes, subplot_config)

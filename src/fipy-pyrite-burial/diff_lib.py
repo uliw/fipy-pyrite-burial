@@ -28,6 +28,7 @@ processes in geological simulations.
 """
 
 import numpy as np
+from typing import Union
 
 
 class data_container:
@@ -302,7 +303,20 @@ def make_grid(L, N, initial_spacing):
 
     return mesh, z_centers
 
-def run_steady_state_solver(mp, equations, c, species_list, k, diagenetic_reactions, mesh, D_mol, D_bio, D_irr, bc_map):
+
+def run_steady_state_solver(
+    mp,
+    equations,
+    c,
+    species_list,
+    k,
+    diagenetic_reactions,
+    mesh,
+    D_mol,
+    D_bio,
+    D_irr,
+    bc_map,
+):
     """
     Run the FiPy solver loop for steady state with Picard iteration for non-linearity.
     """
@@ -316,23 +330,24 @@ def run_steady_state_solver(mp, equations, c, species_list, k, diagenetic_reacti
 
     max_change = 1e10
     step = 0
-    
+
     # Pre-build the transport part of the equations (they are linear and constant)
     # Re-use build_steady_state_equations logic but only for transport
     transport_eqs = {}
     for species_name in species_list:
         var = getattr(c, species_name)
         props = bc_map[species_name]
-        
+
         D_total = getattr(D_mol, species_name) + D_bio
         vel = mp.w
         if props["type"] == "dissolved":
             vel = mp.w - mp.advection
-        
+
         # Divided form: no theta scaling for convection and diffusion coefficients
         u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
         from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
         from fipy.terms.diffusionTerm import DiffusionTerm
+
         conv_term = PowerLawConvectionTerm(coeff=u_var)
         diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total))
         transport_eqs[species_name] = (conv_term, diff_term)
@@ -348,36 +363,38 @@ def run_steady_state_solver(mp, equations, c, species_list, k, diagenetic_reacti
 
         res = 0
         total_change = 0
-        
+
         from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
 
         for species_name in species_list:
             var = getattr(c, species_name)
             props = bc_map[species_name]
-            
+
             # Reconstruct the equation with UPDATED reaction terms
             conv_term, diff_term = transport_eqs[species_name]
-            
+
             lhs_val = getattr(f_res, species_name)[0]
             rhs_val = getattr(f_res, species_name)[1]
-            
+
             lhs_term = ImplicitSourceTerm(coeff=lhs_val)
-            
+
             if hasattr(rhs_val, "rank"):
                 rhs_term = -rhs_val
             else:
                 rhs_term = CellVariable(mesh=mesh, value=-rhs_val)
-                
+
             # Irrigation only affects dissolved species
             if props["type"] == "dissolved":
-                irr_sink = ImplicitSourceTerm(coeff=-CellVariable(mesh=mesh, value=D_irr))
+                irr_sink = ImplicitSourceTerm(
+                    coeff=-CellVariable(mesh=mesh, value=D_irr)
+                )
                 irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"])
             else:
                 irr_sink = 0.0
                 irr_source = 0.0
 
             eq = conv_term == diff_term + lhs_term + rhs_term + irr_sink + irr_source
-            
+
             # Sweep to update the variable
             res += eq.sweep(var=var, solver=solver)
 
@@ -385,11 +402,11 @@ def run_steady_state_solver(mp, equations, c, species_list, k, diagenetic_reacti
         max_change = 0
         for species_name in species_list:
             var = getattr(c, species_name)
-            
+
             # Relaxation
             new_val = relax_solution(var.value, last_sol[species_name], mp.relax)
             var.setValue(new_val)
-            
+
             # Convergence check: max change relative to scale
             # We use absolute change here but could use relative if values are large
             change = np.max(np.abs(var.value - last_sol[species_name]))
@@ -397,17 +414,22 @@ def run_steady_state_solver(mp, equations, c, species_list, k, diagenetic_reacti
             max_change = max(max_change, change)
 
         if step % 10 == 0 or step == 1:
-            print(f"Iteration {step}: Max Var Change {max_change:.2e}, Linear Residual {res:.2e}")
+            print(
+                f"Iteration {step}: Max Var Change {max_change:.2e}, Linear Residual {res:.2e}"
+            )
 
     if step >= mp.max_steps:
         print(
             f"Warning: Steady state solver did not converge after {mp.max_steps} steps. Last change: {max_change:.2e}"
         )
     else:
-        print(f"Steady state converged in {step} iterations (Max change: {max_change:.2e}).")
-    
+        print(
+            f"Steady state converged in {step} iterations (Max change: {max_change:.2e})."
+        )
+
     end_wall = time.time()
     print(f"Steady State Wall Time: {end_wall - start_wall:.2f} seconds")
+
 
 def run_non_steady_solver(mp, equations, c, species_list):
     """
@@ -545,7 +567,7 @@ def build_non_steady_equations(
     for species_name in species_list:
         var = getattr(c, species_name)
         props = bc_map[species_name]
-        
+
         # 1. Transport
         D_total = getattr(D_mol, species_name) + D_bio
 
@@ -607,3 +629,71 @@ def build_steady_state_equations(
     This function remains for compatibility but returns None.
     """
     return None
+
+
+def safe_ratio(
+    num: np.ndarray,
+    den: np.ndarray,
+    fill: Union[float, int],
+) -> np.ndarray:
+    """
+    Return ``num / den`` element‑wise while protecting against division‑by‑zero.
+
+    Parameters
+    ----------
+    num : np.ndarray
+        Numerator array (any shape that broadcasts with ``den``).
+    den : np.ndarray
+        Denominator array. Zeros are handled gracefully.
+    fill : float or int, optional
+        Value to place where ``den == 0``.  The default is ``np.nan``.
+        Use ``0`` if you prefer a zero‑filled result.
+
+    Returns
+    -------
+    np.ndarray
+        Array of the same shape as the broadcasted inputs containing the
+        element‑wise ratios. Positions where ``den`` is zero contain ``fill``.
+
+    Notes
+    -----
+    * ``np.divide`` is used with the ``where`` argument – this avoids the
+      creation of intermediate infinities and suppresses the runtime warning.
+    * The output array is allocated with ``np.empty_like(num, dtype=float)`` so
+      the result is always a floating‑point array, even if the inputs are integer.
+    """
+    # Ensure float output – division of ints would truncate otherwise
+    out = np.empty_like(num, dtype=float)
+
+    # Perform division only where denominator is non‑zero
+    np.divide(num, den, out=out, where=den != 0)
+
+    # Fill the “bad” positions
+    out[den == 0] = fill
+    return out
+
+
+def calculate_k_iron_reduction(fes3, h2s):
+    """
+    Calculates the rate constant k_FeOx-SII for an array of ratios.
+    Fes3+/H2S
+
+    Based on Equation 46 and 47 from Halevy et al. (2023).
+    """
+    # 1. Define the piecewise conditions for half-life (tau_1/2) in hours
+    # Condition 1: Ratio < 1 -> tau = 1.5h [cite: 1462]
+    # Condition 2: 1 <= Ratio <= 2 -> Linear transition [cite: 1463]
+    # Condition 3: Ratio > 2 -> tau = 0.5h [cite: 1464]
+
+    ratios = safe_ratio(fes3, h2s, 10.0)
+
+    tau_half = np.piecewise(
+        ratios,
+        [ratios < 1, (ratios >= 1) & (ratios <= 2), ratios > 2],
+        [1.5, lambda r: 0.5 + 1.0 * (2.0 - r), 0.5],
+    )
+
+    # 2. Calculate the rate constant k = 0.693 / tau_1/2
+    k_values = 0.693 / tau_half
+
+    return k_values / (60 * 60 * 24 * 1e3)

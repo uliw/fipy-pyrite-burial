@@ -10,12 +10,13 @@ import numpy as np
 import pandas as pd
 import pint
 
-from fipy import Grid1D, CellVariable, LinearLUSolver
+from fipy import Grid1D, CellVariable
 
 # from fipy.terms.vanLeerConvectionTerm import VanLeerConvectionTerm
 
 import plot_data_new
 from diff_lib import (
+    calculate_k_iron_reduction,
     data_container,
     diff_coeff,
     bioturbation_profile,
@@ -26,7 +27,6 @@ from diff_lib import (
     run_non_steady_solver,
     run_steady_state_solver,
     build_non_steady_equations,
-    build_steady_state_equations,
 )
 from reactions_new import diagenetic_reactions
 
@@ -44,44 +44,47 @@ OM_Mol = OM_wt / 100 * 2600 / 12 * 1000  # C in mmol/l
 mp = data_container({
     "plot_name": "pyrite_model_fipy.csv",
     "layout_file": "plot_layout.py",  # Plot layout file
-    "max_depth": 4.0,  # meters
+    "grid_points": 1000,  # number of cells
+    "steady_state": True,  # assume steady state?
+    "max_depth": 10.0,  # meters
     "display_length": 2,  # meters
-    "grid_points": 300,  # number of cells
-    "temp": [0, 10.2],  # temp top, bottom, in C
+    "temp": [10.0, 10.1],  # temp top, bottom, in C
     "phi": 0.65,  # porosity
     "w": Q_("46 cm/kyr").to("m/s").m,  # sedimentation rate in m/s
     "advection": 0,  # upward directed flow component
-    "so4_d": 21,  # seaater deltae
-    "VPDB": 0.044162589,  # VPDB reference ratio
+    "so4_d": 21,  # seawater delta
     "msr_alpha": 1.055,  # MSR enrichment factor in mUr
+    "bc_o2": 0.2,  # mmmol/l
     "bc_om": OM_Mol,  # mmol/l
     "bc_so4": 28.0,  # mmol/l
     "bc_s0": 0.0,  # mmol/l
     "bc_fe3": 60.0,  # mmol/l
-    "bc_fe3": 600.0,  # mmol/l
+    "bc_fe3": 200.0,  # mmol/l
+    "bc_fe3": 8666.0,  # mmol/l ~ 2 wt%
     "DB0": 1e-8,  # Bioturbation coefficient
     "BI0": 0.001,  # Irrigation coefficient
-    "DB_depth": 1.0,  # Bioturbation depth in m
+    "DB_depth": 0.0,  # Bioturbation depth in m
     "BI_depth": 0.0,  # Irrigation depth (0 = off)
     "eps": 1e-4,  # limiters
-    "relax": 0.8,  # relaxation parameter
+    "relax": 0.1,  # relaxation parameter
     "tolerance": 1e-6,  # convergence criterion
     "dt_max": 100,  # time step in years
     "max_steps": 2000,  # max number of iterations
     "run_time": 3e4,  # run time in years
-    "steady_state": True,  # assume steady state?
+    "VPDB": 0.044162589,  # VPDB reference ratio
 })
 
 # Reaction Constants (k)
 k = data_container({
-    "poc_o2": 9e-10,  # POC + O2 -> CO2
-    "poc_so4": 7e-13,  # POC + SO4 -> H2S
-    "h2s_ox": 1e-10,  # H2S + O2 -> S0
-    "fes_ox": 5e-12,  # FeS + O2 -> Fe3 + SO4
-    "fes2_ox": 5e-12,  # FeS2 + O2 -> SO4
-    "fes_s0": 1e-10,  # FeS + S0 -> FeS2
-    "fes_h2s": 1e-11,  # FeS + H2S -> FeS2
-    "fe3_h2s": 5e-11,  # Fe3 + H2S -> FeS * S0
+    "poc_o2": 5e-11,  # POC + O2 -> CO2
+    "poc_so4": 7e-12,  # POC + SO4 -> H2S # within range of Halevy
+    "h2s_ox": 8e-3,  # H2S + O2 -> S0 #, Millero * 1e3 after Halevey
+    "fes_ox": 5e-10,  # FeS + O2 -> Fe3 + SO4, Halevy et al.
+    "fes2_ox": 1e-10,  # FeS2 + O2 -> SO4, Halevy et al
+    "fes_s0": 5e-8,  # FeS + S0 -> FeS2, TBD ???
+    "fes_h2s": 5e-8,  # FeS + H2S -> FeS2, at 10C -> notes.org
+    # Fe3 + H2S -> FeS * S0 -> calculate_k_iron_reduction, Halevy
+    "fe3_h2s": calculate_k_iron_reduction(mp.bc_fe3, 0),
 })
 
 mp.bc_so4_32 = get_l_mass(mp.bc_so4, mp.so4_d, mp.VPDB)
@@ -160,7 +163,7 @@ bc_map = {
     "h2s": {"top": 0.0, "type": "dissolved"},
     "h2s_32": {"top": 0.0, "type": "dissolved"},
     "poc": {"top": mp.bc_om, "type": "particulate"},
-    "o2": {"top": 0.2, "type": "dissolved"},
+    "o2": {"top": mp.bc_o2, "type": "dissolved"},
     "s0": {"top": mp.bc_s0, "type": "particulate"},
     "s0_32": {"top": mp.bc_s0, "type": "particulate"},
     "fe3": {"top": mp.bc_fe3, "type": "particulate"},

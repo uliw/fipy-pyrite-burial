@@ -8,6 +8,7 @@ def diagenetic_reactions(mp, c, k, f):
     Calculates limiters, initializes matrices, and calls specific process functions.
     """
     import numpy as np
+    from diff_lib import calculate_k_iron_reduction
 
     # 1. SETUP & INITIALIZATION
     # -------------------------
@@ -41,8 +42,15 @@ def diagenetic_reactions(mp, c, k, f):
     limiters["so4_explicit"] = c.so4 / (c.so4 + K_so4)
     limiters["so4_32_explicit"] = c.so4_32 / (c.so4_32 + K_so4)
 
-    limiters["fe3_explicit"] = c.fe3 / (c.fe3 + 1e-3)
-    limiters["fe3_implicit"] = 1.0 / (c.fe3 + 1e-3)
+    limiters["fe3_explicit"] = 1.0  # c.fe3 / (c.fe3 + 1e-3)
+    limiters["fe3_implicit"] = 1.0  # 1.0 / (c.fe3 + 1e-3)
+
+    K_alpha = 0.2
+    limiters["alpha_explicit"] = c.so4 / (c.so4 + K_alpha)
+    limiters["alpha_implicit"] = 1.0 / (c.so4 + K_alpha)
+
+    # update k-values
+    k.fe3_h2s = calculate_k_iron_reduction(c.fe3, c.h2s)
 
     # 3. RUN PROCESSES
     # ----------------
@@ -125,7 +133,7 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, mp):
     add_explicit_source(RHS, RATES, "h2s", rate_explicit * 0.5)
 
     # isotopes
-    alpha = 1 + (mp.msr_alpha - 1) * lim["so4_explicit"]
+    alpha = mp.msr_alpha * lim["alpha_explicit"]
     f_32 = alpha / (c.so4 + (alpha - 1) * c.so4_32 + 1e-30)
     coeff_so4_32 = f_32 * rate_explicit
 

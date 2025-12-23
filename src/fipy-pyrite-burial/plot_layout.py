@@ -21,17 +21,19 @@ def get_layout(df):
             "left": [
                 [df.c_so4, "SO4 [mmol]", {"color": "C0"}],
                 [df.c_s0, "S0 [mmol]", {"color": "C2"}],
+                [df.c_h2s, "H2S [mmol]", {"color": "C1"}],
             ],
             "right": [
-                # [df.c_o2, "O2 [μmol]", {"color": "C3"}],
+                [df.c_o2, "O2 [μmol]", {"color": "C3"}],
                 # [df.c_poc, "OM [mmol]", {"color": "C4"}],
-                [df.c_h2s, "H2S [mmol]", {"color": "C1"}],
                 [df.c_fes, "FeS [mmol]", {"color": "C6"}],
                 [df.c_fe3, r"Fe$_{3}^{+}$ [mmol]", {"color": "C5"}],
                 [df.c_fes2, r"FeS$_{2}$ [mmol]", {"color": "C7"}],
             ],
             "left_ylabel": r"SO$_{4}$ & H$_{2}$S [mmol/l]",
             # "right_ylabel": "O2 [μmol/l]",
+            "xscale": "log",
+            "xlim": (0.01, 10),
         },
         "second_subplot": {
             "xaxis": [df.z, "Depth [m]"],
@@ -49,6 +51,8 @@ def get_layout(df):
             # "right": [df.D_irr, "D_irr", {"color": "C8"}],
             "# yscale": "symlog",
             "left_ylabel": "f [mol/m^3/s]",
+            "xscale": "log",
+            "xlim": (0.01, 10),
             # "options-left": "set_yscale('symlog', linthresh=1e-14,linscale=1e-14,base=10)",
         },
         "third_subplot": {
@@ -63,7 +67,9 @@ def get_layout(df):
             # "right": [[df.d_h2s, "d_h2s", {"color": "C1"}]],
             # "yscale": "log",
             # "options-left": "set_ylim(1e-10, 1e-6)",
-            "options-left": "set_ylim(-40, 50)",
+            "options-left": "set_ylim(-50, 100)",
+            "xscale": "log",
+            "xlim": (0.01, 10),
         },
     }
     return plt_desc
