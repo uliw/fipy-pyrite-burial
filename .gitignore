@@ -20,3 +20,4 @@ TAGS
 .venv
 env/
 venv/
+/src/fipy-pyrite-burial/notes/*.org
