@@ -45,7 +45,7 @@ def run_model(p_dict: dict):
         "layout_file": "plot_layout.py",  # Plot layout file
         "grid_points": 1000,  # number of cells
         "steady_state": True,  # assume steady state?
-        "max_depth": 10.0,  # meters
+        "max_depth": 50.0,  # meters
         "display_length": 2,  # meters
         "temp": [10.0, 10.1],  # temp top, bottom, in C
         "phi": 0.65,  # porosity

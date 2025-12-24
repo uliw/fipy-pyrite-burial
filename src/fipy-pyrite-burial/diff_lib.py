@@ -329,14 +329,18 @@ def run_steady_state_solver(
         vel = mp.w
         if props["type"] == "dissolved":
             vel = mp.w - mp.advection
+        
+        # Scaling factor for porosity
+        phi = mp.phi
+        scaling = phi if props["type"] == "dissolved" else (1.0 - phi)
 
         # Divided form: no theta scaling for convection and diffusion coefficients
-        u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
+        u_var = CellVariable(mesh=mesh, value=([vel * scaling],), rank=1)
         from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
         from fipy.terms.diffusionTerm import DiffusionTerm
 
         conv_term = PowerLawConvectionTerm(coeff=u_var)
-        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total))
+        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total * scaling))
         transport_eqs[species_name] = (conv_term, diff_term)
 
     while max_change > mp.tolerance and step < mp.max_steps:
@@ -363,19 +367,19 @@ def run_steady_state_solver(
             lhs_val = getattr(f_res, species_name)[0]
             rhs_val = getattr(f_res, species_name)[1]
 
-            lhs_term = ImplicitSourceTerm(coeff=lhs_val)
+            lhs_term = ImplicitSourceTerm(coeff=lhs_val * scaling)
 
             if hasattr(rhs_val, "rank"):
-                rhs_term = -rhs_val
+                rhs_term = -rhs_val * scaling
             else:
-                rhs_term = CellVariable(mesh=mesh, value=-rhs_val)
+                rhs_term = CellVariable(mesh=mesh, value=-rhs_val * scaling)
 
             # Irrigation only affects dissolved species
             if props["type"] == "dissolved":
                 irr_sink = ImplicitSourceTerm(
-                    coeff=-CellVariable(mesh=mesh, value=D_irr)
+                    coeff=-CellVariable(mesh=mesh, value=D_irr * mp.phi)
                 )
-                irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"])
+                irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"] * mp.phi)
             else:
                 irr_sink = 0.0
                 irr_source = 0.0
@@ -561,16 +565,20 @@ def build_non_steady_equations(
         vel = mp.w
         if props["type"] == "dissolved":
             vel = mp.w - mp.advection
+        
+        # Scaling for porosity
+        phi = mp.phi
+        scaling = phi if props["type"] == "dissolved" else (1.0 - phi)
 
         # Explicitly create Rank 1 CellVariable for velocity to avoid shape errors
-        u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
+        u_var = CellVariable(mesh=mesh, value=([vel * scaling],), rank=1)
 
         # Use VanLeerConvectionTerm to minimize numerical dispersion artifacts in isotope ratios
         # conv_term = VanLeerConvectionTerm(coeff=u_var)
         conv_term = PowerLawConvectionTerm(coeff=u_var)
 
         # Wrap D_total in CellVariable to avoid shape ambiguity
-        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total))
+        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total * scaling))
 
         # 2. Reactions
         # Imported diagenetic_reactions returns (LHS_coeff, RHS_val, rate)
@@ -579,20 +587,20 @@ def build_non_steady_equations(
 
         # LHS from reactions_new is a constant or CellVariable expression.
         # We pass it directly to ImpicitSourceTerm to ensure it stays dynamic.
-        lhs_term = ImplicitSourceTerm(coeff=lhs_val)
+        lhs_term = ImplicitSourceTerm(coeff=lhs_val * scaling)
 
         # RHS from reactions_new is " - rate". We want "+ rate".
         # Use dynamic expression if it's a Variable, otherwise wrap static values
         if hasattr(rhs_val, "rank"):
-            rhs_term = -rhs_val
+            rhs_term = -rhs_val * scaling
         else:
             # It's an array or number (static)
-            rhs_term = CellVariable(mesh=mesh, value=-rhs_val)
+            rhs_term = CellVariable(mesh=mesh, value=-rhs_val * scaling)
 
         # 3. Irrigation
         if props["type"] == "dissolved":
-            irr_sink = ImplicitSourceTerm(coeff=-CellVariable(mesh=mesh, value=D_irr))
-            irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"])
+            irr_sink = ImplicitSourceTerm(coeff=-CellVariable(mesh=mesh, value=D_irr * scaling))
+            irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"] * scaling)
         else:
             irr_sink = 0.0
             irr_source = 0.0
@@ -600,7 +608,7 @@ def build_non_steady_equations(
         # Assemble
         # Divided form uses coefficient 1.0 for TransientTerm
         eq = (
-            TransientTerm(coeff=1.0) + conv_term
+            TransientTerm(coeff=scaling) + conv_term
             == diff_term + lhs_term + rhs_term + irr_sink + irr_source
         )
         equations.append((var, eq))
