@@ -49,6 +49,9 @@ def diagenetic_reactions(mp, c, k, f):
     limiters["alpha_explicit"] = c.so4.value / (c.so4.value + K_alpha)
     limiters["alpha_implicit"] = 1.0 / (c.so4.value + K_alpha)
 
+    # H2S Alpha Limiter (prevents numerical issues at trace concentrations)
+    limiters["h2s_alpha_explicit"] = c.h2s.value / (c.h2s.value + 0.05)
+
     # update k-values
     k.fe3_h2s = calculate_k_iron_reduction(c.fe3.value, c.h2s.value)
 
@@ -120,13 +123,13 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, mp):
     explicit concentrations from the previous time step, it cannot include the implicit
     terms.  Note the addition of the 1e-20 to avoid a division by zero
     """
-    phi = mp.phi
     # Scaling factor for Solid Species in Porewater-Driven Reactions
     # Assuming Rate is Intrinsic Porewater Rate (R_pw).
     # Bulk Rate = phi * R_pw. Note, this is done in the solver function
     # This is also true for solid species, but to get the correct concentrations
     # for kinetic calculations, we need to compensate for this scaling.
     # Solid Eq Term (Intrinsic) = R_pw * phi / (1-phi).
+    phi = mp.phi
     fac_s = phi / (1.0 - phi)
 
     # 1. Base Rate
@@ -248,16 +251,22 @@ def h2s_oxidation(c, k, lim, LHS, RHS, RATES, mp):
 
     # H2S Sink - LIQUID
     coeff_h2s = k.h2s_ox * c.o2
+    alpha = 1.0 + (mp.h2s_ox_alpha - 1.0) * lim["h2s_alpha_explicit"]
+    s_val = c.h2s.value + 1e-12
+    s32_val = c.h2s_32.value + 1e-12
+    f_32 = alpha / (s_val + (alpha - 1) * s32_val + 1e-30)
+    coeff_h2s_32 = f_32 * coeff_h2s * c.h2s
     add_implicit_sink(LHS, RATES, "h2s", coeff_h2s, coeff_h2s * c.h2s)
-    add_implicit_sink(LHS, RATES, "h2s_32", coeff_h2s, coeff_h2s * c.h2s_32)
+    add_implicit_sink(LHS, RATES, "h2s_32", coeff_h2s_32, coeff_h2s_32 * c.h2s_32)
 
     # O2 Sink (0.5x) - LIQUID
     coeff_o2 = k.h2s_ox * c.h2s
     add_implicit_sink(LHS, RATES, "o2", coeff_o2 * 0.5, coeff_o2 * c.o2 * 0.5)
 
     # S0 Source (1.0x) - SOLID
-    rate_s0 = k.h2s_ox * c.h2s * c.o2
-    rate_s0_32 = k.h2s_ox * c.h2s_32 * c.o2
+    rate_s0 = coeff_h2s * c.h2s
+    coeff_h2s_32 = f_32 * coeff_h2s * c.h2s
+    rate_s0_32 = coeff_h2s_32 * c.h2s_32
     add_explicit_source(RHS, RATES, "s0", rate_s0 * fac_s)
     add_explicit_source(RHS, RATES, "s0_32", rate_s0_32 * fac_s)
 

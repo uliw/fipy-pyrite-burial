@@ -45,7 +45,7 @@ def run_model(p_dict: dict):
         "layout_file": "plot_layout.py",  # Plot layout file
         "grid_points": 1000,  # number of cells
         "steady_state": True,  # assume steady state?
-        "max_depth": 50.0,  # meters
+        "max_depth": 10.0,  # meters
         "display_length": 2,  # meters
         "temp": [10.0, 10.1],  # temp top, bottom, in C
         "phi": 0.65,  # porosity
@@ -53,7 +53,7 @@ def run_model(p_dict: dict):
         "advection": 0,  # upward directed flow component
         "so4_d": 21,  # seawater delta
         "msr_alpha": 1.055,  # MSR enrichment factor in mUr
-        "msr_h2s_ox": 0.955,  # MSR enrichment factor in mUr
+        "h2s_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
         "bc_o2": 0.2,  # mmmol/l
         "bc_om": OM_Mol,  # mmol/l
         "bc_so4": 28.0,  # mmol/l
@@ -225,8 +225,8 @@ if __name__ == "__main__":
     from diff_lib import save_data, get_delta
     import plot_data_new
 
-    p_dict = {"bc_fe3": 1000, "DB_depth": 0}
-    p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
+    p_dict = {"bc_fe3": 1000, "DB_depth": 0.0}
+    # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
 
     mp, c, k, species_list, z, D_mol, diagenetic_reactions = run_model(p_dict)
 
