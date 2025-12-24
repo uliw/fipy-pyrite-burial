@@ -329,7 +329,7 @@ def run_steady_state_solver(
         vel = mp.w
         if props["type"] == "dissolved":
             vel = mp.w - mp.advection
-        
+
         # Scaling factor for porosity
         phi = mp.phi
         scaling = phi if props["type"] == "dissolved" else (1.0 - phi)
@@ -340,7 +340,9 @@ def run_steady_state_solver(
         from fipy.terms.diffusionTerm import DiffusionTerm
 
         conv_term = PowerLawConvectionTerm(coeff=u_var)
-        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total * scaling))
+        diff_term = DiffusionTerm(
+            coeff=CellVariable(mesh=mesh, value=D_total * scaling)
+        )
         transport_eqs[species_name] = (conv_term, diff_term)
 
     while max_change > mp.tolerance and step < mp.max_steps:
@@ -379,7 +381,9 @@ def run_steady_state_solver(
                 irr_sink = ImplicitSourceTerm(
                     coeff=-CellVariable(mesh=mesh, value=D_irr * mp.phi)
                 )
-                irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"] * mp.phi)
+                irr_source = CellVariable(
+                    mesh=mesh, value=D_irr * props["top"] * mp.phi
+                )
             else:
                 irr_sink = 0.0
                 irr_source = 0.0
@@ -525,7 +529,7 @@ def save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions):
                 s32 = data[f"c_{species_name}"] / 2
             else:
                 s32 = data[f"c_{species_name}"]
-            data[f"d_{base_species}"] = get_delta(s, s32, mp.VPDB)
+            data[f"d_{base_species}"] = get_delta(s, s32, mp.VCDT)
 
     data["w"] = np.ones(len(z)) * mp.w
     data["phi"] = np.ones(len(z)) * mp.phi
@@ -565,7 +569,7 @@ def build_non_steady_equations(
         vel = mp.w
         if props["type"] == "dissolved":
             vel = mp.w - mp.advection
-        
+
         # Scaling for porosity
         phi = mp.phi
         scaling = phi if props["type"] == "dissolved" else (1.0 - phi)
@@ -578,7 +582,9 @@ def build_non_steady_equations(
         conv_term = PowerLawConvectionTerm(coeff=u_var)
 
         # Wrap D_total in CellVariable to avoid shape ambiguity
-        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total * scaling))
+        diff_term = DiffusionTerm(
+            coeff=CellVariable(mesh=mesh, value=D_total * scaling)
+        )
 
         # 2. Reactions
         # Imported diagenetic_reactions returns (LHS_coeff, RHS_val, rate)
@@ -599,7 +605,9 @@ def build_non_steady_equations(
 
         # 3. Irrigation
         if props["type"] == "dissolved":
-            irr_sink = ImplicitSourceTerm(coeff=-CellVariable(mesh=mesh, value=D_irr * scaling))
+            irr_sink = ImplicitSourceTerm(
+                coeff=-CellVariable(mesh=mesh, value=D_irr * scaling)
+            )
             irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"] * scaling)
         else:
             irr_sink = 0.0

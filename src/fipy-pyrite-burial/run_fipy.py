@@ -53,13 +53,14 @@ def run_model(p_dict: dict):
         "advection": 0,  # upward directed flow component
         "so4_d": 21,  # seawater delta
         "msr_alpha": 1.055,  # MSR enrichment factor in mUr
+        "msr_h2s_ox": 0.955,  # MSR enrichment factor in mUr
         "bc_o2": 0.2,  # mmmol/l
         "bc_om": OM_Mol,  # mmol/l
         "bc_so4": 28.0,  # mmol/l
         "bc_s0": 0.0,  # mmol/l
         "bc_fe3": 60.0,  # mmol/l
         "DB0": 1e-6,  # Bioturbation coefficient
-        "DB_depth": 0.1,  # Bioturbation depth in m
+        "DB_depth": 0,  # Bioturbation depth in m
         "BI0": 0.001,  # Irrigation coefficient
         "BI_depth": 0.0,  # Irrigation depth (0 = off)
         "eps": 1e-4,  # limiters
@@ -68,7 +69,7 @@ def run_model(p_dict: dict):
         "dt_max": 100,  # time step in years
         "max_steps": 2000,  # max number of iterations
         "run_time": 3e5,  # run time in years
-        "VPDB": 0.044162589,  # VPDB reference ratio
+        "VCDT": 0.044162589,  # VCDT reference ratio
     })
 
     mp.update(p_dict)
@@ -86,7 +87,7 @@ def run_model(p_dict: dict):
         "fe3_h2s": calculate_k_iron_reduction(mp.bc_fe3, 0),
     })
 
-    mp.bc_so4_32 = get_l_mass(mp.bc_so4, mp.so4_d, mp.VPDB)
+    mp.bc_so4_32 = get_l_mass(mp.bc_so4, mp.so4_d, mp.VCDT)
 
     # -----------------------------------------------------------------------------
     # 2. MESH GENERATION (Variable Grid)
@@ -221,16 +222,36 @@ def run_model(p_dict: dict):
 
 
 if __name__ == "__main__":
-    from diff_lib import save_data
+    from diff_lib import save_data, get_delta
     import plot_data_new
 
-    p_dict = {"bc_fe3": 8666}
+    p_dict = {"bc_fe3": 1000, "DB_depth": 0}
+    p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
+
     mp, c, k, species_list, z, D_mol, diagenetic_reactions = run_model(p_dict)
 
     # -----------------------------------------------------------------------------
     # 8. EXPORT DATA
     # -----------------------------------------------------------------------------
     df, fqfn = save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions)
+
+    s = (
+        df.c_so4.iloc[-1]
+        + df.c_h2s.iloc[-1]
+        + df.c_s0.iloc[-1]
+        + df.c_fes.iloc[-1]
+        + df.c_fes2.iloc[-1]
+    )
+    s32 = (
+        df.c_so4_32.iloc[-1]
+        + df.c_h2s_32.iloc[-1]
+        + df.c_s0_32.iloc[-1]
+        + df.c_fes_32.iloc[-1]
+        + df.c_fes2_32.iloc[-1] / 2
+    )
+
+    d34s = get_delta(s, s32, mp.VCDT)
+    print(f"d34S = {d34s:0.2f}")
 
     # 9. PLOTTING
     # -----------------------------------------------------------------------------

@@ -24,8 +24,10 @@ class PlotUpdateHandler(FileSystemEventHandler):
         self.output_plot = output_plot
 
     def on_modified(self, event):
-        # Watchdog might trigger for the directory or other files, filter for our CSV
-        if event.src_path.endswith(self.csv_file):
+        # Trigger plot update if either the CSV data or the layout file changes
+        if event.src_path.endswith(self.csv_file) or event.src_path.endswith(
+            self.layout_file
+        ):
             self.trigger_plot()
 
     def trigger_plot(self):

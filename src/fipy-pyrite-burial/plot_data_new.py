@@ -171,6 +171,8 @@ def plot(
             ax_main.set_xscale(subplot_config["xscale"])
         if "xlim" in subplot_config:
             ax_main.set_xlim(subplot_config["xlim"])
+        if "ylim" in subplot_config:
+            ax_main.set_ylim(subplot_config["ylim"])
 
         # Handle legend display
         _add_unified_legend(ax_main, right_axes, subplot_config)
@@ -178,9 +180,11 @@ def plot(
         # Apply arbitrary matplotlib options
         _apply_all_options(ax_main, right_axes, subplot_config)
 
-    # Adjust x-axis length for all plots
-    for ax in all_axes:
-        ax.set_xlim(0, display_length)
+    # Adjust x-axis length for all plots that don't have an explicit xlim
+    for idx, (subplot_key, subplot_config) in enumerate(valid_subplots.items()):
+        if "xlim" not in subplot_config:
+            ax_main = ax_objects[idx]
+            ax_main.set_xlim(0, display_length)
 
     fig.tight_layout()
     if outfile:
