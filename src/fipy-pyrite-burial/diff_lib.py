@@ -31,58 +31,45 @@ import numpy as np
 from typing import Union
 
 
-class data_container:
-    """A simple container.
+class data_container(dict):
+    """A dictionary-based container with attribute access.
 
-    Initialised from a space‑separated string of attribute names with optional default
-    values, or from a dictionary mapping attribute names to values.
+    Supports initialization from a space-separated string or a dictionary.
     """
 
     def __init__(self, names=None, defaults=None):
+        super().__init__()
         if isinstance(names, str):
             names = names.split(" ")
             if isinstance(defaults, list):
                 for i, name in enumerate(names):
                     if name != "":
-                        setattr(self, name, defaults[i])
+                        self[name] = defaults[i]
             else:
                 for name in names:
                     if name != "":
-                        setattr(self, name, defaults)
-
+                        self[name] = defaults
         elif isinstance(names, dict):
-            for k, v in names.items():
-                if k != "":
-                    setattr(self, k, v)
+            self.update(names)
 
-    def __getitem__(self, key):
-        """Return the value of the attribute ``key`` (e.g. obj['so4'])."""
+    def __getattr__(self, key):
         try:
-            return getattr(self, key)
-        except AttributeError as exc:
-            raise KeyError(key) from exc
+            return self[key]
+        except KeyError:
+            raise AttributeError(
+                f"'{self.__class__.__name__}' object has no attribute '{key}'"
+            )
 
-    def __setitem__(self, key, value):
-        """Set the attribute ``key`` to ``value`` (e.g. obj['so4'] = 10)."""
-        if not isinstance(key, str):
-            raise TypeError("dictionary keys must be strings")
-        setattr(self, key, value)
+    def __setattr__(self, key, value):
+        self[key] = value
 
-    def __contains__(self, key):
-        """Allow ``key in obj`` syntax."""
-        return hasattr(self, key)
-
-    def keys(self):
-        """Return a list of attribute names stored on the instance."""
-        return [k for k in self.__dict__.keys()]
-
-    def items(self):
-        """Return (key, value) pairs like ``dict.items()``."""
-        return self.__dict__.items()
-
-    def __repr__(self):
-        """Define the the default repr."""
-        return f"{self.__class__.__name__}({self.__dict__})"
+    def __delattr__(self, key):
+        try:
+            del self[key]
+        except KeyError:
+            raise AttributeError(
+                f"'{self.__class__.__name__}' object has no attribute '{key}'"
+            )
 
 
 def diff_coeff(T, m0, m1, phi):
