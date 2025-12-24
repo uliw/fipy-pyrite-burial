@@ -123,7 +123,9 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, mp):
     phi = mp.phi
     # Scaling factor for Solid Species in Porewater-Driven Reactions
     # Assuming Rate is Intrinsic Porewater Rate (R_pw).
-    # Bulk Rate = phi * R_pw.
+    # Bulk Rate = phi * R_pw. Note, this is done in the solver function
+    # This is also true for solid species, but to get the correct concentrations
+    # for kinetic calculations, we need to compensate for this scaling.
     # Solid Eq Term (Intrinsic) = R_pw * phi / (1-phi).
     fac_s = phi / (1.0 - phi)
 
@@ -185,7 +187,7 @@ def iron_reduction_h2s(c, k, lim, LHS, RHS, RATES, mp):
     """
     phi = mp.phi
     fac_s = phi / (1.0 - phi)
-    
+
     # Fe3 Sink - SOLID
     coeff_fe3 = k.fe3_h2s * c.h2s
     add_implicit_sink(LHS, RATES, "fe3", coeff_fe3 * fac_s, coeff_fe3 * c.fe3 * fac_s)
@@ -215,7 +217,7 @@ def fes_oxidation(c, k, lim, LHS, RHS, RATES, mp):
     """
     phi = mp.phi
     fac_s = phi / (1.0 - phi)
-    
+
     rate_base = k.fes_ox * c.fes * c.o2
     rate_base_32 = k.fes_ox * c.fes_32 * c.o2
 
@@ -290,6 +292,7 @@ def pyrite_formation_s0(c, k, lim, LHS, RHS, RATES, mp):
     add_explicit_source(RHS, RATES, "fes2", fes2_rate)
     add_explicit_source(RHS, RATES, "fes2_32", fes2_32_rate)
 
+
 def pyrite_formation_h2s(c, k, lim, LHS, RHS, RATES, mp):
     """
     Reaction: 1 FeS + 1 H2S -> 1 FeS2
@@ -297,11 +300,13 @@ def pyrite_formation_h2s(c, k, lim, LHS, RHS, RATES, mp):
     """
     phi = mp.phi
     fac_s = phi / (1.0 - phi)
-    
+
     # FeS Sink - SOLID
     coeff_fes = k.fes_h2s * c.h2s
     add_implicit_sink(LHS, RATES, "fes", coeff_fes * fac_s, coeff_fes * c.fes * fac_s)
-    add_implicit_sink(LHS, RATES, "fes_32", coeff_fes * fac_s, coeff_fes * c.fes_32 * fac_s)
+    add_implicit_sink(
+        LHS, RATES, "fes_32", coeff_fes * fac_s, coeff_fes * c.fes_32 * fac_s
+    )
 
     # H2S Sink (1.0x) - LIQUID
     coeff_h2s = k.fes_h2s * c.fes
@@ -314,26 +319,26 @@ def pyrite_formation_h2s(c, k, lim, LHS, RHS, RATES, mp):
     # Wait, H2S coeff shouldn't be scaled for H2S eq, but should be for FeS2 eq?
     # Actually fes2_32 rate eqn is sum of two sources. Can we separate?
     # Re-calculate carefully for FeS2 (Solid). It needs * fac_s.
-    
+
     # term 1: FeS (Solid) -> FeS2 (Solid). Rate propto FeS sink.
     term1 = coeff_fes * c.fes_32 * fac_s  # Already scaled above
-    
+
     # term 2: H2S (Liquid) -> FeS2 (Solid). H2S sink (coeff_h2s * h2s_32) is liquid-unit rate.
     # We need to add this mass to Solid. So scale by fac_s.
     term2 = coeff_h2s * c.h2s_32 * fac_s
-    
+
     fes2_32_rate = term1 + term2
-    
+
     # Wait, coeff_fes above is scaled by fac_s. So term1 includes fac_s * fac_s?
     # No. coeff_fes in implicit sink was scaled.
     # Let's use raw vars for explicit calc clearly.
-    
+
     raw_coeff_fes = k.fes_h2s * c.h2s
     raw_coeff_h2s = k.fes_h2s * c.fes
-    
+
     term1_final = raw_coeff_fes * c.fes_32 * fac_s
     term2_final = raw_coeff_h2s * c.h2s_32 * fac_s
-    
+
     add_explicit_source(RHS, RATES, "fes2_32", term1_final + term2_final)
 
 
@@ -348,8 +353,12 @@ def pyrite_oxidation(c, k, lim, LHS, RHS, RATES, mp):
 
     # FeS2 Sink - SOLID
     coeff_fes2 = k.fes2_ox * c.o2
-    add_implicit_sink(LHS, RATES, "fes2", coeff_fes2 * fac_s, coeff_fes2 * c.fes2 * fac_s)
-    add_implicit_sink(LHS, RATES, "fes2_32", coeff_fes2 * fac_s, coeff_fes2 * c.fes2_32 * fac_s)
+    add_implicit_sink(
+        LHS, RATES, "fes2", coeff_fes2 * fac_s, coeff_fes2 * c.fes2 * fac_s
+    )
+    add_implicit_sink(
+        LHS, RATES, "fes2_32", coeff_fes2 * fac_s, coeff_fes2 * c.fes2_32 * fac_s
+    )
 
     # O2 Sink (3.5x) - LIQUID
     coeff_o2 = k.fes2_ox * c.fes2
