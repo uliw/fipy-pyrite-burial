@@ -190,7 +190,7 @@ def run_model(p_dict: dict):
 
     # build equation system and solve
     if mp.steady_state:
-        run_steady_state_solver(
+        converged, step, total_time = run_steady_state_solver(
             mp,
             None,
             c,
@@ -218,7 +218,18 @@ def run_model(p_dict: dict):
         )
         run_non_steady_solver(mp, equations, c, species_list)
 
-    return (mp, c, k, species_list, z, D_mol, diagenetic_reactions)
+    return (
+        mp,
+        c,
+        k,
+        species_list,
+        z,
+        D_mol,
+        diagenetic_reactions,
+        converged,
+        step,
+        total_time,
+    )
 
 
 if __name__ == "__main__":
@@ -228,7 +239,18 @@ if __name__ == "__main__":
     p_dict = {"bc_fe3": 1000, "DB_depth": 0.0}
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
 
-    mp, c, k, species_list, z, D_mol, diagenetic_reactions = run_model(p_dict)
+    (
+        mp,
+        c,
+        k,
+        species_list,
+        z,
+        D_mol,
+        diagenetic_reactions,
+        converged,
+        step,
+        total_time,
+    ) = run_model(p_dict)
 
     # -----------------------------------------------------------------------------
     # 8. EXPORT DATA

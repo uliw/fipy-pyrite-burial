@@ -414,16 +414,21 @@ def run_steady_state_solver(
             )
 
     if step >= mp.max_steps:
+        converged = "No"
         print(
             f"Warning: Steady state solver did not converge after {mp.max_steps} steps. Last change: {max_change:.2e}"
         )
     else:
+        converged = "Yes"
         print(
             f"Steady state converged in {step} iterations (Max change: {max_change:.2e})."
         )
 
     end_wall = time.time()
-    print(f"Steady State Wall Time: {end_wall - start_wall:.2f} seconds")
+    total_time = end_wall - start_wall
+    print(f"Steady State Wall Time: {total_change:.2f} seconds")
+
+    return converged, step, total_time
 
 
 def run_non_steady_solver(mp, equations, c, species_list):
@@ -700,3 +705,27 @@ def calculate_k_iron_reduction(fes3, h2s):
     k_values = 0.693 / tau_half
 
     return k_values / (60 * 60 * 24 * 1e3)
+
+
+def mol_to_weight_percent(c, mw, d):
+    """Convert from mol/m^3 to weight percent.
+
+    c: cocentration in mol/m^3
+    mw: molar weight of substance
+    d: density of sediment in gram/cm^3
+
+    returns: wt% between 0 to 100
+    """
+    return 100 * c * mw / (d * 1e6)
+
+
+def weight_percent_to_mol(wp, mw, d):
+    """Convert from weight % to mol/m^3
+    wp : weight percentage
+    mw: mol weight
+    d: density in gr/cm^3
+
+    returns concentration in mol/m^3
+    """
+
+    return wp * d * 1e4 / mw

@@ -98,8 +98,8 @@ def plot(
     if plot_description is None:
         plot_description = _get_default_plot_description(df)
 
-    # Filter out None subplots and count valid subplots
-    valid_subplots = {k: v for k, v in plot_description.items() if v is not None}
+    # Filter for valid subplot configurations (must be dictionaries)
+    valid_subplots = {k: v for k, v in plot_description.items() if isinstance(v, dict)}
     n_subplots = len(valid_subplots)
 
     if n_subplots == 0:
@@ -112,7 +112,17 @@ def plot(
     fig, axes = plt.subplots(n_subplots, 1)
     if n_subplots == 1:
         axes = [axes]
-    fig.set_size_inches(8, 2 + 2 * n_subplots)
+
+    # Get figure width from top-level or first subplot
+    # Support both 'fig_width' and 'plot_width'
+    fig_width = plot_description.get("fig_width", plot_description.get("plot_width"))
+    if fig_width is None and valid_subplots:
+        first_config = list(valid_subplots.values())[0]
+        fig_width = first_config.get("fig_width", first_config.get("plot_width", 8))
+    elif fig_width is None:
+        fig_width = 8
+
+    fig.set_size_inches(fig_width, 2 + 2 * n_subplots)
 
     # Track all axes for xlim adjustment
     all_axes = []
@@ -150,15 +160,18 @@ def plot(
             lines, labels = _draw_series(twin_ax, x_data, [series], df2)
             if not lines:
                 continue
-            line = lines[0]
-            label = labels[0]
 
-            ylabel_key = f"{config_key}_ylabel"
-            ylabel = subplot_config.get(ylabel_key, label) if series_idx == 0 else label
-            twin_ax.set_ylabel(ylabel)
-            twin_ax.yaxis.label.set_color(line.get_color())
-            twin_ax.tick_params(axis="y", colors=line.get_color())
-            twin_ax.spines["right"].set_color(line.get_color())
+            # Only set axis properties for the first series in a group
+            if series_idx == 0:
+                line = lines[0]
+                label = labels[0]
+
+                ylabel_key = f"{config_key}_ylabel"
+                ylabel = subplot_config.get(ylabel_key, label)
+                twin_ax.set_ylabel(ylabel)
+                twin_ax.yaxis.label.set_color(line.get_color())
+                twin_ax.tick_params(axis="y", colors=line.get_color())
+                twin_ax.spines["right"].set_color(line.get_color())
 
         # Set x-label (usually only on bottom plot)
         if idx == n_subplots - 1:
@@ -173,6 +186,16 @@ def plot(
             ax_main.set_xlim(subplot_config["xlim"])
         if "ylim" in subplot_config:
             ax_main.set_ylim(subplot_config["ylim"])
+
+        # Apply properties to right axes if specified (e.g., "right_yscale", "right2_ylim")
+        seen_right_axes = set()
+        for twin_ax, key, _, _ in right_axes:
+            if twin_ax not in seen_right_axes:
+                for prop in ["yscale", "xscale", "xlim", "ylim"]:
+                    key_prop = f"{key}_{prop}"
+                    if key_prop in subplot_config:
+                        getattr(twin_ax, f"set_{prop}")(subplot_config[key_prop])
+                seen_right_axes.add(twin_ax)
 
         # Handle legend display
         _add_unified_legend(ax_main, right_axes, subplot_config)
@@ -264,6 +287,7 @@ def _match_measured_column(series_name, df2):
 def _setup_subplot_axes(ax_main, subplot_config):
     """
     Configure twin axes for a subplot based on configuration.
+    Series under the same key share a twin axis.
 
     Args
     ----
@@ -274,26 +298,27 @@ def _setup_subplot_axes(ax_main, subplot_config):
     -------
     tuple: (ax_main, right_axes_list) where right_axes_list is [(ax, config_key, series_idx, series), ...]
     """
-    # Create additional y-axes as needed
-    # Collect all right-side series to determine how many twin axes we need
-    right_series_list = []
+    right_axes = []
+    current_axis_idx = 0
 
-    # Collect series from "right", "right2", "right3", etc.
-    for i in range(1, MAX_RIGHT_AXES + 1):
-        key = "right" if i == 1 else f"right{i}"
+    # Potential keys: "right", "right1", "right2", ...
+    keys_to_check = ["right"] + [f"right{i}" for i in range(1, MAX_RIGHT_AXES + 1)]
+
+    for key in keys_to_check:
         if key in subplot_config and subplot_config[key] is not None:
             series_list = subplot_config[key]
-            if series_list:  # not empty
-                for series_idx, series in enumerate(series_list):
-                    right_series_list.append((key, series_idx, series))
+            if not series_list:
+                continue
 
-    # Create one twin axis for each right-side series
-    right_axes = []
-    for axis_idx, (config_key, series_idx, series) in enumerate(right_series_list):
-        twin_ax = ax_main.twinx()
-        # Position the spine (first at 1.0, second at 1.2, third at 1.4, etc.)
-        twin_ax.spines.right.set_position(("axes", 1.0 + 0.2 * axis_idx))
-        right_axes.append((twin_ax, config_key, series_idx, series))
+            # Create ONE twin axis for this key
+            twin_ax = ax_main.twinx()
+            # Position the spine based on the axis index
+            twin_ax.spines.right.set_position(("axes", 1.0 + 0.2 * current_axis_idx))
+
+            for series_idx, series in enumerate(series_list):
+                right_axes.append((twin_ax, key, series_idx, series))
+
+            current_axis_idx += 1
 
     return ax_main, right_axes
 
@@ -380,21 +405,34 @@ def _add_unified_legend(ax_main, right_axes, subplot_config):
     if not subplot_config.get("legend", True):
         return
 
-    lines = []
-    labels = []
+    raw_lines = []
+    raw_labels = []
 
     # Main axis
     l_lines, l_labels = ax_main.get_legend_handles_labels()
-    lines.extend(l_lines)
-    labels.extend(l_labels)
+    raw_lines.extend(l_lines)
+    raw_labels.extend(l_labels)
 
-    # Right axes
+    # Right axes - only collect from each unique twin axis once
+    seen_axes = {ax_main}
     for twin_ax, _, _, _ in right_axes:
-        r_lines, r_labels = twin_ax.get_legend_handles_labels()
-        lines.extend(r_lines)
-        labels.extend(r_labels)
+        if twin_ax not in seen_axes:
+            r_lines, r_labels = twin_ax.get_legend_handles_labels()
+            raw_lines.extend(r_lines)
+            raw_labels.extend(r_labels)
+            seen_axes.add(twin_ax)
 
-    if lines:
+    # Deduplicate by label while preserving order
+    final_lines = []
+    final_labels = []
+    seen_labels = set()
+    for line, label in zip(raw_lines, raw_labels):
+        if label not in seen_labels:
+            final_lines.append(line)
+            final_labels.append(label)
+            seen_labels.add(label)
+
+    if final_lines:
         default_fontsize = plt.rcParams.get("legend.fontsize", 10)
         fontsize = (
             "small" if isinstance(default_fontsize, str) else default_fontsize * 0.8
@@ -402,8 +440,8 @@ def _add_unified_legend(ax_main, right_axes, subplot_config):
         target_ax = right_axes[-1][0] if right_axes else ax_main
 
         leg = target_ax.legend(
-            lines,
-            labels,
+            final_lines,
+            final_labels,
             loc="upper right",
             frameon=True,
             framealpha=0.7,
@@ -429,23 +467,32 @@ def _apply_all_options(ax_main, right_axes, subplot_config):
         _apply_matplotlib_options(ax_main, subplot_config["options-left"])
 
     # Right axes
-    right_axis_by_config = {}
-    idx = 0
-    for i in range(1, MAX_RIGHT_AXES + 1):
-        key = "right" if i == 1 else f"right{i}"
-        if key in subplot_config and subplot_config[key]:
-            right_axis_by_config[key] = idx
-            idx += len(subplot_config[key])
+    right_axis_map = {}
+    current_idx = 0
+    keys_to_check = ["right"] + [f"right{i}" for i in range(1, MAX_RIGHT_AXES + 1)]
 
-    for i in range(1, MAX_RIGHT_AXES + 1):
-        key = "right" if i == 1 else f"right{i}"
-        opt_key = "options-right" if i == 1 else f"options-right{i}"
-        if opt_key in subplot_config and key in right_axis_by_config:
-            axis_idx = right_axis_by_config[key]
-            if axis_idx < len(right_axes):
-                _apply_matplotlib_options(
-                    right_axes[axis_idx][0], subplot_config[opt_key]
-                )
+    # Map each active key to the twin axis it was assigned (0, 1, 2...)
+    for key in keys_to_check:
+        if key in subplot_config and subplot_config[key]:
+            right_axis_map[key] = current_idx
+            current_idx += 1
+
+    # Get distinct twin axes from the right_axes list (which is [(ax, key, s_idx, s), ...])
+    # The axes were created in order of 'keys_to_check' in _setup_subplot_axes.
+    unique_twin_axes = []
+    seen_axes = set()
+    for ax, key, s_idx, s in right_axes:
+        if ax not in seen_axes:
+            unique_twin_axes.append(ax)
+            seen_axes.add(ax)
+
+    # Apply options to the correct twin axis
+    for key, axis_idx in right_axis_map.items():
+        opt_key = f"options-{key}"
+        if opt_key in subplot_config and axis_idx < len(unique_twin_axes):
+            _apply_matplotlib_options(
+                unique_twin_axes[axis_idx], subplot_config[opt_key]
+            )
 
 
 def load_layout_from_file(df, layout_path):
