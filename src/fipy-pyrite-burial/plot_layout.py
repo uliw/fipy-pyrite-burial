@@ -84,7 +84,7 @@ def get_layout(df):
             # "yscale": "symlog, linthresh=1e-14,linscale=0,1,base=10",
             "left_ylabel": "f [mol/m^3/s]",
             "xscale": "log",
-            # "options-left": "set_yscale('symlog', linthresh=1e-14,linscale=0,1,base=10)",
+            "options-left": "set_yscale('symlog', linthresh=1e-14,linscale=0.5,base=10)",
         },
         "third_subplot": {
             "xaxis": [df.z, "Depth [m]"],

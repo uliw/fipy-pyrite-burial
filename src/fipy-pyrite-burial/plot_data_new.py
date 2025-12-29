@@ -585,25 +585,20 @@ def _apply_matplotlib_options(ax, options_str):
             continue
 
         # Extract method name and arguments
-        method_name = call[: call.index("(")]
-        args_str = call[call.index("(") + 1 : call.rindex(")")]
+        method_name = call[: call.index("(")].strip()
+        args_str = call[call.index("(") + 1 : call.rindex(")")].strip()
 
         # Check if method exists on axis
         if not hasattr(ax, method_name):
             warnings.warn(f"Axis does not have method '{method_name}', skipping")
             continue
 
-        # Parse arguments - evaluate the string as Python code
-        # Note: This uses eval() which should only be used with trusted input
-        # For user-facing applications, consider implementing a more restricted parser
+        # Execute the method call using eval in a context where 'ax' is local
         try:
-            # Create a restricted evaluation context
-            # Adding a trailing comma ensures the result is always a tuple,
-            # even for single arguments: (x) is just x, but (x,) is a tuple
-            safe_dict = {"__builtins__": {}}
-            args = eval(f"({args_str},)", safe_dict)
-            method = getattr(ax, method_name)
-            method(*args)
+            # We use a restricted context for eval
+            # We provide 'ax' so the evaluated string can call methods on it
+            safe_dict = {"ax": ax, "__builtins__": {}}
+            eval(f"ax.{method_name}({args_str})", safe_dict)
         except Exception as e:
             warnings.warn(f"Failed to execute {method_name}({args_str}): {e}")
 
