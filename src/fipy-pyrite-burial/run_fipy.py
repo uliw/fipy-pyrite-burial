@@ -26,6 +26,7 @@ def run_model(p_dict: dict):
         run_non_steady_solver,
         run_steady_state_solver,
         build_non_steady_equations,
+        weight_percent_to_mol,
     )
     from reactions_new import diagenetic_reactions
 
@@ -43,23 +44,24 @@ def run_model(p_dict: dict):
     mp = data_container({
         "plot_name": "pyrite_model_fipy.csv",
         "layout_file": "plot_layout.py",  # Plot layout file
-        "grid_points": 1000,  # number of cells
+        "grid_points": 2000,  # number of cells
         "steady_state": True,  # assume steady state?
-        "max_depth": 10.0,  # meters
+        "max_depth": 100.0,  # meters
         "display_length": 2,  # meters
         "temp": [10.0, 10.1],  # temp top, bottom, in C
         "phi": 0.65,  # porosity
         "w": Q_("46 cm/kyr").to("m/s").m,  # sedimentation rate in m/s
         "advection": 0,  # upward directed flow component
         "so4_d": 21,  # seawater delta
-        "msr_alpha": 1.055,  # MSR enrichment factor in mUr
+        "msr_alpha": 1.07,  # MSR enrichment factor in mUr
         "h2s_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
         "bc_o2": 0.2,  # mmmol/l
-        "bc_om": OM_Mol,  # mmol/l
+        "bc_om": weight_percent_to_mol(4, 12, 2.6),  # wt% C
         "bc_so4": 28.0,  # mmol/l
         "bc_s0": 0.0,  # mmol/l
-        "bc_fe3": 60.0,  # mmol/l
-        "DB0": 1e-6,  # Bioturbation coefficient
+        "bc_fe2": 0,  # wt% Fe
+        "bc_fe3": weight_percent_to_mol(2, 56, 2.6),  # wt% Fe
+        "DB0": 1e-8,  # Bioturbation coefficient
         "DB_depth": 0,  # Bioturbation depth in m
         "BI0": 0.001,  # Irrigation coefficient
         "BI_depth": 0.0,  # Irrigation depth (0 = off)
@@ -77,14 +79,16 @@ def run_model(p_dict: dict):
     # Reaction Constants (k)
     k = data_container({
         "poc_o2": 5e-11,  # POC + O2 -> CO2
-        "poc_so4": 7e-12,  # POC + SO4 -> H2S # within range of Halevy
+        "poc_so4": 1e-12,  # POC + SO4 -> H2S # within range of Halevy 7e-12
         "h2s_ox": 8e-3,  # H2S + O2 -> S0 #, Millero * 1e3 after Halevey
+        "fe2_ox": 1e-7,  # Fe2+ + O2 -> Fe3OOH, Velde 2016
         "fes_ox": 5e-10,  # FeS + O2 -> Fe3 + SO4, Halevy et al.
         "fes2_ox": 1e-10,  # FeS2 + O2 -> SO4, Halevy et al
         "fes_s0": 5e-8,  # FeS + S0 -> FeS2, TBD ???
         "fes_h2s": 5e-8,  # FeS + H2S -> FeS2, at 10C -> notes.org
+        "fe2_h2s": 5e-3,  # basically instantly.
         # Fe3 + H2S -> FeS * S0 -> calculate_k_iron_reduction, Halevy
-        "fe3_h2s": calculate_k_iron_reduction(mp.bc_fe3, 0),
+        "fe3_h2s": calculate_k_iron_reduction(mp.bc_fe3, 0),  # ~1.6e-8
     })
 
     mp.bc_so4_32 = get_l_mass(mp.bc_so4, mp.so4_d, mp.VCDT)
@@ -114,6 +118,7 @@ def run_model(p_dict: dict):
         "h2s_32",
         "o2",
         "poc",
+        "fe2",
         "fe3",
         "fes",
         "fes_32",
@@ -150,6 +155,7 @@ def run_model(p_dict: dict):
     for species_name in [
         "poc",
         "fe3",
+        "fe2",
         "fes",
         "fes_32",
         "s0",
@@ -175,6 +181,7 @@ def run_model(p_dict: dict):
         "o2": {"top": mp.bc_o2, "type": "dissolved"},
         "s0": {"top": mp.bc_s0, "type": "particulate"},
         "s0_32": {"top": mp.bc_s0, "type": "particulate"},
+        "fe2": {"top": mp.bc_fe2, "type": "particulate"},
         "fe3": {"top": mp.bc_fe3, "type": "particulate"},
         "fes": {"top": 0.0, "type": "particulate"},
         "fes_32": {"top": 0.0, "type": "particulate"},
@@ -233,10 +240,10 @@ def run_model(p_dict: dict):
 
 
 if __name__ == "__main__":
-    from diff_lib import save_data, get_delta
+    from diff_lib import save_data, get_delta, weight_percent_to_mol
     import plot_data_new
 
-    p_dict = {"bc_fe3": 1000, "DB_depth": 0.0}
+    p_dict = {"bc_fe3": weight_percent_to_mol(4, 56, 2.6), "DB_depth": 0.1}
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
 
     (
@@ -257,23 +264,16 @@ if __name__ == "__main__":
     # -----------------------------------------------------------------------------
     df, fqfn = save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions)
 
-    s = (
-        df.c_so4.iloc[-1]
-        + df.c_h2s.iloc[-1]
-        + df.c_s0.iloc[-1]
-        + df.c_fes.iloc[-1]
-        + df.c_fes2.iloc[-1]
+    phi = mp.phi
+    s = phi * (df.c_so4.iloc[-1] + df.c_h2s.iloc[-1]) + (1 - phi) * (
+        df.c_s0.iloc[-1] + df.c_fes.iloc[-1] + 2 * df.c_fes2.iloc[-1]
     )
-    s32 = (
-        df.c_so4_32.iloc[-1]
-        + df.c_h2s_32.iloc[-1]
-        + df.c_s0_32.iloc[-1]
-        + df.c_fes_32.iloc[-1]
-        + df.c_fes2_32.iloc[-1] / 2
+    s32 = phi * (df.c_so4_32.iloc[-1] + df.c_h2s_32.iloc[-1]) + (1 - phi) * (
+        df.c_s0_32.iloc[-1] + df.c_fes_32.iloc[-1] + df.c_fes2_32.iloc[-1]
     )
 
     d34s = get_delta(s, s32, mp.VCDT)
-    print(f"d34S = {d34s:0.2f}")
+    print(f"d34S = {d34s:0.2f}, d34S pyrite = {df.d_fes2.iloc[-1]:.2f}")
 
     # 9. PLOTTING
     # -----------------------------------------------------------------------------

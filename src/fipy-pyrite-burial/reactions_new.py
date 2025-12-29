@@ -35,7 +35,7 @@ def diagenetic_reactions(mp, c, k, f):
     limiters["inhib_o2"] = eps / (c.o2.value + eps)
 
     # Sulfate Limiter (Implicit 1/[S+K] and Explicit [S]/[S+K])
-    K_so4 = 0.1
+    K_so4 = 0.2
     limiters["so4_implicit"] = 1.0 / (c.so4.value + K_so4)
     limiters["so4_32_implicit"] = 1.0 / (c.so4_32.value + K_so4)
 
@@ -62,11 +62,13 @@ def diagenetic_reactions(mp, c, k, f):
     sulfate_reduction(c, k, limiters, LHS, RHS, RATES, mp)
     aerobic_respiration(c, k, limiters, LHS, RHS, RATES, mp)
     iron_reduction_h2s(c, k, limiters, LHS, RHS, RATES, mp)
-    fes_oxidation(c, k, limiters, LHS, RHS, RATES, mp)
+    fe2_oxidation(c, k, limiters, LHS, RHS, RATES, mp)
     h2s_oxidation(c, k, limiters, LHS, RHS, RATES, mp)
-    pyrite_formation_s0(c, k, limiters, LHS, RHS, RATES, mp)
-    pyrite_formation_h2s(c, k, limiters, LHS, RHS, RATES, mp)
+    fes_oxidation(c, k, limiters, LHS, RHS, RATES, mp)
     pyrite_oxidation(c, k, limiters, LHS, RHS, RATES, mp)
+    pyrite_formation_s0(c, k, limiters, LHS, RHS, RATES, mp)
+    pyrite_formation_fes_h2s(c, k, limiters, LHS, RHS, RATES, mp)
+    pyrite_formation_fe2_h2s(c, k, limiters, LHS, RHS, RATES, mp)
 
     # 4. FINALIZE
     # -----------
@@ -185,8 +187,9 @@ def aerobic_respiration(c, k, lim, LHS, RHS, RATES, mp):
 def iron_reduction_h2s(c, k, lim, LHS, RHS, RATES, mp):
     """Define iron reduction by h2s.
 
-    Reaction: 1 Fe3 + 1.5 H2S -> 1 FeS + 0.5 S0
-    Ref: Fe3 (k.fe3_h2s)
+    Because we are in a neutral medium
+    Reaction: 1 Fe3 + 0.5 H2S -> 1 Fe2 + 0.5 S0
+    and we consider Fe2 to be a solid (i.e., sorbed to solide surfaces)
     """
     phi = mp.phi
     fac_s = phi / (1.0 - phi)
@@ -195,22 +198,42 @@ def iron_reduction_h2s(c, k, lim, LHS, RHS, RATES, mp):
     coeff_fe3 = k.fe3_h2s * c.h2s
     add_implicit_sink(LHS, RATES, "fe3", coeff_fe3 * fac_s, coeff_fe3 * c.fe3 * fac_s)
 
-    # H2S Sink (1.5x) - LIQUID
-    coeff_h2s = k.fe3_h2s * c.fe3
-    add_implicit_sink(LHS, RATES, "h2s", coeff_h2s * 1.5, coeff_h2s * c.h2s * 1.5)
-    add_implicit_sink(LHS, RATES, "h2s_32", coeff_h2s * 1.5, coeff_h2s * c.h2s_32 * 1.5)
+    # H2S Sink (0.5x) - LIQUID
+    coeff_h2s = 0.5 * k.fe3_h2s * c.fe3
+    add_implicit_sink(LHS, RATES, "h2s", coeff_h2s, coeff_h2s * c.h2s)
+    add_implicit_sink(LHS, RATES, "h2s_32", coeff_h2s, coeff_h2s * c.h2s_32)
 
-    # FeS Source (1.0x) - SOLID
-    rate_fes = k.fe3_h2s * c.fe3 * c.h2s * lim["fe3_explicit"]
-    rate_fes_32 = k.fe3_h2s * c.fe3 * c.h2s_32 * lim["fe3_explicit"]
-    add_explicit_source(RHS, RATES, "fes", rate_fes * fac_s)
-    add_explicit_source(RHS, RATES, "fes_32", rate_fes_32 * fac_s)
+    # Fe2+ Source (1.0x) - SOLID
+    rate_fe2 = k.fe3_h2s * c.fe3 * c.h2s * lim["fe3_explicit"]
+    add_explicit_source(RHS, RATES, "fe2", rate_fe2 * fac_s)
 
     # S0 Source (0.5x) - SOLID
-    s0_rate = k.fe3_h2s * c.fe3 * c.h2s
-    s0_32_rate = k.fe3_h2s * c.fe3 * c.h2s_32
-    add_explicit_source(RHS, RATES, "s0", s0_rate * 0.5 * fac_s)
-    add_explicit_source(RHS, RATES, "s0_32", s0_32_rate * 0.5 * fac_s)
+    s0_rate = 0.5 * k.fe3_h2s * c.fe3 * c.h2s
+    s0_32_rate = 0.5 * k.fe3_h2s * c.fe3 * c.h2s_32
+    add_explicit_source(RHS, RATES, "s0", s0_rate * fac_s)
+    add_explicit_source(RHS, RATES, "s0_32", s0_32_rate * fac_s)
+
+
+def fe2_oxidation(c, k, lim, LHS, RHS, RATES, mp):
+    """
+    Reaction: 4 FeS2+ O2 -> 1 Fe3OOH
+    Ref: FeS (k.fes_ox)
+    """
+    phi = mp.phi
+    fac_s = phi / (1.0 - phi)
+
+    rate_base = k.fe2_ox * c.fe2 * c.o2
+
+    # Fe2+ Sink - SOLID
+    coeff_fe2 = k.fe2_ox * c.o2
+    add_implicit_sink(LHS, RATES, "fe2", coeff_fe2 * fac_s, rate_base * fac_s)
+
+    # O2 Sink (1/4) - LIQUID
+    coeff_o2 = k.fe2_ox * c.fe2
+    add_implicit_sink(LHS, RATES, "o2", coeff_o2, rate_base / 4.0)
+
+    # Fe3 Source (1.0x) - SOLID
+    add_explicit_source(RHS, RATES, "fe3", rate_base * fac_s)
 
 
 def fes_oxidation(c, k, lim, LHS, RHS, RATES, mp):
@@ -302,7 +325,7 @@ def pyrite_formation_s0(c, k, lim, LHS, RHS, RATES, mp):
     add_explicit_source(RHS, RATES, "fes2_32", fes2_32_rate)
 
 
-def pyrite_formation_h2s(c, k, lim, LHS, RHS, RATES, mp):
+def pyrite_formation_fes_h2s(c, k, lim, LHS, RHS, RATES, mp):
     """
     Reaction: 1 FeS + 1 H2S -> 1 FeS2
     Ref: FeS (k.fes_h2s)
@@ -349,6 +372,36 @@ def pyrite_formation_h2s(c, k, lim, LHS, RHS, RATES, mp):
     term2_final = raw_coeff_h2s * c.h2s_32 * fac_s
 
     add_explicit_source(RHS, RATES, "fes2_32", term1_final + term2_final)
+
+
+def pyrite_formation_fe2_h2s(c, k, lim, LHS, RHS, RATES, mp):
+    """
+    Reaction: 1 Fe2 + 2 H2S -> 1 FeS2
+    """
+    phi = mp.phi
+    fac_s = phi / (1.0 - phi)
+
+    # 1. Base Rate
+    rate_base = k.fe2_h2s * c.fe2 * c.h2s
+
+    # 2. Fe2+ Sink - SOLID
+    coeff_fe2 = k.fe2_h2s * c.h2s
+    add_implicit_sink(LHS, RATES, "fe2", coeff_fe2 * fac_s, rate_base * fac_s)
+
+    # 3. H2S Sink (2.0x) - LIQUID
+    coeff_h2s = 2.0 * k.fe2_h2s * c.fe2
+    add_implicit_sink(LHS, RATES, "h2s", coeff_h2s, 2.0 * rate_base)
+
+    # Calculate fraction of 32S in H2S for isotope source
+    s_val = c.h2s.value + 1e-12
+    s32_val = c.h2s_32.value + 1e-12
+    f_32_h2s = s32_val / s_val
+    add_implicit_sink(LHS, RATES, "h2s_32", coeff_h2s, 2.0 * rate_base * f_32_h2s)
+
+    # 4. FeS2 Source (1.0x molecules, 2.0x S atoms) - SOLID
+    add_explicit_source(RHS, RATES, "fes2", rate_base * fac_s)
+    # fes2_32 tracks S atoms, so it gets 2 * base_rate * fraction_32
+    add_explicit_source(RHS, RATES, "fes2_32", 2.0 * rate_base * f_32_h2s * fac_s)
 
 
 def pyrite_oxidation(c, k, lim, LHS, RHS, RATES, mp):

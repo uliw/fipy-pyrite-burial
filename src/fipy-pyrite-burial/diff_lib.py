@@ -111,16 +111,36 @@ def get_delta_from_concentration(c, li, r):
 
 
 def get_l_mass(m, d, r):
-    """Derive the concentration of the light isotope.
+    """Calculate the light isotope mass from the total mass and delta.
 
-    From a measured total concentration, a delta value and the reference ratio.
-    :param m: mass or concentration
-    :param d: delta value
-    :param r: isotopic reference ratio
+    :param m: total mass/concentration
+    :param d: delta
+    :param r: reference ratio
 
-    return mass or concentration of the light isotopeb
+    :return: light isotope mass
     """
     return (1000.0 * m) / ((d + 1000.0) * r + 1000.0)
+
+
+def get_total_s_export(df, VCDT=0.044162589):
+    """Calculate the total sulfur and delta34S at the bottom of the column.
+    Uses the logic as defined in run_fipy.py.
+    """
+    import numpy as np
+
+    phi = df.phi.iloc[-1]
+    s = (
+        phi * (df.c_so4.iloc[-1] + df.c_h2s.iloc[-1])
+        + (1 - phi) * (df.c_s0.iloc[-1] + df.c_fes.iloc[-1] + 2 * df.c_fes2.iloc[-1])
+    )
+    s32 = (
+        phi * (df.c_so4_32.iloc[-1] + df.c_h2s_32.iloc[-1])
+        + (1 - phi)
+        * (df.c_s0_32.iloc[-1] + df.c_fes_32.iloc[-1] + df.c_fes2_32.iloc[-1])
+    )
+    h = s - s32
+    d34s = np.where(s32 < 0.001, np.nan, 1000 * (h / s32 - VCDT) / VCDT)
+    return float(s), float(d34s)
 
 
 def relax_solution(curr_sol, last_sol, fraction):
@@ -524,16 +544,11 @@ def save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions):
     for species_name in species_list:
         if "_32" in species_name:
             base_species = species_name[:-3]
-            s = data[f"c_{base_species}"]
-            """fes2_32 tracks the number of S-atoms, not molecules of FeS2.
-            Since FeS2 tracks the number of molecules, fes2_32 is two times
-            larger than fes2. To get the correct delta value, we beed to devide
-            by two.
-            """
-            if species_name == "fes2_32":
-                s32 = data[f"c_{species_name}"] / 2
+            if base_species == "fes2":
+                s = 2 * data[f"c_{base_species}"]
             else:
-                s32 = data[f"c_{species_name}"]
+                s = data[f"c_{base_species}"]
+            s32 = data[f"c_{species_name}"]
             data[f"d_{base_species}"] = get_delta(s, s32, mp.VCDT)
 
     data["w"] = np.ones(len(z)) * mp.w
