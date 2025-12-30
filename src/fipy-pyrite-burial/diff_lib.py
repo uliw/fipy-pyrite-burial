@@ -248,17 +248,19 @@ def compute_sigmoidal_db(z, Db0, xL, xbm):
     Returns:
     float or np.ndarray: The bio-diffusivity at depth z.
     """
-    z = z * 100  # convert to cm
-    xL = xL * 100
-    xbm = xbm * 100
+    z_cm = z * 100
+    xL_cm = xL * 100
+    xbm_cm = xbm * 100
 
     # Define the term used in the exponents
-    exponent_term = -(z - xL) / (0.25 * xbm)
+    exponent_term = -(z_cm - xL_cm) / (0.25 * xbm_cm)
 
-    # Equation 4: Db(z) = Db0 * exp(...) / (1 + exp(...))
-    Db_z = Db0 * (np.exp(exponent_term) / (1 + np.exp(exponent_term)))
+    # Use a robust sigmoid formula to avoid overflow/NaN warnings
+    # We clip the exponent to a range that won't overflow double precision floats (~700)
+    # This still results in 0.0 or Db0 as expected at the limits.
+    Db_z = Db0 / (1.0 + np.exp(np.clip(-exponent_term, -700, 700)))
 
-    return Db_z  # convert to m^2/s
+    return Db_z
 
 
 def make_grid(L, N, initial_spacing):

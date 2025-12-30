@@ -34,8 +34,6 @@ def run_model(p_dict: dict):
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
 
-    # ggg = Q_("1 cm^2/yr").to("m^2/s")
-
     mp = data_container({
         "plot_name": "pyrite_model_fipy.csv",
         "layout_file": "plot_layout.py",  # Plot layout file
@@ -161,10 +159,9 @@ def run_model(p_dict: dict):
         setattr(D_mol, species_name, zeros)
 
     # -- Bioturbation Profile (Robust Sigmoid) --
-    D_mol.D_bio = bioturbation_profile(z, mp.DB0, mp.DB_depth)
+    # D_mol.D_bio = bioturbation_profile(z, mp.DB0, mp.DB_depth)
     D_mol.D_irr = bioturbation_profile(z, mp.BI0, mp.BI_depth)
-    D_mol.D_irr = compute_sigmoidal_db(z, mp.DB0, mp.BI_depth, 0.08)
-    D_mol.D_bio = compute_sigmoidal_db(z, mp.DB0, mp.DB_depth, 0.08)
+    D_mol.D_bio = compute_sigmoidal_db(z, mp.DB0, mp.DB_depth, 0.1)
 
     # -----------------------------------------------------------------------------
     # 4. BOUNDARY CONDITIONS
