@@ -53,7 +53,7 @@ def run_single_scenario(args):
 
 
 def main():
-    iron_values = np.linspace(2000, 8000, 12)
+    iron_values = np.linspace(100, 8000, 12)
     bt_values = [0, 0.1]
 
     # Create parameter list
@@ -64,7 +64,7 @@ def main():
 
     # Run in parallel
     print(f"Starting parallel execution with 4 processes for {len(tasks)} scenarios...")
-    with Pool(processes=4) as pool:
+    with Pool(processes=8) as pool:
         results = pool.map(run_single_scenario, tasks)
 
     # Collect data into DataFrame

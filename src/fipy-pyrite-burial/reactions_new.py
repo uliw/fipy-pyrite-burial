@@ -1,4 +1,4 @@
-"""Define diagentic reactions."""
+import numpy as np
 
 
 def diagenetic_reactions(mp, c, k, f):
@@ -7,7 +7,6 @@ def diagenetic_reactions(mp, c, k, f):
     Main orchestrator for diagenetic reactions.
     Calculates limiters, initializes matrices, and calls specific process functions.
     """
-    import numpy as np
     from diff_lib import calculate_k_iron_reduction
 
     # 1. SETUP & INITIALIZATION
@@ -374,6 +373,13 @@ def pyrite_formation_fes_h2s(c, k, lim, LHS, RHS, RATES, mp):
     add_explicit_source(RHS, RATES, "fes2_32", term1_final + term2_final)
 
 
+def apply_rate_limiter(rate, var, fraction=0.5, eps=1e-12):
+    """Limit rate so it doesn't consume more than a fraction of available var."""
+    val = var.value if hasattr(var, "value") else var
+    max_rate = val * fraction / 1.0  # Normalized dt=1 for steady state sweep
+    return np.minimum(rate, np.maximum(max_rate, 0.0))
+
+
 def pyrite_formation_fe2_h2s(c, k, lim, LHS, RHS, RATES, mp):
     """
     Reaction: 1 Fe2 + 2 H2S -> 1 FeS2
@@ -384,12 +390,18 @@ def pyrite_formation_fe2_h2s(c, k, lim, LHS, RHS, RATES, mp):
     # 1. Base Rate
     rate_base = k.fe2_h2s * c.fe2 * c.h2s
 
+    # Apply limiters to prevent over-consumption in one Picard step
+    # This is critical for fast reactions
+    rate_base = apply_rate_limiter(rate_base, c.fe2, fraction=0.4)
+    # H2S is liquid, check both Stoichiometry (2x)
+    rate_base = apply_rate_limiter(rate_base, c.h2s / 2.0, fraction=0.4)
+
     # 2. Fe2+ Sink - SOLID
-    coeff_fe2 = k.fe2_h2s * c.h2s
+    coeff_fe2 = rate_base / (c.fe2.value + 1e-12)
     add_implicit_sink(LHS, RATES, "fe2", coeff_fe2 * fac_s, rate_base * fac_s)
 
     # 3. H2S Sink (2.0x) - LIQUID
-    coeff_h2s = 2.0 * k.fe2_h2s * c.fe2
+    coeff_h2s = 2.0 * rate_base / (c.h2s.value + 1e-12)
     add_implicit_sink(LHS, RATES, "h2s", coeff_h2s, 2.0 * rate_base)
 
     # Calculate fraction of 32S in H2S for isotope source

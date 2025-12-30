@@ -129,14 +129,11 @@ def get_total_s_export(df, VCDT=0.044162589):
     import numpy as np
 
     phi = df.phi.iloc[-1]
-    s = (
-        phi * (df.c_so4.iloc[-1] + df.c_h2s.iloc[-1])
-        + (1 - phi) * (df.c_s0.iloc[-1] + df.c_fes.iloc[-1] + 2 * df.c_fes2.iloc[-1])
+    s = phi * (df.c_so4.iloc[-1] + df.c_h2s.iloc[-1]) + (1 - phi) * (
+        df.c_s0.iloc[-1] + df.c_fes.iloc[-1] + 2 * df.c_fes2.iloc[-1]
     )
-    s32 = (
-        phi * (df.c_so4_32.iloc[-1] + df.c_h2s_32.iloc[-1])
-        + (1 - phi)
-        * (df.c_s0_32.iloc[-1] + df.c_fes_32.iloc[-1] + df.c_fes2_32.iloc[-1])
+    s32 = phi * (df.c_so4_32.iloc[-1] + df.c_h2s_32.iloc[-1]) + (1 - phi) * (
+        df.c_s0_32.iloc[-1] + df.c_fes_32.iloc[-1] + df.c_fes2_32.iloc[-1]
     )
     h = s - s32
     d34s = np.where(s32 < 0.001, np.nan, 1000 * (h / s32 - VCDT) / VCDT)
@@ -231,6 +228,37 @@ def bioturbation_profile_2(z, D_max, cutoff_depth, threshold=1e-12):
     sigmoid[z > cutoff_depth] = 0.0
 
     return sigmoid
+
+
+def compute_sigmoidal_db(z, Db0, xL, xbm):
+    """
+    Computes the bio-diffusivity (Db) at a specific depth (z)
+    using Equation 4 from van de Velde and Meysman (2016).
+
+    Parameters:
+    z   : float or np.ndarray
+          Depth into the sediment in m
+    Db0 : float
+          Bio-diffusivity coefficient m^2/s
+    xL  : float
+          Depth of the mixed layer in m
+    xbm : float
+          Attenuation coefficient determining the width of the transition zone [m]
+
+    Returns:
+    float or np.ndarray: The bio-diffusivity at depth z.
+    """
+    z = z * 100  # convert to cm
+    xL = xL * 100
+    xbm = xbm * 100
+
+    # Define the term used in the exponents
+    exponent_term = -(z - xL) / (0.25 * xbm)
+
+    # Equation 4: Db(z) = Db0 * exp(...) / (1 + exp(...))
+    Db_z = Db0 * (np.exp(exponent_term) / (1 + np.exp(exponent_term)))
+
+    return Db_z  # convert to m^2/s
 
 
 def make_grid(L, N, initial_spacing):
@@ -363,7 +391,7 @@ def run_steady_state_solver(
         diff_term = DiffusionTerm(
             coeff=CellVariable(mesh=mesh, value=D_total * scaling)
         )
-        transport_eqs[species_name] = (conv_term, diff_term)
+        transport_eqs[species_name] = (conv_term, diff_term, scaling)
 
     while max_change > mp.tolerance and step < mp.max_steps:
         step += 1
@@ -384,7 +412,7 @@ def run_steady_state_solver(
             props = bc_map[species_name]
 
             # Reconstruct the equation with UPDATED reaction terms
-            conv_term, diff_term = transport_eqs[species_name]
+            conv_term, diff_term, scaling = transport_eqs[species_name]
 
             lhs_val = getattr(f_res, species_name)[0]
             rhs_val = getattr(f_res, species_name)[1]

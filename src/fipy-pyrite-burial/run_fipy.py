@@ -19,6 +19,7 @@ def run_model(p_dict: dict):
         calculate_k_iron_reduction,
         data_container,
         diff_coeff,
+        compute_sigmoidal_db,
         bioturbation_profile,
         relax_solution,
         get_l_mass,
@@ -30,16 +31,10 @@ def run_model(p_dict: dict):
     )
     from reactions_new import diagenetic_reactions
 
-    # from reactions_new import diagenetic_reactions
-    # -----------------------------------------------------------------------------
-    # 1. PARAMETERS & CONFIGURATION
-    # -----------------------------------------------------------------------------
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
 
-    # Calculate Organic Matter BC
-    OM_wt = 4  # wt%
-    OM_Mol = OM_wt / 100 * 2600 / 12 * 1000  # C in mmol/l
+    # ggg = Q_("1 cm^2/yr").to("m^2/s")
 
     mp = data_container({
         "plot_name": "pyrite_model_fipy.csv",
@@ -55,13 +50,13 @@ def run_model(p_dict: dict):
         "so4_d": 21,  # seawater delta
         "msr_alpha": 1.07,  # MSR enrichment factor in mUr
         "h2s_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
-        "bc_o2": 0.2,  # mmmol/l
+        "bc_o2": 0.020,  # mmmol/l
         "bc_om": weight_percent_to_mol(4, 12, 2.6),  # wt% C
         "bc_so4": 28.0,  # mmol/l
         "bc_s0": 0.0,  # mmol/l
         "bc_fe2": 0,  # wt% Fe
-        "bc_fe3": weight_percent_to_mol(2, 56, 2.6),  # wt% Fe
-        "DB0": 1e-8,  # Bioturbation coefficient
+        "bc_fe3": weight_percent_to_mol(0.5, 56, 2.6),  # wt% Fe
+        "DB0": 4e-12,  # Bioturbation coefficient
         "DB_depth": 0,  # Bioturbation depth in m
         "BI0": 0.001,  # Irrigation coefficient
         "BI_depth": 0.0,  # Irrigation depth (0 = off)
@@ -168,6 +163,8 @@ def run_model(p_dict: dict):
     # -- Bioturbation Profile (Robust Sigmoid) --
     D_mol.D_bio = bioturbation_profile(z, mp.DB0, mp.DB_depth)
     D_mol.D_irr = bioturbation_profile(z, mp.BI0, mp.BI_depth)
+    D_mol.D_irr = compute_sigmoidal_db(z, mp.DB0, mp.BI_depth, 0.08)
+    D_mol.D_bio = compute_sigmoidal_db(z, mp.DB0, mp.DB_depth, 0.08)
 
     # -----------------------------------------------------------------------------
     # 4. BOUNDARY CONDITIONS
@@ -241,9 +238,14 @@ def run_model(p_dict: dict):
 
 if __name__ == "__main__":
     from diff_lib import save_data, get_delta, weight_percent_to_mol
-    import plot_data_new
+    # import plot_data_new
 
-    p_dict = {"bc_fe3": weight_percent_to_mol(4, 56, 2.6), "DB_depth": 0.1}
+    p_dict = {
+        "bc_fe3": weight_percent_to_mol(1, 56, 2.6),
+        "DB_depth": 0.4,
+        "DB0": 4e-12,
+        "relax": 0.8,
+    }
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
 
     (
