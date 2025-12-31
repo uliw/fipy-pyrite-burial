@@ -376,6 +376,7 @@ def run_steady_state_solver(
         props = bc_map[species_name]
 
         D_total = getattr(D_mol, species_name) + D_bio
+        D_total = np.maximum(D_total, 1e-20)
         vel = mp.w
         if props["type"] == "dissolved":
             vel = mp.w - mp.advection
@@ -384,16 +385,14 @@ def run_steady_state_solver(
         phi = mp.phi
         scaling = phi if props["type"] == "dissolved" else (1.0 - phi)
 
-        # Divided form: no theta scaling for convection and diffusion coefficients
-        u_var = CellVariable(mesh=mesh, value=([vel * scaling],), rank=1)
+        # Divided form: no scaling for convection and diffusion coefficients
+        u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
         from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
         from fipy.terms.diffusionTerm import DiffusionTerm
 
         conv_term = PowerLawConvectionTerm(coeff=u_var)
-        diff_term = DiffusionTerm(
-            coeff=CellVariable(mesh=mesh, value=D_total * scaling)
-        )
-        transport_eqs[species_name] = (conv_term, diff_term, scaling)
+        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total))
+        transport_eqs[species_name] = (conv_term, diff_term, 1.0)
 
     while max_change > mp.tolerance and step < mp.max_steps:
         step += 1
@@ -615,6 +614,7 @@ def build_non_steady_equations(
 
         # 1. Transport
         D_total = getattr(D_mol, species_name) + D_bio
+        D_total = np.maximum(D_total, 1e-20)
 
         vel = mp.w
         if props["type"] == "dissolved":
@@ -625,16 +625,14 @@ def build_non_steady_equations(
         scaling = phi if props["type"] == "dissolved" else (1.0 - phi)
 
         # Explicitly create Rank 1 CellVariable for velocity to avoid shape errors
-        u_var = CellVariable(mesh=mesh, value=([vel * scaling],), rank=1)
+        u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
 
         # Use VanLeerConvectionTerm to minimize numerical dispersion artifacts in isotope ratios
         # conv_term = VanLeerConvectionTerm(coeff=u_var)
         conv_term = PowerLawConvectionTerm(coeff=u_var)
 
         # Wrap D_total in CellVariable to avoid shape ambiguity
-        diff_term = DiffusionTerm(
-            coeff=CellVariable(mesh=mesh, value=D_total * scaling)
-        )
+        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total))
 
         # 2. Reactions
         # Imported diagenetic_reactions returns (LHS_coeff, RHS_val, rate)
