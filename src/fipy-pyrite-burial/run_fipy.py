@@ -28,6 +28,7 @@ def run_model(p_dict: dict):
         run_steady_state_solver,
         build_non_steady_equations,
         weight_percent_to_mol,
+        compute_bio_irrigation_alpha,
     )
     from reactions_new import diagenetic_reactions
 
@@ -56,7 +57,7 @@ def run_model(p_dict: dict):
         "bc_fe3": weight_percent_to_mol(0.5, 56, 2.6),  # wt% Fe
         "DB0": 4e-12,  # Bioturbation coefficient
         "DB_depth": 0,  # Bioturbation depth in m
-        "BI0": 0.001,  # Irrigation coefficient
+        "BI0": 1e-6,  # should be < 1e-5
         "BI_depth": 0.0,  # Irrigation depth (0 = off)
         "eps": 1e-4,  # limiters
         "relax": 0.8,  # relaxation parameter
@@ -160,7 +161,7 @@ def run_model(p_dict: dict):
 
     # -- Bioturbation Profile (Robust Sigmoid) --
     # D_mol.D_bio = bioturbation_profile(z, mp.DB0, mp.DB_depth)
-    D_mol.D_irr = bioturbation_profile(z, mp.BI0, mp.BI_depth)
+    D_mol.D_irr = compute_bio_irrigation_alpha(z, mp.BI0, mp.BI_depth)
     D_mol.D_bio = compute_sigmoidal_db(z, mp.DB0, mp.DB_depth, 0.1)
 
     # -----------------------------------------------------------------------------
