@@ -263,6 +263,30 @@ def compute_sigmoidal_db(z, Db0, xL, xbm):
     return Db_z
 
 
+def compute_bio_irrigation_alpha(z, alpha0, x_irr):
+    """
+    Computes the bio-irrigation coefficient (alpha) at a specific depth (z)
+    using Equation 6 from van de Velde and Meysman (2016).
+
+    Parameters:
+    z     : float or np.ndarray
+            Depth into the sediment (m).
+    alpha0: float
+            Bio-irrigation coefficient at the sediment-water interface(SWI).
+    x_irr : float
+            Attenuation coefficient determining the depth of irrigation (m).
+
+    Returns:
+    float or np.ndarray: The irrigation intensity at depth z.
+    """
+    z = z * 100
+    x_irr = x_irr * 100
+    # Equation 6: alpha(z) = alpha0 * exp(-z / x_irr)
+    alpha_z = alpha0 * np.exp(-z / x_irr)
+
+    return alpha_z
+
+
 def make_grid(L, N, initial_spacing):
     """
     Construct a 1D grid with variable spacing (geometric progression).
