@@ -405,36 +405,26 @@ def iron_sulfide_formation(c, k, lim, LHS, RHS, RATES, mp):
     """
     Reaction: 1 Fe2 + 1 H2S -> 1 FeS
     """
+
+    # 1. Porosity correction
     phi = mp.phi
     fac_s = phi / (1.0 - phi)
 
-    # 1. Base Rate
-    rate_base = k.fe2_h2s * c.fe2 * c.h2s
-
-    # Apply limiters to prevent over-consumption in one Picard step
-    # This is critical for fast reactions
-    rate_base = apply_rate_limiter(rate_base, c.fe2, fraction=0.4)
-    # H2S is liquid, check Stoichiometry (1x)
-    rate_base = apply_rate_limiter(rate_base, c.h2s, fraction=0.4)
-
     # 2. Fe2+ Sink - SOLID
-    coeff_fe2 = rate_base / (c.fe2.value + 1e-12)
-    add_implicit_sink(LHS, RATES, "fe2", coeff_fe2 * fac_s, rate_base * fac_s)
+    coeff_fe2 = k.fe2_h2s * c.h2s * fac_s
+    add_implicit_sink(LHS, RATES, "fe2", coeff_fe2, coeff_fe2 * c.h2s)
 
     # 3. H2S Sink - LIQUID
-    coeff_h2s = rate_base / (c.h2s.value + 1e-12)
-    add_implicit_sink(LHS, RATES, "h2s", coeff_h2s, rate_base)
+    coeff_h2s = k.fe2_h2s * c.fes
+    add_implicit_sink(LHS, RATES, "h2s", coeff_h2s, coeff_h2s * c.h2s)
 
     # Calculate fraction of 32S in H2S for isotope source
-    s_val = c.h2s.value + 1e-12
-    s32_val = c.h2s_32.value + 1e-12
-    f_32_h2s = s32_val / s_val
-    add_implicit_sink(LHS, RATES, "h2s_32", coeff_h2s, rate_base * f_32_h2s)
+    add_implicit_sink(LHS, RATES, "h2s_32", coeff_h2s, coeff_h2s * c.h2s)
 
     # 4. FeS Source  SOLID
-    add_explicit_source(RHS, RATES, "fes", rate_base * fac_s)
+    add_explicit_source(RHS, RATES, "fes", coeff_fe2 * c.h2s)
     # fes_32
-    add_explicit_source(RHS, RATES, "fes_32", rate_base * f_32_h2s * fac_s)
+    add_explicit_source(RHS, RATES, "fes_32", coeff_fe2 * c.h2s_32)
 
 
 def pyrite_oxidation(c, k, lim, LHS, RHS, RATES, mp):

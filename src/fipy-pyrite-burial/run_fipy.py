@@ -25,7 +25,7 @@ def run_model(p_dict: dict):
         get_l_mass,
         get_delta,
         run_non_steady_solver,
-        run_steady_state_solver,
+        run_steady_state_solver_optimized as run_steady_state_solver,
         build_non_steady_equations,
         weight_percent_to_mol,
         compute_bio_irrigation_alpha,
@@ -80,7 +80,7 @@ def run_model(p_dict: dict):
         "fes2_ox": 1e-10,  # FeS2 + O2 -> SO4, Halevy et al
         "fes_s0": 5e-8,  # FeS + S0 -> FeS2, TBD ???
         "fes_h2s": 5e-8,  # FeS + H2S -> FeS2, at 10C -> notes.org
-        "fe2_h2s": 5e-3,  # Fe2+ + H2S -> FeS basically instantly.
+        "fe2_h2s": 1e-4,  # Fe2+ + H2S -> FeS basically instantly.
         # Fe3 + H2S -> FeS * S0 -> calculate_k_iron_reduction, Halevy
         "fe3_h2s": calculate_k_iron_reduction(mp.bc_fe3, 0),  # ~1.6e-8
     })
@@ -240,9 +240,10 @@ if __name__ == "__main__":
 
     p_dict = {
         "bc_fe3": weight_percent_to_mol(1, 56, 2.6),
-        "DB_depth": 0,
+        "DB_depth": 0.4,
         "DB0": 4e-12,
         "relax": 0.8,
+        "tolerance": 1e-11,  # convergence criterion
     }
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
 
