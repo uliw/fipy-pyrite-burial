@@ -365,6 +365,142 @@ def make_grid(L, N, initial_spacing):
     return mesh, z_centers
 
 
+def run_steady_state_coupled(
+    mp,
+    equations,  # not used, but keeps the call compatible
+    c,
+    species_list,
+    k,
+    diagenetic_reactions,
+    mesh,
+    D_mol,
+    D_bio,
+    D_irr,
+    bc_map,
+):
+    """
+    Solve the equation system as a set of coupled reactions, rather than sequentially.
+
+    Technical Note on Coupling: Regarding your comment on diagenetic_reactions and
+    coupling: To fully utilize the coupled solver's ability to handle stiff
+    cross-dependencies, diagenetic_reactions would need to be modified to return
+    Cross-Terms (dependencies of Species A on Species B), not just self-dependencies.
+    These would then be added to the equation for Species A as
+    ImplicitSourceTerm(coeff=..., var=SpeciesB).
+    """
+    from fipy import LinearLUSolver, CellVariable
+    from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
+    from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
+    from fipy.terms.diffusionTerm import DiffusionTerm
+    import numpy as np
+    import time
+    from functools import reduce
+
+    start_wall = time.time()
+    print("Starting Coupled Steady State Solver...")
+    # For coupled systems, we usually need a sparse solver. LinearLUSolver works.
+    solver = LinearLUSolver(tolerance=mp.tolerance)
+
+    # 1. PRE-BUILD THE EQUATIONS
+    # --------------------------
+    lhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list}
+    rhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list}
+
+    eqs = []
+
+    for species_name in species_list:
+        var = getattr(c, species_name)
+        props = bc_map[species_name]
+
+        # -- Transport --
+        D_total = getattr(D_mol, species_name) + D_bio
+        D_total = np.maximum(D_total, 1e-20)
+
+        vel = mp.w
+        if props["type"] == "dissolved":
+            vel = mp.w - mp.advection
+
+        u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
+        # FIX: Explicitly bind variables to terms for coupled solver inference
+        conv_term = PowerLawConvectionTerm(coeff=u_var, var=var)
+        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total), var=var)
+
+        # -- Reactions --
+        lhs_term = ImplicitSourceTerm(coeff=lhs_vars[species_name], var=var)
+        rhs_term = rhs_vars[species_name]
+
+        # -- Irrigation --
+        if props["type"] == "dissolved":
+            irr_sink = ImplicitSourceTerm(
+                coeff=-CellVariable(mesh=mesh, value=D_irr * mp.phi), var=var
+            )
+            irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"] * mp.phi)
+        else:
+            irr_sink = 0.0
+            irr_source = 0.0
+
+        # Assemble Equation
+        eq = conv_term == diff_term + lhs_term + rhs_term + irr_sink + irr_source
+        eqs.append(eq)
+
+    # Create the Coupled Equation System
+    coupled_eq = reduce(lambda a, b: a & b, eqs)
+
+    # 2. PICARD ITERATION LOOP
+    # ------------------------
+    max_change = 1e10
+    step = 0
+
+    while max_change > mp.tolerance and step < mp.max_steps:
+        step += 1
+
+        last_sol = {s: getattr(c, s).value.copy() for s in species_list}
+
+        # Update reaction terms
+        f_res = diagenetic_reactions(mp, c, k, f=data_container())
+
+        for species_name in species_list:
+            lhs_val = getattr(f_res, species_name)[0]
+            rhs_val = getattr(f_res, species_name)[1]
+
+            lhs_vars[species_name].setValue(getattr(lhs_val, "value", lhs_val))
+            rhs_vars[species_name].setValue(-getattr(rhs_val, "value", rhs_val))
+
+        # Sweep the Coupled System
+        res = coupled_eq.sweep(solver=solver)
+
+        # Relaxation and Convergence
+        max_change = 0
+        for species_name in species_list:
+            var = getattr(c, species_name)
+            new_val = relax_solution(var.value, last_sol[species_name], mp.relax)
+            var.setValue(new_val)
+
+            change = np.max(np.abs(var.value - last_sol[species_name]))
+            max_change = max(max_change, change)
+
+        if step % 10 == 0 or step == 1:
+            print(
+                f"Iteration {step}: Max Var Change {max_change:.2e}, Coupled Residual {res:.2e}"
+            )
+
+    # 3. FINALIZE
+    if step >= mp.max_steps:
+        converged = "No"
+        print(
+            f"Warning: Coupled solver did not converge. Last change: {max_change:.2e}"
+        )
+    else:
+        converged = "Yes"
+        print(f"Coupled steady state converged in {step} iterations.")
+
+    end_wall = time.time()
+    total_time = end_wall - start_wall
+    print(f"Coupled Solver Wall Time: {total_time:.2f} seconds")
+
+    return converged, step, total_time
+
+
 def run_steady_state_solver_optimized(
     mp,
     equations,  # not used, but keeps the call compatible
@@ -398,10 +534,10 @@ def run_steady_state_solver_optimized(
     # Placeholders for dynamic reaction terms
     lhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list}
     rhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list}
-    
+
     # Store equations for each species
     species_eqs = {}
-    
+
     for species_name in species_list:
         var = getattr(c, species_name)
         props = bc_map[species_name]
@@ -409,27 +545,25 @@ def run_steady_state_solver_optimized(
         # -- Transport --
         D_total = getattr(D_mol, species_name) + D_bio
         D_total = np.maximum(D_total, 1e-20)
-        
+
         vel = mp.w
         if props["type"] == "dissolved":
             vel = mp.w - mp.advection
-        
+
         u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
         conv_term = PowerLawConvectionTerm(coeff=u_var)
         diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total))
 
         # -- Reactions (Symbolic links to lhs_vars and rhs_vars) --
         lhs_term = ImplicitSourceTerm(coeff=lhs_vars[species_name])
-        rhs_term = rhs_vars[species_name] 
+        rhs_term = rhs_vars[species_name]
 
         # -- Irrigation --
         if props["type"] == "dissolved":
             irr_sink = ImplicitSourceTerm(
                 coeff=-CellVariable(mesh=mesh, value=D_irr * mp.phi)
             )
-            irr_source = CellVariable(
-                mesh=mesh, value=D_irr * props["top"] * mp.phi
-            )
+            irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"] * mp.phi)
         else:
             irr_sink = 0.0
             irr_source = 0.0
@@ -442,10 +576,10 @@ def run_steady_state_solver_optimized(
     # ------------------------
     max_change = 1e10
     step = 0
-    
+
     while max_change > mp.tolerance and step < mp.max_steps:
         step += 1
-        
+
         # Store previous iteration values
         last_sol = {s: getattr(c, s).value.copy() for s in species_list}
 
@@ -455,11 +589,11 @@ def run_steady_state_solver_optimized(
         res = 0
         for species_name in species_list:
             var = getattr(c, species_name)
-            
+
             # Update the placeholders with current reaction values
             lhs_val = getattr(f_res, species_name)[0]
             rhs_val = getattr(f_res, species_name)[1]
-            
+
             # Use .value if the result is symbolic to avoid recursion/overhead
             lhs_vars[species_name].setValue(getattr(lhs_val, "value", lhs_val))
             rhs_vars[species_name].setValue(-getattr(rhs_val, "value", rhs_val))
@@ -473,7 +607,7 @@ def run_steady_state_solver_optimized(
             var = getattr(c, species_name)
             new_val = relax_solution(var.value, last_sol[species_name], mp.relax)
             var.setValue(new_val)
-            
+
             change = np.max(np.abs(var.value - last_sol[species_name]))
             max_change = max(max_change, change)
 
@@ -486,7 +620,9 @@ def run_steady_state_solver_optimized(
     # -----------
     if step >= mp.max_steps:
         converged = "No"
-        print(f"Warning: Steady state solver did not converge. Last change: {max_change:.2e}")
+        print(
+            f"Warning: Steady state solver did not converge. Last change: {max_change:.2e}"
+        )
     else:
         converged = "Yes"
         print(f"Steady state converged in {step} iterations.")

@@ -25,7 +25,7 @@ def run_model(p_dict: dict):
         get_l_mass,
         get_delta,
         run_non_steady_solver,
-        run_steady_state_solver_optimized as run_steady_state_solver,
+        run_steady_state_coupled as run_steady_state_solver,
         build_non_steady_equations,
         weight_percent_to_mol,
         compute_bio_irrigation_alpha,
