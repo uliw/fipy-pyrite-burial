@@ -25,12 +25,15 @@ def run_model(p_dict: dict):
         get_l_mass,
         get_delta,
         run_non_steady_solver,
+        # run_steady_state_solver_optimized as run_steady_state_solver,
         run_steady_state_coupled as run_steady_state_solver,
         build_non_steady_equations,
         weight_percent_to_mol,
         compute_bio_irrigation_alpha,
     )
+
     from reactions_new import diagenetic_reactions
+    # from coupled_reactions import diagenetic_reactions
 
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
@@ -45,7 +48,7 @@ def run_model(p_dict: dict):
         "temp": [10.0, 10.1],  # temp top, bottom, in C
         "phi": 0.65,  # porosity
         "w": Q_("46 cm/kyr").to("m/s").m,  # sedimentation rate in m/s
-        "advection": 0,  # upward directed flow component
+        "advection": 0,  # upward directed flow componentu
         "so4_d": 21,  # seawater delta
         "msr_alpha": 1.07,  # MSR enrichment factor in mUr
         "h2s_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
@@ -63,7 +66,7 @@ def run_model(p_dict: dict):
         "relax": 0.8,  # relaxation parameter
         "tolerance": 1e-11,  # convergence criterion
         "dt_max": 100,  # time step in years
-        "max_steps": 2000,  # max number of iterations
+        "max_steps": 1000,  # max number of iterations
         "run_time": 3e5,  # run time in years
         "VCDT": 0.044162589,  # VCDT reference ratio
     })
@@ -239,8 +242,8 @@ if __name__ == "__main__":
     # import plot_data_new
 
     p_dict = {
-        "bc_fe3": weight_percent_to_mol(1, 56, 2.6),
-        "DB_depth": 0.4,
+        "bc_fe3": weight_percent_to_mol(2, 56, 2.6),
+        "DB_depth": 0,
         "DB0": 4e-12,
         "relax": 0.8,
         "tolerance": 1e-11,  # convergence criterion

@@ -54,7 +54,7 @@ def run_single_scenario(args):
 
 def main():
     iron_values = np.linspace(100, 8000, 12)
-    bt_values = [0, 0.1]
+    bt_values = [0, 0.4]
 
     # Create parameter list
     tasks = []
