@@ -287,17 +287,18 @@ def compute_bio_irrigation_alpha(z, alpha0, x_irr):
     return alpha_z
 
 
-def make_grid(L, N, initial_spacing):
+def make_grid(L, initial_spacing, max_spacing, r=1.05):
     """
-    Construct a 1D grid with variable spacing (geometric progression).
+    Construct a 1D grid driven by spacing constraints.
 
-    The grid is finer near z=0 and coarser at depth.
+    Growth is geometric (at rate r) until max_spacing is reached.
 
     Args:
     -----
         L (float): Total length of the domain (max depth).
-        N (int): Number of cells.
         initial_spacing (float): The size of the first cell (at z=0).
+        max_spacing (float): Maximum cell size allowed.
+        r (float): Geometric growth rate (default 1.05).
 
     Returns:
     -------
@@ -307,57 +308,31 @@ def make_grid(L, N, initial_spacing):
     """
     from fipy import Grid1D
     import numpy as np
-    from scipy.optimize import brentq
 
-    # Case 1: Uniform Grid is sufficient or requested spacing is large
-    if abs(initial_spacing * N - L) < 1e-9:
-        dx = L / N
-        return Grid1D(nx=N, dx=dx), np.linspace(dx / 2, L - dx / 2, N)
+    if initial_spacing >= max_spacing:
+        initial_spacing = max_spacing
 
-    if initial_spacing * N > L:
-        # Fallback to uniform if initial spacing is too large
-        print("Warning: initial_spacing * N > L. Reverting to uniform grid.")
-        dx = L / N
-        return Grid1D(nx=N, dx=dx), np.linspace(dx / 2, L - dx / 2, N)
-
-    # Case 2: Geometric Progression
-    # Sum = a * (r^N - 1) / (r - 1) = L
-    # We look for r > 1.
-    # Function to zero: a * (r^N - 1) / (r - 1) - L
-    # But to avoid division by zero near 1, we can use the multiplied form but search strictly > 1.
-
-    def func(r):
-        return initial_spacing * (r**N - 1) - L * (r - 1)
-
-    # Bracket search.
-    # r=1 produces a*N - L < 0 (since a*N < L)
-    # r=2 produces massive number.
-    # Root is between 1+epsilon and 2 (usually very close to 1).
-
-    try:
-        r_solution = brentq(func, 1.00000001, 2.0)
-    except Exception as e:
-        print(f"Grid generation optimization failed: {e}. Reverting to linear.")
-        dx = L / N
-        return Grid1D(nx=N, dx=dx), np.linspace(dx / 2, L - dx / 2, N)
-
-    # Generate faces
-    faces = np.zeros(N + 1)
+    dx_list = []
+    current_z = 0
     current_dx = initial_spacing
 
-    faces[0] = 0
-    for i in range(1, N + 1):
-        faces[i] = faces[i - 1] + current_dx
-        current_dx *= r_solution
+    # 1. Geometric Section
+    while current_z + current_dx < L and current_dx < max_spacing:
+        dx_list.append(current_dx)
+        current_z += current_dx
+        current_dx *= r
 
-    # Force the last one to be exactly L, but check error
-    if abs(faces[-1] - L) > 1e-3:
-        # If divergence is high, something went wrong, but usually we just clip.
-        pass
-    faces[-1] = L
+    # 2. Uniform Section
+    if current_z < L:
+        remaining_L = L - current_z
+        n_uniform = int(np.ceil(remaining_L / max_spacing))
+        if n_uniform > 0:
+            actual_uniform_dx = remaining_L / n_uniform
+            dx_list.extend([actual_uniform_dx] * n_uniform)
 
-    # Calculate dx array for fipy
-    dx_array = np.diff(faces)
+    dx_array = np.array(dx_list)
+    N = len(dx_array)
+    print(f"Grid generated with {N} points.")
 
     mesh = Grid1D(dx=dx_array)
     z_centers = mesh.cellCenters[0].value

@@ -223,9 +223,9 @@ def iron_reduction_h2s(c, k, lim, LHS, RHS, RATES, mp):
     add_implicit_sink(LHS, RATES, "h2s", coeff_h2s, coeff_h2s * c.h2s)
     add_implicit_sink(LHS, RATES, "h2s_32", coeff_h2s, coeff_h2s * c.h2s_32)
 
-    # Fe2+ Source (1.0x) - SOLID
+    # Fe2+ Source (1.0x) - Liquid
     rate_fe2 = k.fe3_h2s * c.fe3 * c.h2s * lim["fe3_explicit"]
-    add_explicit_source(RHS, RATES, "fe2", rate_fe2 * fac_s)
+    add_explicit_source(RHS, RATES, "fe2", rate_fe2)
 
     # S0 Source (0.5x) - SOLID
     s0_rate = 0.5 * k.fe3_h2s * c.fe3 * c.h2s
@@ -244,9 +244,9 @@ def fe2_oxidation(c, k, lim, LHS, RHS, RATES, mp):
 
     rate_base = k.fe2_ox * c.fe2 * c.o2
 
-    # Fe2+ Sink - SOLID
+    # Fe2+ Sink - Liquid
     coeff_fe2 = k.fe2_ox * c.o2
-    add_implicit_sink(LHS, RATES, "fe2", coeff_fe2 * fac_s, rate_base * fac_s)
+    add_implicit_sink(LHS, RATES, "fe2", coeff_fe2, rate_base)
 
     # O2 Sink (1/4) - LIQUID
     coeff_o2 = k.fe2_ox * c.fe2
@@ -403,6 +403,121 @@ def apply_rate_limiter(rate, var, fraction=0.5, eps=1e-12):
 
 def iron_sulfide_formation(c, k, lim, LHS, RHS, RATES, mp):
     """
+    Reaction: Fe2 + H2S <-> FeS
+    Method: Switch Kinetic Model with Full Linearization (Taylor Expansion)
+    """
+    # 1. Porosity correction
+    phi = mp.phi
+    fac_s = phi / (1.0 - phi)  # Converts Porewater Rate -> Solid Rate
+
+    # 2. Saturation State
+    # omega_den = [H+] * Ksp
+    omega_den = mp.hplus * k.isp_fes + 1e-30
+    omega = (c.fe2 * c.h2s) / omega_den
+
+    # 3. Switches
+    is_supersat = omega > 1.0
+    is_undersat = omega <= 1.0
+
+    # =======================================================================
+    # PRECIPITATION (Omega > 1)
+    # Rate = k_ISP * (Omega - 1)  =  k_ISP * Omega  -  k_ISP
+    # =======================================================================
+    k_isp = k.fe2_h2s
+
+    # A. Implicit Sink Term ( k_ISP * Omega )
+    # This acts as a sink for Fe2 and H2S
+    # Coeff = (k_ISP * [Partner]) / Denom
+    precip_coeff_fe2 = (k_isp * c.h2s / omega_den) * is_supersat
+    precip_coeff_h2s = (k_isp * c.fe2 / omega_den) * is_supersat
+
+    # B. Explicit Source Correction ( -k_ISP )
+    # Because Rate = Sink - Constant, and Trans = Source - Sink
+    # We add 'Constant' to RHS to represent the '-1' in (Omega - 1)
+    # Effectively: Net Sink = k*Omega - k
+    precip_const_correction = k_isp * is_supersat
+
+    # =======================================================================
+    # DISSOLUTION (Omega < 1)
+    # Rate = k_ISD * [FeS] * (1 - Omega)  =  k_ISD*[FeS]  -  k_ISD*[FeS]*Omega
+    # =======================================================================
+    k_isd = k.isd_fes
+    # Conversion: The paper's k_isd is for solid volume. We need porewater rate.
+    # Rate_Liq = k_isd * [FeS] / fac_s (approx, check units carefully)
+    conv = 1.0 / fac_s
+
+    # A. Explicit Source Term ( k_ISD * [FeS] )
+    # This is the "Maximum Dissolution Rate" if Omega were 0.
+    diss_source_max = k_isd * c.fes * conv * is_undersat
+
+    # B. Implicit Damping Term ( - k_ISD * [FeS] * Omega )
+    # This reduces the source as saturation approaches 1.
+    # It acts mathematically as a Sink for Fe2 and H2S.
+    # Coeff = (k_ISD * [FeS] * conv * [Partner]) / Denom
+    diss_damping_base = (k_isd * c.fes * conv) / omega_den * is_undersat
+
+    diss_coeff_fe2 = diss_damping_base * c.h2s
+    diss_coeff_h2s = diss_damping_base * c.fe2
+
+    # =======================================================================
+    # APPLY TERMS (Linearized)
+    # =======================================================================
+
+    # --- Fe2 (Liquid) ---
+    # Sink side: Precipitation + Dissolution Damping
+    add_implicit_sink(LHS, RATES, "fe2", precip_coeff_fe2 + diss_coeff_fe2, 0.0)
+    # Source side: Dissolution Max + Precip Correction
+    add_explicit_source(RHS, RATES, "fe2", diss_source_max + precip_const_correction)
+
+    # --- H2S (Liquid) ---
+    add_implicit_sink(LHS, RATES, "h2s", precip_coeff_h2s + diss_coeff_h2s, 0.0)
+    add_explicit_source(RHS, RATES, "h2s", diss_source_max + precip_const_correction)
+
+    # --- FeS (Solid) ---
+    # NOTE: Solid equation is governed by its own mass balance.
+    # Precipitation is a Source for FeS. Dissolution is a Sink for FeS.
+
+    # Net Liquid Rate used to drive Solid (for consistency)
+    # Rate_Net = (Precip_Sink - Precip_Source) - (Diss_Source - Diss_Sink)
+    # We calculate explicit values for the 'RATES' vector reporting
+
+    term_precip = precip_coeff_fe2 * c.fe2 - precip_const_correction
+    term_diss = diss_source_max - diss_coeff_fe2 * c.fe2
+    net_rate_liquid = term_precip - term_diss
+
+    # Apply to FeS (Scaled by fac_s)
+    # Source: Precipitation
+    # Note: We use explicit source for Precip to avoid circular FeS dependency if possible,
+    # or simple linearization.
+    add_explicit_source(RHS, RATES, "fes", term_precip * fac_s)
+
+    # Sink: Dissolution
+    # Standard implicit sink for FeS: Rate = k_ISD * (1-Omega) * [FeS]
+    # Coeff = k_ISD * (1 - Omega)
+    # This is safe to keep as standard implicit because (1-Omega) is 0 to 1.
+    diss_coeff_solid = k_isd * (1.0 - omega) * is_undersat
+    add_implicit_sink(LHS, RATES, "fes", diss_coeff_solid, term_diss * fac_s)
+
+    # --- ISOTOPES (32S) ---
+    # Same logic applies. Damping terms must be added to 32S sinks too.
+    if hasattr(c, "h2s_32"):
+        # Fe2 is the partner.
+        # H2S_32 Sink = Precip (driven by Fe) + Dissolution Damping (driven by Fe)
+        add_implicit_sink(LHS, RATES, "h2s_32", precip_coeff_h2s + diss_coeff_h2s, 0.0)
+
+        # H2S_32 Source
+        # Precip Correction (Ratio) + Dissolution Max (from FeS_32)
+        ratio_liquid = c.h2s_32 / (c.h2s + 1e-20)
+        ratio_solid = c.fes_32 / (c.fes + 1e-20)
+
+        src_precip_32 = precip_const_correction * ratio_liquid
+        src_diss_32 = diss_source_max * ratio_solid  # Comes from solid!
+
+        add_explicit_source(RHS, RATES, "h2s_32", src_precip_32 + src_diss_32)
+
+
+def iron_sulfide_formation_old(c, k, lim, LHS, RHS, RATES, mp):
+    """
     Reaction: 1 Fe2 + 1 H2S -> 1 FeS
     """
 
@@ -410,8 +525,9 @@ def iron_sulfide_formation(c, k, lim, LHS, RHS, RATES, mp):
     phi = mp.phi
     fac_s = phi / (1.0 - phi)
 
-    # 2. Fe2+ Sink - SOLID
-    coeff_fe2 = k.fe2_h2s * c.h2s * fac_s
+    # 2. Fe2+ Sink - Liquid
+    coeff_fe2 = k.fe2_h2s * c.h2s
+
     add_implicit_sink(LHS, RATES, "fe2", coeff_fe2, coeff_fe2 * c.h2s)
 
     # 3. H2S Sink - LIQUID

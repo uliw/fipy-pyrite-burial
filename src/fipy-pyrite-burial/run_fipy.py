@@ -30,6 +30,7 @@ def run_model(p_dict: dict):
         build_non_steady_equations,
         weight_percent_to_mol,
         compute_bio_irrigation_alpha,
+        make_grid,
     )
 
     from reactions_new import diagenetic_reactions
@@ -41,7 +42,6 @@ def run_model(p_dict: dict):
     mp = data_container({
         "plot_name": "pyrite_model_fipy.csv",
         "layout_file": "plot_layout.py",  # Plot layout file
-        "grid_points": 2000,  # number of cells
         "steady_state": True,  # assume steady state?
         "max_depth": 100.0,  # meters
         "display_length": 2,  # meters
@@ -52,7 +52,7 @@ def run_model(p_dict: dict):
         "so4_d": 21,  # seawater delta
         "msr_alpha": 1.07,  # MSR enrichment factor in mUr
         "h2s_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
-        "bc_o2": 0.020,  # mmmol/l
+        "bc_o2": 0.20,  # mmmol/l
         "bc_om": weight_percent_to_mol(4, 12, 2.6),  # wt% C
         "bc_so4": 28.0,  # mmol/l
         "bc_s0": 0.0,  # mmol/l
@@ -63,12 +63,15 @@ def run_model(p_dict: dict):
         "BI0": 1e-6,  # should be < 1e-5
         "BI_depth": 0.0,  # Irrigation depth (0 = off)
         "eps": 1e-4,  # limiters
-        "relax": 0.8,  # relaxation parameter
+        "relax": 0.1,  # use 0.1 for coupled solver, and 0.8 otherwise
         "tolerance": 1e-11,  # convergence criterion
         "dt_max": 100,  # time step in years
-        "max_steps": 1000,  # max number of iterations
+        "max_steps": 300,  # max number of iterations
         "run_time": 3e5,  # run time in years
         "VCDT": 0.044162589,  # VCDT reference ratio
+        "hplus": 10 ** (-7.5),  # Velde at al 2016
+        "initial_spacing": 0.001,  # meters
+        "max_spacing": 0.05,  # meters, None = no cap
     })
 
     mp.update(p_dict)
@@ -83,7 +86,10 @@ def run_model(p_dict: dict):
         "fes2_ox": 1e-10,  # FeS2 + O2 -> SO4, Halevy et al
         "fes_s0": 5e-8,  # FeS + S0 -> FeS2, TBD ???
         "fes_h2s": 5e-8,  # FeS + H2S -> FeS2, at 10C -> notes.org
-        "fe2_h2s": 1e-4,  # Fe2+ + H2S -> FeS basically instantly.
+        "fe2_h2s": 3.17e-4,  # Fe2+ + H2S -> FeS basically instantly. Velde 2016
+        "fe2_h2s": 3.17e-4 / 1e3,  # Fe2+ + H2S -> FeS basically instantly. Velde 2016
+        "isp_fes": 3160,  # mol/m^3 saturation_constant for FeS, Velde 2016
+        "isd_fes": 9.51e-8 / 1e10,  # 1/s dissolution constant, Velde 2016
         # Fe3 + H2S -> FeS * S0 -> calculate_k_iron_reduction, Halevy
         "fe3_h2s": calculate_k_iron_reduction(mp.bc_fe3, 0),  # ~1.6e-8
     })
@@ -93,17 +99,8 @@ def run_model(p_dict: dict):
     # -----------------------------------------------------------------------------
     # 2. MESH GENERATION (Variable Grid)
     # -----------------------------------------------------------------------------
-    nx = mp.grid_points
-    L = mp.max_depth
-
-    # Calculate geometric ratio to fit L with nx points, starting small
-    ratio = 1.005
-    dx_min = L * (ratio - 1) / (ratio**nx - 1)
-    dx_array = dx_min * ratio ** np.arange(nx)
-    mesh = Grid1D(dx=dx_array)
-
-    # Depth array (cell centers) for profiles
-    z = mesh.cellCenters[0].value
+    mesh, z = make_grid(mp.max_depth, mp.initial_spacing, mp.max_spacing)
+    mp.grid_points = len(z)
 
     # -----------------------------------------------------------------------------
     # 3. VARIABLES & DIFFUSION PROFILES
@@ -135,8 +132,8 @@ def run_model(p_dict: dict):
         )
 
     # -- Temperature & Porosity Profiles --
-    T_profile = np.linspace(mp.temp[0], mp.temp[1], nx)
-    phi_profile = np.ones(nx) * mp.phi
+    T_profile = np.linspace(mp.temp[0], mp.temp[1], mp.grid_points)
+    phi_profile = np.ones(mp.grid_points) * mp.phi
 
     D_mol = data_container()
     D_mol.so4 = diff_coeff(T_profile, 4.88, 0.232, mp.phi)
@@ -148,7 +145,7 @@ def run_model(p_dict: dict):
         * 1e-9
         / (1 - np.log(mp.phi**2))
     )
-    zeros = np.zeros(nx)
+    zeros = np.zeros(mp.grid_points)
     for species_name in [
         "poc",
         "fe3",
@@ -242,10 +239,10 @@ if __name__ == "__main__":
     # import plot_data_new
 
     p_dict = {
-        "bc_fe3": weight_percent_to_mol(2, 56, 2.6),
+        "bc_fe3": weight_percent_to_mol(0.0001, 56, 2.6),
         "DB_depth": 0,
         "DB0": 4e-12,
-        "relax": 0.8,
+        "relax": 0.1,  # use 0.1 with with coupled solver, and 0.8 with regular solver
         "tolerance": 1e-11,  # convergence criterion
     }
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
