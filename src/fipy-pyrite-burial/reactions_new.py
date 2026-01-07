@@ -39,9 +39,12 @@ def diagenetic_reactions(mp, c, k, f):
     # RHS: Vector (Explicit Sources)
     # RATES: For tracking/reporting
 
-    # FIX: Initialize LHS with 0.0 * Identity to ensure it is a DiscretizedScalar object
-    # Or just 0.0 as we will add to it.
+    # LHS: Diagonal (Self) Coefficients (Implicit Sinks)
     LHS = {s: 0.0 for s in species_list}
+
+    # CROSS: Off-Diagonal / Coupled Terms
+    # Dict of List of Tuples: target -> [(source_var_name, coeff_value), ...]
+    CROSS = {s: [] for s in species_list}
 
     RHS = {s: np.zeros_like(c.so4) for s in species_list}
     RATES = {s: np.zeros_like(c.so4) for s in species_list}
@@ -79,22 +82,22 @@ def diagenetic_reactions(mp, c, k, f):
     # ----------------
     # Each function updates LHS, RHS, and RATES in place
 
-    sulfate_reduction(c, k, limiters, LHS, RHS, RATES, mp)
-    aerobic_respiration(c, k, limiters, LHS, RHS, RATES, mp)
-    iron_reduction_h2s(c, k, limiters, LHS, RHS, RATES, mp)
-    h2s_oxidation(c, k, limiters, LHS, RHS, RATES, mp)
-    fe2_oxidation(c, k, limiters, LHS, RHS, RATES, mp)
-    fes_oxidation(c, k, limiters, LHS, RHS, RATES, mp)
-    pyrite_oxidation(c, k, limiters, LHS, RHS, RATES, mp)
-    pyrite_formation_s0(c, k, limiters, LHS, RHS, RATES, mp)
-    pyrite_formation_fes_h2s(c, k, limiters, LHS, RHS, RATES, mp)
-    iron_sulfide_formation(c, k, limiters, LHS, RHS, RATES, mp)
+    sulfate_reduction(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    aerobic_respiration(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    iron_reduction_h2s(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    h2s_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    fe2_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    fes_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    pyrite_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    pyrite_formation_s0(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    pyrite_formation_fes_h2s(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    iron_sulfide_formation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
 
     # 4. FINALIZE
     # -----------
     # Pack results into f container
     for s in species_list:
-        setattr(f, s, (LHS[s], RHS[s], RATES[s]))
+        setattr(f, s, (LHS[s], RHS[s], RATES[s], CROSS[s]))
 
     return f
 
@@ -125,12 +128,26 @@ def add_explicit_source(RHS, RATES, species, rate):
     RATES[species] += rate
 
 
+def add_implicit_coupling(CROSS, RATES, target_species, source_species, coeff, rate):
+    """
+    Add a coupled source term.
+
+    If d[Target]/dt = +coeff * [Source]
+    Then we add `ImplicitSourceTerm(coeff=coeff, var=Source)` to Target's equation.
+
+    CROSS[target].append( (source, coeff) )
+    """
+    CROSS[target_species].append((source_species, coeff))
+    # Note: Rates are accumulating scalar values for reporting, usually calculated explicitly before calling
+    RATES[target_species] += rate
+
+
 # =============================================================================
 # PROCESS FUNCTIONS (The Biogeochemistry)
 # =============================================================================
 
 
-def sulfate_reduction(c, k, lim, LHS, RHS, RATES, mp):
+def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Calculate sulfate reduction.
 
     Reaction: 2 POC + 1 SO4 -> 1 H2S Ref: POC (k.poc_so4)
@@ -184,7 +201,7 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, mp):
     add_explicit_source(RHS, RATES, "h2s_32", coeff_so4_32 * c.so4_32 * 0.5)
 
 
-def aerobic_respiration(c, k, lim, LHS, RHS, RATES, mp):
+def aerobic_respiration(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Define POC consumption by aerobic respiration.
 
     Reaction: 1 POC + 1.27 O2 -> 1 CO2
@@ -204,7 +221,7 @@ def aerobic_respiration(c, k, lim, LHS, RHS, RATES, mp):
     add_implicit_sink(LHS, RATES, "o2", coeff_o2, 1.27 * rate_base)
 
 
-def iron_reduction_h2s(c, k, lim, LHS, RHS, RATES, mp):
+def iron_reduction_h2s(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Define iron reduction by h2s.
 
     Because we are in a neutral medium
@@ -234,7 +251,7 @@ def iron_reduction_h2s(c, k, lim, LHS, RHS, RATES, mp):
     add_explicit_source(RHS, RATES, "s0_32", s0_32_rate * fac_s)
 
 
-def fe2_oxidation(c, k, lim, LHS, RHS, RATES, mp):
+def fe2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     Reaction: 4 FeS2+ O2 -> 1 Fe3OOH
     Ref: FeS (k.fes_ox)
@@ -256,7 +273,7 @@ def fe2_oxidation(c, k, lim, LHS, RHS, RATES, mp):
     add_explicit_source(RHS, RATES, "fe3", rate_base * fac_s)
 
 
-def fes_oxidation(c, k, lim, LHS, RHS, RATES, mp):
+def fes_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     Reaction: 1 FeS + 2.25 O2 -> 1 Fe3 + 1 SO4
     Ref: FeS (k.fes_ox)
@@ -284,7 +301,7 @@ def fes_oxidation(c, k, lim, LHS, RHS, RATES, mp):
     add_explicit_source(RHS, RATES, "so4_32", rate_base_32)
 
 
-def h2s_oxidation(c, k, lim, LHS, RHS, RATES, mp):
+def h2s_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     Reaction: 1 H2S + 0.5 O2 -> 1 S0
     Ref: H2S (k.h2s_ox)
@@ -314,7 +331,7 @@ def h2s_oxidation(c, k, lim, LHS, RHS, RATES, mp):
     add_explicit_source(RHS, RATES, "s0_32", rate_s0_32 * fac_s)
 
 
-def pyrite_formation_s0(c, k, lim, LHS, RHS, RATES, mp):
+def pyrite_formation_s0(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     Reaction: 1 FeS + 1 S0 -> 1 FeS2
     Ref: S0 (k.s0_fes)
@@ -345,7 +362,7 @@ def pyrite_formation_s0(c, k, lim, LHS, RHS, RATES, mp):
     add_explicit_source(RHS, RATES, "fes2_32", fes2_32_rate)
 
 
-def pyrite_formation_fes_h2s(c, k, lim, LHS, RHS, RATES, mp):
+def pyrite_formation_fes_h2s(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     Reaction: 1 FeS + 1 H2S -> 1 FeS2
     Ref: FeS (k.fes_h2s)
@@ -401,7 +418,7 @@ def apply_rate_limiter(rate, var, fraction=0.5, eps=1e-12):
     return np.minimum(rate, np.maximum(max_rate, 0.0))
 
 
-def iron_sulfide_formation(c, k, lim, LHS, RHS, RATES, mp):
+def iron_sulfide_formation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     Reaction: Fe2 + H2S <-> FeS
     Method: Switch Kinetic Model with Full Linearization (Taylor Expansion)
@@ -489,7 +506,22 @@ def iron_sulfide_formation(c, k, lim, LHS, RHS, RATES, mp):
     # Source: Precipitation
     # Note: We use explicit source for Precip to avoid circular FeS dependency if possible,
     # or simple linearization.
-    add_explicit_source(RHS, RATES, "fes", term_precip * fac_s)
+    # FIX: Use implicit coupling to avoid "Ghost Mass" when Fe2 changes rapidly
+    # Rate = precip_coeff_fe2 * Fe2 (approximated, ignoring constant correction for now?
+    # No, constant correction must be subtracted)
+    # Actually, we can couple the +Coeff*Fe2 part using Implicit Coupling.
+    # And keep the -Constant part as Explicit Source (negative).
+
+    # 1. The "+ k * Omega" part (Source for FeS, Sink for Fe2)
+    # This equals `precip_coeff_fe2 * Fe2`.
+    # We add this as a Coupled Source from Fe2 to FeS.
+    add_implicit_coupling(
+        CROSS, RATES, "fes", "fe2", precip_coeff_fe2 * fac_s, term_precip * fac_s
+    )
+
+    # 2. The "- k * 1" part (Correction)
+    # This damps the source. Add as negative explicit source.
+    add_explicit_source(RHS, RATES, "fes", -precip_const_correction * fac_s)
 
     # Sink: Dissolution
     # Standard implicit sink for FeS: Rate = k_ISD * (1-Omega) * [FeS]
@@ -505,7 +537,7 @@ def iron_sulfide_formation(c, k, lim, LHS, RHS, RATES, mp):
         # H2S_32 Sink = Precip (driven by Fe) + Dissolution Damping (driven by Fe)
         add_implicit_sink(LHS, RATES, "h2s_32", precip_coeff_h2s + diss_coeff_h2s, 0.0)
 
-        # H2S_32 Source
+        # H2S_32 Source (Liquid)
         # Precip Correction (Ratio) + Dissolution Max (from FeS_32)
         ratio_liquid = c.h2s_32 / (c.h2s + 1e-20)
         ratio_solid = c.fes_32 / (c.fes + 1e-20)
@@ -514,6 +546,32 @@ def iron_sulfide_formation(c, k, lim, LHS, RHS, RATES, mp):
         src_diss_32 = diss_source_max * ratio_solid  # Comes from solid!
 
         add_explicit_source(RHS, RATES, "h2s_32", src_precip_32 + src_diss_32)
+
+        # FeS_32 Source (Solid)
+        # 1. Precipitation (Coupled to H2S_32)
+        # Rate_32 = (k_isp/D) * Fe2 * H2S_32
+        # Coeff = (k_isp / omega_den) * c.fe2 * is_supersat
+        # Coupling: H2S_32 -> FeS_32
+        coeff_precip_32 = (k_isp / (omega_den + 1e-30)) * c.fe2 * is_supersat
+        
+        # Calculate approximate rate for reporting (using current values)
+        rate_precip_32 = coeff_precip_32 * c.h2s_32 * fac_s
+        
+        add_implicit_coupling(
+            CROSS, RATES, "fes_32", "h2s_32", coeff_precip_32 * fac_s, rate_precip_32
+        )
+
+        # 2. Precipitation Correction (Explicit Negative)
+        # Rate_Corr_32 = - precip_const_correction * ratio_liquid
+        add_explicit_source(
+            RHS, RATES, "fes_32", -precip_const_correction * ratio_liquid * fac_s
+        )
+
+        # 3. Dissolution Sink (Implicit)
+        # Same coefficient as FeS
+        add_implicit_sink(
+            LHS, RATES, "fes_32", diss_coeff_solid, term_diss * ratio_solid * fac_s
+        )
 
 
 def iron_sulfide_formation_old(c, k, lim, LHS, RHS, RATES, mp):
@@ -543,7 +601,7 @@ def iron_sulfide_formation_old(c, k, lim, LHS, RHS, RATES, mp):
     add_explicit_source(RHS, RATES, "fes_32", coeff_fe2 * c.h2s_32)
 
 
-def pyrite_oxidation(c, k, lim, LHS, RHS, RATES, mp):
+def pyrite_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     Reaction: 1 FeS2 + 3.5 O2 -> 1 Fe3 + 2 SO4
     Ref: FeS2 (k.fes2_ox)

@@ -943,8 +943,10 @@ def build_non_steady_equations(
 
         # 2. Reactions
         # Imported diagenetic_reactions returns (LHS_coeff, RHS_val, rate)
-        lhs_val = getattr(f_res, species_name)[0]
-        rhs_val = getattr(f_res, species_name)[1]
+        # OR (LHS_coeff, RHS_val, rate, CROSS_list)
+        res_tuple = getattr(f_res, species_name)
+        lhs_val = res_tuple[0]
+        rhs_val = res_tuple[1]
 
         # LHS from reactions_new is a constant or CellVariable expression.
         # We pass it directly to ImpicitSourceTerm to ensure it stays dynamic.
@@ -957,6 +959,20 @@ def build_non_steady_equations(
         else:
             # It's an array or number (static)
             rhs_term = CellVariable(mesh=mesh, value=-rhs_val * scaling)
+
+        # Cross-Terms (Coupled Dependencies)
+        cross_reaction_terms = 0.0
+        if len(res_tuple) > 3:
+            # res_tuple[3] is the list of (source_name, coeff) couplings
+            for source_name, coeff in res_tuple[3]:
+                source_var = getattr(c, source_name)
+                # In our convention: dC/dt = Rate.
+                # Coupled term adds `ImplicitSourceTerm(coeff=coeff, var=source_var)`
+                # which corresponds to adding `coeff * source_var` to the equation.
+                # Scaling must be applied!
+                cross_reaction_terms += ImplicitSourceTerm(
+                    coeff=coeff * scaling, var=source_var
+                )
 
         # 3. Irrigation
         if props["type"] == "dissolved":
@@ -972,7 +988,12 @@ def build_non_steady_equations(
         # Divided form uses coefficient 1.0 for TransientTerm
         eq = (
             TransientTerm(coeff=scaling) + conv_term
-            == diff_term + lhs_term + rhs_term + irr_sink + irr_source
+            == diff_term
+            + lhs_term
+            + rhs_term
+            + cross_reaction_terms
+            + irr_sink
+            + irr_source
         )
         equations.append((var, eq))
 
