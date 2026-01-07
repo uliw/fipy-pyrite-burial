@@ -75,6 +75,10 @@ def run_model(p_dict: dict):
     })
 
     mp.update(p_dict)
+    print(f"DEBUG: bc_fe3 = {mp.bc_fe3} mmol/L")
+    print(f"DEBUG: bc_fe2 = {mp.bc_fe2} mmol/L")
+    print(f"DEBUG: bc_so4 = {mp.bc_so4} mmol/L")
+    print(f"DEBUG: Fe2 type: {bc_map['fe2']['type'] if 'bc_map' in locals() else 'Check later'}")
 
     # Reaction Constants (k)
     k = data_container({
@@ -87,9 +91,9 @@ def run_model(p_dict: dict):
         "fes_s0": 5e-8,  # FeS + S0 -> FeS2, TBD ???
         "fes_h2s": 5e-8,  # FeS + H2S -> FeS2, at 10C -> notes.org
         "fe2_h2s": 3.17e-4,  # Fe2+ + H2S -> FeS basically instantly. Velde 2016
-        "fe2_h2s": 3.17e-4 / 1e3,  # Fe2+ + H2S -> FeS basically instantly. Velde 2016
+        "fe2_h2s": 3.17e-4 / 1e6,  # Fe2+ + H2S -> FeS basically instantly. Velde 2016
         "isp_fes": 3160,  # mol/m^3 saturation_constant for FeS, Velde 2016
-        "isd_fes": 9.51e-8 / 1e10,  # 1/s dissolution constant, Velde 2016
+        "isd_fes": 9.51e-8 / 1e6,  # 1/s dissolution constant, Velde 2016
         # Fe3 + H2S -> FeS * S0 -> calculate_k_iron_reduction, Halevy
         "fe3_h2s": calculate_k_iron_reduction(mp.bc_fe3, 0),  # ~1.6e-8
     })
@@ -139,6 +143,7 @@ def run_model(p_dict: dict):
     D_mol.so4 = diff_coeff(T_profile, 4.88, 0.232, mp.phi)
     D_mol.so4_32 = D_mol.so4
     D_mol.h2s = diff_coeff(T_profile, 10.4, 0.273, mp.phi)
+    D_mol.fe2 = diff_coeff(T_profile, 27.7, 1, mp.phi)
     D_mol.h2s_32 = D_mol.h2s
     D_mol.o2 = (
         (0.2604 + 0.006363 * ((T_profile + 273.15) / 1))
@@ -176,13 +181,15 @@ def run_model(p_dict: dict):
         "o2": {"top": mp.bc_o2, "type": "dissolved"},
         "s0": {"top": mp.bc_s0, "type": "particulate"},
         "s0_32": {"top": mp.bc_s0, "type": "particulate"},
-        "fe2": {"top": mp.bc_fe2, "type": "particulate"},
+        "fe2": {"top": mp.bc_fe2, "type": "dissolved"},
         "fe3": {"top": mp.bc_fe3, "type": "particulate"},
         "fes": {"top": 0.0, "type": "particulate"},
         "fes_32": {"top": 0.0, "type": "particulate"},
         "fes2": {"top": 0.0, "type": "particulate"},
         "fes2_32": {"top": 0.0, "type": "particulate"},
     }
+    
+    print(f"DEBUG CONFIRM: Fe2 type is '{bc_map['fe2']['type']}'.")
 
     for species_name, props in bc_map.items():
         var = getattr(c, species_name)
