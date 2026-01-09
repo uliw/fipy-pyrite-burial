@@ -13,6 +13,7 @@ def run_model(p_dict: dict):
     """
     import numpy as np
     import pint
+    import asyncio
 
     from fipy import Grid1D, CellVariable
     from diff_lib import (
@@ -26,15 +27,16 @@ def run_model(p_dict: dict):
         get_delta,
         run_non_steady_solver,
         # run_steady_state_solver_optimized as run_steady_state_solver,
-        run_steady_state_coupled as run_steady_state_solver,
+        run_steady_state_solver_coupled as run_steady_state_solver,
         build_non_steady_equations,
         weight_percent_to_mol,
         compute_bio_irrigation_alpha,
         make_grid,
     )
 
-    from reactions_new import diagenetic_reactions
-    # from coupled_reactions import diagenetic_reactions
+    # from reactions_new import diagenetic_reactions
+    # from reactions_old import diagenetic_reactions
+    from coupled_reactions import diagenetic_reactions
 
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
@@ -75,10 +77,6 @@ def run_model(p_dict: dict):
     })
 
     mp.update(p_dict)
-    print(f"DEBUG: bc_fe3 = {mp.bc_fe3} mmol/L")
-    print(f"DEBUG: bc_fe2 = {mp.bc_fe2} mmol/L")
-    print(f"DEBUG: bc_so4 = {mp.bc_so4} mmol/L")
-    print(f"DEBUG: Fe2 type: {bc_map['fe2']['type'] if 'bc_map' in locals() else 'Check later'}")
 
     # Reaction Constants (k)
     k = data_container({
@@ -143,7 +141,7 @@ def run_model(p_dict: dict):
     D_mol.so4 = diff_coeff(T_profile, 4.88, 0.232, mp.phi)
     D_mol.so4_32 = D_mol.so4
     D_mol.h2s = diff_coeff(T_profile, 10.4, 0.273, mp.phi)
-    D_mol.fe2 = diff_coeff(T_profile, 27.7, 1, mp.phi)
+    D_mol.fe2 = diff_coeff(T_profile, 27.7, 1, mp.phi) * 0
     D_mol.h2s_32 = D_mol.h2s
     D_mol.o2 = (
         (0.2604 + 0.006363 * ((T_profile + 273.15) / 1))
@@ -154,7 +152,6 @@ def run_model(p_dict: dict):
     for species_name in [
         "poc",
         "fe3",
-        "fe2",
         "fes",
         "fes_32",
         "s0",
@@ -181,14 +178,15 @@ def run_model(p_dict: dict):
         "o2": {"top": mp.bc_o2, "type": "dissolved"},
         "s0": {"top": mp.bc_s0, "type": "particulate"},
         "s0_32": {"top": mp.bc_s0, "type": "particulate"},
-        "fe2": {"top": mp.bc_fe2, "type": "dissolved"},
+        # "fe2": {"top": mp.bc_fe2, "type": "dissolved"},
+        "fe2": {"top": mp.bc_fe2, "type": "particulate"},
         "fe3": {"top": mp.bc_fe3, "type": "particulate"},
         "fes": {"top": 0.0, "type": "particulate"},
         "fes_32": {"top": 0.0, "type": "particulate"},
         "fes2": {"top": 0.0, "type": "particulate"},
         "fes2_32": {"top": 0.0, "type": "particulate"},
     }
-    
+
     print(f"DEBUG CONFIRM: Fe2 type is '{bc_map['fe2']['type']}'.")
 
     for species_name, props in bc_map.items():
@@ -211,6 +209,7 @@ def run_model(p_dict: dict):
             D_mol.D_bio,
             D_mol.D_irr,
             bc_map,
+            z,
         )
     else:
         equations = build_non_steady_equations(
@@ -249,7 +248,7 @@ if __name__ == "__main__":
         "bc_fe3": weight_percent_to_mol(0.0001, 56, 2.6),
         "DB_depth": 0,
         "DB0": 4e-12,
-        "relax": 0.1,  # use 0.1 with with coupled solver, and 0.8 with regular solver
+        "relax": 0.8,  # use 0.1 with with coupled solver, and 0.8 with regular solver
         "tolerance": 1e-11,  # convergence criterion
     }
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}

@@ -29,6 +29,9 @@ processes in geological simulations.
 
 import numpy as np
 from typing import Union
+from concurrent.futures import ThreadPoolExecutor
+
+_executor = None
 
 
 class data_container(dict):
@@ -340,7 +343,7 @@ def make_grid(L, initial_spacing, max_spacing, r=1.05):
     return mesh, z_centers
 
 
-def run_steady_state_coupled(
+def run_steady_state_solver_coupled(
     mp,
     equations,  # not used, but keeps the call compatible
     c,
@@ -352,6 +355,7 @@ def run_steady_state_coupled(
     D_bio,
     D_irr,
     bc_map,
+    z,
 ):
     """
     Solve the equation system as a set of coupled reactions, rather than
@@ -373,24 +377,24 @@ def run_steady_state_coupled(
     # --------------------------
     lhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list}
     rhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list}
-    
+
     # Store cross-term placeholders: dict of dicts
     # cross_vars[target_species][source_species] = CellVariable
     cross_vars = {s: {} for s in species_list}
 
     # Analyze Topology once
     f_init = diagenetic_reactions(mp, c, k, f=data_container())
-    
+
     for s in species_list:
         res = getattr(f_init, s)
         if len(res) > 3:
             # res[3] is the list of (source_name, coeff) couplings
-            for (source_name, _) in res[3]:
+            for source_name, _ in res[3]:
                 if source_name not in cross_vars[s]:
-                     cross_vars[s][source_name] = CellVariable(mesh=mesh, value=0.0)
+                    cross_vars[s][source_name] = CellVariable(mesh=mesh, value=0.0)
 
     eqs = []
-    
+
     for species_name in species_list:
         var = getattr(c, species_name)
         props = bc_map[species_name]
@@ -398,11 +402,11 @@ def run_steady_state_coupled(
         # -- Transport --
         D_total = getattr(D_mol, species_name) + D_bio
         D_total = np.maximum(D_total, 1e-20)
-        
+
         vel = mp.w
         if props["type"] == "dissolved":
             vel = mp.w - mp.advection
-        
+
         u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
         # FIX: Explicitly bind variables to terms for coupled solver inference
         conv_term = PowerLawConvectionTerm(coeff=u_var, var=var)
@@ -410,8 +414,8 @@ def run_steady_state_coupled(
 
         # -- Reactions (Diagonal) --
         lhs_term = ImplicitSourceTerm(coeff=lhs_vars[species_name], var=var)
-        rhs_term = rhs_vars[species_name] 
-        
+        rhs_term = rhs_vars[species_name]
+
         # -- Reactions (Cross-Coupling) --
         # Add implicit source terms for dependencies on other variables
         cross_reaction_terms = 0.0
@@ -428,17 +432,23 @@ def run_steady_state_coupled(
         # -- Irrigation --
         if props["type"] == "dissolved":
             irr_sink = ImplicitSourceTerm(
-                coeff=-CellVariable(mesh=mesh, value=D_irr * mp.phi), var=var
+                coeff=-CellVariable(mesh=mesh, value=D_irr), var=var
             )
-            irr_source = CellVariable(
-                mesh=mesh, value=D_irr * props["top"] * mp.phi
-            )
+            irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"])
         else:
             irr_sink = 0.0
             irr_source = 0.0
 
         # Assemble Equation
-        eq = conv_term == diff_term + lhs_term + rhs_term + cross_reaction_terms + irr_sink + irr_source
+        eq = (
+            conv_term
+            == diff_term
+            + lhs_term
+            + rhs_term
+            + cross_reaction_terms
+            + irr_sink
+            + irr_source
+        )
         eqs.append(eq)
 
     # Create the Coupled Equation System
@@ -448,10 +458,10 @@ def run_steady_state_coupled(
     # ------------------------
     max_change = 1e10
     step = 0
-    
+
     while max_change > mp.tolerance and step < mp.max_steps:
         step += 1
-        
+
         last_sol = {s: getattr(c, s).value.copy() for s in species_list}
 
         # Update reaction terms
@@ -461,22 +471,22 @@ def run_steady_state_coupled(
             res_tuple = getattr(f_res, species_name)
             lhs_val = res_tuple[0]
             rhs_val = res_tuple[1]
-            
+
             # Update Diagonal
             lhs_vars[species_name].setValue(getattr(lhs_val, "value", lhs_val))
             rhs_vars[species_name].setValue(-getattr(rhs_val, "value", rhs_val))
-            
+
             # Update Cross-Terms if present
             if len(res_tuple) > 3:
                 # Accumulate coefficients first to avoid overwriting if multiple terms exist for same source
                 # Initialize with 0.0
                 batch_coeffs = {src: 0.0 for src in cross_vars[species_name]}
-                
-                for (source_name, coeff) in res_tuple[3]:
+
+                for source_name, coeff in res_tuple[3]:
                     if source_name in batch_coeffs:
                         val = getattr(coeff, "value", coeff)
                         batch_coeffs[source_name] += val
-                
+
                 # Update CellVariables
                 for src_name, total_coeff in batch_coeffs.items():
                     target_cv = cross_vars[species_name][src_name]
@@ -491,7 +501,7 @@ def run_steady_state_coupled(
             var = getattr(c, species_name)
             new_val = relax_solution(var.value, last_sol[species_name], mp.relax)
             var.setValue(new_val)
-            
+
             change = np.max(np.abs(var.value - last_sol[species_name]))
             max_change = max(max_change, change)
 
@@ -499,11 +509,16 @@ def run_steady_state_coupled(
             print(
                 f"Iteration {step}: Max Var Change {max_change:.2e}, Coupled Residual {res:.2e}"
             )
+            df, fqfn = save_data_async(
+                mp, c, k, species_list, z, D_mol, diagenetic_reactions
+            )
 
     # 3. FINALIZE
     if step >= mp.max_steps:
         converged = "No"
-        print(f"Warning: Coupled solver did not converge. Last change: {max_change:.2e}")
+        print(
+            f"Warning: Coupled solver did not converge. Last change: {max_change:.2e}"
+        )
     else:
         converged = "Yes"
         print(f"Coupled steady state converged in {step} iterations.")
@@ -527,6 +542,7 @@ def run_steady_state_solver_optimized(
     D_bio,
     D_irr,
     bc_map,
+    z,
 ):
     """
     Optimized FiPy solver loop for steady state with Picard iteration.
@@ -575,9 +591,9 @@ def run_steady_state_solver_optimized(
         # -- Irrigation --
         if props["type"] == "dissolved":
             irr_sink = ImplicitSourceTerm(
-                coeff=-CellVariable(mesh=mesh, value=D_irr * mp.phi)
+                coeff=-CellVariable(mesh=mesh, value=D_irr)
             )
-            irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"] * mp.phi)
+            irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"])
         else:
             irr_sink = 0.0
             irr_source = 0.0
@@ -629,6 +645,9 @@ def run_steady_state_solver_optimized(
             print(
                 f"Iteration {step}: Max Var Change {max_change:.2e}, Linear Residual {res:.2e}"
             )
+            df, fqfn = save_data_async(
+                mp, c, k, species_list, z, D_mol, diagenetic_reactions
+            )
 
     # 3. FINALIZE
     # -----------
@@ -660,6 +679,7 @@ def run_steady_state_solver(
     D_bio,
     D_irr,
     bc_map,
+    z,
 ):
     """
     Run the FiPy solver loop for steady state with Picard iteration for non-linearity.
@@ -735,10 +755,10 @@ def run_steady_state_solver(
             # Irrigation only affects dissolved species
             if props["type"] == "dissolved":
                 irr_sink = ImplicitSourceTerm(
-                    coeff=-CellVariable(mesh=mesh, value=D_irr * mp.phi)
+                    coeff=-CellVariable(mesh=mesh, value=D_irr)
                 )
                 irr_source = CellVariable(
-                    mesh=mesh, value=D_irr * props["top"] * mp.phi
+                    mesh=mesh, value=D_irr * props["top"]
                 )
             else:
                 irr_sink = 0.0
@@ -782,7 +802,7 @@ def run_steady_state_solver(
 
     end_wall = time.time()
     total_time = end_wall - start_wall
-    print(f"Steady State Wall Time: {total_change:.2f} seconds")
+    print(f"Steady State Wall Time: {total_time:.2f} seconds")
 
     return converged, step, total_time
 
@@ -851,30 +871,36 @@ def run_non_steady_solver(mp, equations, c, species_list):
 
 def save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions):
     """
-    Save the model results to a CSV file.
+    Save the model results to a CSV file (Synchronous).
     """
+    f_final = diagenetic_reactions(mp, c, k, data_container())
+    return _save_data_to_disk(mp, c, k, species_list, z, D_mol, f_final)
+
+
+def _save_data_to_disk(mp, c, k, species_list, z, D_mol, f_final):
+    """Internal helper to write data to disk."""
     import pandas as pd
     import pathlib as pl
 
-    f_final = diagenetic_reactions(mp, c, k, data_container())
-
     data = {"z": z}
-    for species_name in species_list:
-        data[f"c_{species_name}"] = getattr(c, species_name).value
+
+    def get_v(obj):
+        """Helper to extract value from FiPy variables or return as-is."""
+        if hasattr(obj, "value"):
+            return obj.value
+        return obj
 
     for species_name in species_list:
-        rates_val = getattr(f_final, species_name)[2]
-        if hasattr(rates_val, "value"):
-            data[f"f_{species_name}"] = rates_val.value
-        else:
-            data[f"f_{species_name}"] = np.array(rates_val)
+        data[f"c_{species_name}"] = get_v(getattr(c, species_name))
+
+    for species_name in species_list:
+        res_tuple = getattr(f_final, species_name)
+        rates_val = res_tuple[2]  # Index 2 is the RATES
+        data[f"f_{species_name}"] = get_v(rates_val)
 
     # Save all items in D_mol
     for d_name, d_val in D_mol.items():
-        if hasattr(d_val, "value"):
-            data[d_name] = d_val.value
-        else:
-            data[d_name] = np.array(d_val)
+        data[d_name] = get_v(d_val)
 
     # calculate delta values
     for species_name in species_list:
@@ -893,7 +919,7 @@ def save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions):
     df = pd.DataFrame(data)
     fqfn = pl.Path.cwd() / mp.plot_name
     df.to_csv(fqfn, index=False)
-    print(f"Data saved to {fqfn}")
+    # print(f"Data saved to {fqfn}")
 
     return df, fqfn
 
@@ -977,9 +1003,9 @@ def build_non_steady_equations(
         # 3. Irrigation
         if props["type"] == "dissolved":
             irr_sink = ImplicitSourceTerm(
-                coeff=-CellVariable(mesh=mesh, value=D_irr * scaling)
+                coeff=-CellVariable(mesh=mesh, value=D_irr)
             )
-            irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"] * scaling)
+            irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"])
         else:
             irr_sink = 0.0
             irr_source = 0.0
@@ -1100,3 +1126,52 @@ def weight_percent_to_mol(wp, mw, d):
     """
 
     return wp * d * 1e4 / mw
+
+
+def _get_executor():
+    """Create a module‑wide ThreadPoolExecutor on first use."""
+    global _executor
+    if _executor is None:
+        _executor = ThreadPoolExecutor(max_workers=1)
+    return _executor
+
+
+def save_data_async(mp, c, k, species_list, z, D_mol, diagenetic_reactions) -> None:
+    """
+    Schedule a background write of model results to CSV and return immediately.
+    """
+    # 1. Capture current rates in the main thread (FiPy objects aren't thread-safe)
+    f_final = diagenetic_reactions(mp, c, k, data_container())
+
+    # 2. Snapshot values (numpy arrays) to avoid race conditions during solver update
+    def snap(obj):
+        if hasattr(obj, "value"):
+            return obj.value.copy()
+        if hasattr(obj, "copy"):
+            return obj.copy()
+        return obj
+
+    c_snap = data_container({s: snap(getattr(c, s)) for s in species_list})
+    f_snap = data_container({
+        s: (None, None, snap(getattr(f_final, s)[2])) for s in species_list
+    })
+    D_mol_snap = data_container({key: snap(val) for key, val in D_mol.items()})
+
+    # Copy metadata
+    mp_snap = data_container(mp)
+    k_snap = data_container(k)
+    z_snap = z.copy()
+
+    # 3. Submit to background worker
+    _get_executor().submit(
+        _save_data_to_disk,
+        mp_snap,
+        c_snap,
+        k_snap,
+        species_list,
+        z_snap,
+        D_mol_snap,
+        f_snap,
+    )
+
+    return None, None
