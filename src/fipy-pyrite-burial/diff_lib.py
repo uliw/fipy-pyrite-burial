@@ -590,9 +590,7 @@ def run_steady_state_solver_optimized(
 
         # -- Irrigation --
         if props["type"] == "dissolved":
-            irr_sink = ImplicitSourceTerm(
-                coeff=-CellVariable(mesh=mesh, value=D_irr)
-            )
+            irr_sink = ImplicitSourceTerm(coeff=-CellVariable(mesh=mesh, value=D_irr))
             irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"])
         else:
             irr_sink = 0.0
@@ -757,9 +755,7 @@ def run_steady_state_solver(
                 irr_sink = ImplicitSourceTerm(
                     coeff=-CellVariable(mesh=mesh, value=D_irr)
                 )
-                irr_source = CellVariable(
-                    mesh=mesh, value=D_irr * props["top"]
-                )
+                irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"])
             else:
                 irr_sink = 0.0
                 irr_source = 0.0
@@ -1002,9 +998,7 @@ def build_non_steady_equations(
 
         # 3. Irrigation
         if props["type"] == "dissolved":
-            irr_sink = ImplicitSourceTerm(
-                coeff=-CellVariable(mesh=mesh, value=D_irr)
-            )
+            irr_sink = ImplicitSourceTerm(coeff=-CellVariable(mesh=mesh, value=D_irr))
             irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"])
         else:
             irr_sink = 0.0
@@ -1078,10 +1072,10 @@ def safe_ratio(
     return out
 
 
-def calculate_k_iron_reduction(fes3, h2s):
+def calculate_k_iron_reduction(fe3, h2s):
     """
     Calculates the rate constant k_FeOx-SII for an array of ratios.
-    Fes3+/H2S
+    Fe3+/H2S
 
     Based on Equation 46 and 47 from Halevy et al. (2023).
     """
@@ -1090,7 +1084,7 @@ def calculate_k_iron_reduction(fes3, h2s):
     # Condition 2: 1 <= Ratio <= 2 -> Linear transition [cite: 1463]
     # Condition 3: Ratio > 2 -> tau = 0.5h [cite: 1464]
 
-    ratios = safe_ratio(fes3, h2s, 10.0)
+    ratios = safe_ratio(fe3, h2s, 10.0)
 
     tau_half = np.piecewise(
         ratios,

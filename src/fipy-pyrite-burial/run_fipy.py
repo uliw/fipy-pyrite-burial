@@ -34,9 +34,10 @@ def run_model(p_dict: dict):
         make_grid,
     )
 
-    # from reactions_new import diagenetic_reactions
+    from reactions_new import diagenetic_reactions
+
     # from reactions_old import diagenetic_reactions
-    from coupled_reactions import diagenetic_reactions
+    # from coupled_reactions import diagenetic_reactions
 
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
@@ -83,15 +84,14 @@ def run_model(p_dict: dict):
         "poc_o2": 5e-11,  # POC + O2 -> CO2
         "poc_so4": 1e-12,  # POC + SO4 -> H2S # within range of Halevy 7e-12
         "h2s_ox": 8e-3,  # H2S + O2 -> S0 #, Millero * 1e3 after Halevey
-        "fe2_ox": 1e-7,  # Fe2+ + O2 -> Fe3OOH, Velde 2016
+        "fe2_ox": 1e-7,  # Fe2+ + Occccc2 -> Fe3OOH, Velde 2016
         "fes_ox": 5e-10,  # FeS + O2 -> Fe3 + SO4, Halevy et al.
         "fes2_ox": 1e-10,  # FeS2 + O2 -> SO4, Halevy et al
         "fes_s0": 5e-8,  # FeS + S0 -> FeS2, TBD ???
         "fes_h2s": 5e-8,  # FeS + H2S -> FeS2, at 10C -> notes.org
         "fe2_h2s": 3.17e-4,  # Fe2+ + H2S -> FeS basically instantly. Velde 2016
-        "fe2_h2s": 3.17e-4 / 1e6,  # Fe2+ + H2S -> FeS basically instantly. Velde 2016
         "isp_fes": 3160,  # mol/m^3 saturation_constant for FeS, Velde 2016
-        "isd_fes": 9.51e-8 / 1e6,  # 1/s dissolution constant, Velde 2016
+        "isd_fes": 9.51e-8 / 1e3,  # 1/s dissolution constant, Velde 2016
         # Fe3 + H2S -> FeS * S0 -> calculate_k_iron_reduction, Halevy
         "fe3_h2s": calculate_k_iron_reduction(mp.bc_fe3, 0),  # ~1.6e-8
     })
@@ -136,18 +136,8 @@ def run_model(p_dict: dict):
     # -- Temperature & Porosity Profiles --
     T_profile = np.linspace(mp.temp[0], mp.temp[1], mp.grid_points)
     phi_profile = np.ones(mp.grid_points) * mp.phi
-
     D_mol = data_container()
-    D_mol.so4 = diff_coeff(T_profile, 4.88, 0.232, mp.phi)
-    D_mol.so4_32 = D_mol.so4
-    D_mol.h2s = diff_coeff(T_profile, 10.4, 0.273, mp.phi)
-    D_mol.fe2 = diff_coeff(T_profile, 27.7, 1, mp.phi) * 0
-    D_mol.h2s_32 = D_mol.h2s
-    D_mol.o2 = (
-        (0.2604 + 0.006363 * ((T_profile + 273.15) / 1))
-        * 1e-9
-        / (1 - np.log(mp.phi**2))
-    )
+    # Solid species
     zeros = np.zeros(mp.grid_points)
     for species_name in [
         "poc",
@@ -160,6 +150,18 @@ def run_model(p_dict: dict):
         "fes2_32",
     ]:
         setattr(D_mol, species_name, zeros)
+
+    # liquid species
+    D_mol.so4 = diff_coeff(T_profile, 4.88, 0.232, mp.phi)
+    D_mol.so4_32 = D_mol.so4
+    D_mol.h2s = diff_coeff(T_profile, 10.4, 0.273, mp.phi)
+    D_mol.fe2 = diff_coeff(T_profile, 27.7, 1, mp.phi)
+    D_mol.h2s_32 = D_mol.h2s
+    D_mol.o2 = (
+        (0.2604 + 0.006363 * ((T_profile + 273.15) / 1))
+        * 1e-9
+        / (1 - np.log(mp.phi**2))
+    )
 
     # -- Bioturbation Profile (Robust Sigmoid) --
     # D_mol.D_bio = bioturbation_profile(z, mp.DB0, mp.DB_depth)
@@ -178,8 +180,7 @@ def run_model(p_dict: dict):
         "o2": {"top": mp.bc_o2, "type": "dissolved"},
         "s0": {"top": mp.bc_s0, "type": "particulate"},
         "s0_32": {"top": mp.bc_s0, "type": "particulate"},
-        # "fe2": {"top": mp.bc_fe2, "type": "dissolved"},
-        "fe2": {"top": mp.bc_fe2, "type": "particulate"},
+        "fe2": {"top": mp.bc_fe2, "type": "dissolved"},
         "fe3": {"top": mp.bc_fe3, "type": "particulate"},
         "fes": {"top": 0.0, "type": "particulate"},
         "fes_32": {"top": 0.0, "type": "particulate"},
@@ -242,14 +243,15 @@ def run_model(p_dict: dict):
 
 if __name__ == "__main__":
     from diff_lib import save_data, get_delta, weight_percent_to_mol
+
     # import plot_data_new
 
     p_dict = {
         "bc_fe3": weight_percent_to_mol(0.0001, 56, 2.6),
         "DB_depth": 0,
         "DB0": 4e-12,
-        "relax": 0.8,  # use 0.1 with with coupled solver, and 0.8 with regular solver
-        "tolerance": 1e-11,  # convergence criterion
+        "relax": 0.1,  # use 0.1 with with coupled solver, and 0.8 with regular solver
+        "tolerance": 1e-9,  # convergence criterion
     }
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
 

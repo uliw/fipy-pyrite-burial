@@ -33,7 +33,7 @@ def get_layout(df):
             ],
             "yscale": "log",
             "xscale": "log",
-            "ylim": (0.001, 1e2),
+            "ylim": (0.001, 1e3),
             "xlim": (0.01, None),
             "left_ylabel": r"[mmol/l]",
             # "right": [
