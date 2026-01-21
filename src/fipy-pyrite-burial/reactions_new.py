@@ -52,28 +52,28 @@ def diagenetic_reactions(mp, c, k, f):
     limiters = {}
 
     # O2 Inhibition (1.0 -> 0.0)
-    limiters["inhib_o2"] = eps / (c.o2.value + eps)
+    limiters["inhib_o2"] = eps / (c.o2 + eps)
 
     # Sulfate Limiter (Implicit 1/[S+K] and Explicit [S]/[S+K])
     K_so4 = 0.2
-    limiters["so4_implicit"] = 1.0 / (c.so4.value + K_so4)
-    limiters["so4_32_implicit"] = 1.0 / (c.so4_32.value + K_so4)
+    limiters["so4_implicit"] = 1.0 / (c.so4 + K_so4)
+    limiters["so4_32_implicit"] = 1.0 / (c.so4_32 + K_so4)
 
-    limiters["so4_explicit"] = c.so4.value / (c.so4.value + K_so4)
-    limiters["so4_32_explicit"] = c.so4_32.value / (c.so4_32.value + K_so4)
+    limiters["so4_explicit"] = c.so4 / (c.so4 + K_so4)
+    limiters["so4_32_explicit"] = c.so4_32 / (c.so4_32 + K_so4)
 
     limiters["fe3_explicit"] = 1.0  # c.fe3 / (c.fe3 + 1e-3)
     limiters["fe3_implicit"] = 1.0  # 1.0 / (c.fe3 + 1e-3)
 
     K_alpha = 0.2
-    limiters["alpha_explicit"] = c.so4.value / (c.so4.value + K_alpha)
-    limiters["alpha_implicit"] = 1.0 / (c.so4.value + K_alpha)
+    limiters["alpha_explicit"] = c.so4 / (c.so4 + K_alpha)
+    limiters["alpha_implicit"] = 1.0 / (c.so4 + K_alpha)
 
     # H2S Alpha Limiter (prevents numerical issues at trace concentrations)
     limiters["h2s_alpha_explicit"] = c.h2s.value / (c.h2s.value + 0.05)
 
     # update k-values
-    k.fe3_h2s = calculate_k_iron_reduction(c.fe3.value, c.h2s.value)
+    k.fe3_h2s = calculate_k_iron_reduction(c.fe3, c.h2s)
 
     # 3. RUN PROCESSES
     # ----------------
@@ -191,8 +191,8 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # isotopes
     if hasattr(c, "so4_32"):
         alpha = 1.0 + (mp.msr_alpha - 1.0) * lim["alpha_explicit"]
-        s_val = c.so4.value + 1e-12
-        s32_val = c.so4_32.value + 1e-12
+        s_val = c.so4 + 1e-12
+        s32_val = c.so4_32 + 1e-12
         f_32 = alpha / (s_val + (alpha - 1) * s32_val + 1e-30)
         coeff_so4_32 = f_32 * so4_rate
 
@@ -249,8 +249,8 @@ def h2s_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         """
         alpha = 1.0 + (mp.h2s_ox_alpha - 1.0) * lim["h2s_alpha_explicit"]
 
-        s_val = c.h2s.value + 1e-20
-        s32_val = c.h2s_32.value + 1e-20
+        s_val = c.h2s + 1e-20
+        s32_val = c.h2s_32 + 1e-20
         denom = s_val + (alpha - 1.0) * s32_val
 
         # Scaling factor for the coefficient

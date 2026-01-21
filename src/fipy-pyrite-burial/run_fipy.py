@@ -13,18 +13,17 @@ def run_model(p_dict: dict):
     """
     import numpy as np
     import pint
-    import asyncio
 
-    from fipy import Grid1D, CellVariable
+    from fipy import CellVariable
     from diff_lib import (
         calculate_k_iron_reduction,
         data_container,
         diff_coeff,
         compute_sigmoidal_db,
-        bioturbation_profile,
-        relax_solution,
+        # bioturbation_profile,
+        # relax_solution,
         get_l_mass,
-        get_delta,
+        # get_delta,
         run_non_steady_solver,
         # run_steady_state_solver_optimized as run_steady_state_solver,
         run_steady_state_solver_coupled as run_steady_state_solver,
@@ -69,7 +68,7 @@ def run_model(p_dict: dict):
         "relax": 0.1,  # use 0.1 for coupled solver, and 0.8 otherwise
         "tolerance": 1e-11,  # convergence criterion
         "dt_max": 100,  # time step in years
-        "max_steps": 300,  # max number of iterations
+        "max_steps": 500,  # max number of iterations
         "run_time": 3e5,  # run time in years
         "VCDT": 0.044162589,  # VCDT reference ratio
         "hplus": 10 ** (-7.5),  # Velde at al 2016
@@ -251,7 +250,7 @@ if __name__ == "__main__":
         "DB_depth": 0,
         "DB0": 4e-12,
         "relax": 0.1,  # use 0.1 with with coupled solver, and 0.8 with regular solver
-        "tolerance": 1e-9,  # convergence criterion
+        "tolerance": 1e-11,  # convergence criterion
     }
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
 
