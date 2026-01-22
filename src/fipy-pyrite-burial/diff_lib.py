@@ -97,7 +97,12 @@ def get_delta(c, li, r):
     """
     h = c - li
 
-    return np.where(li < 0.001, float("nan"), 1000 * (h / li - r) / r)
+    mask_math = (li >= 0.001)
+    result = np.full_like(li, np.nan, dtype=float)
+    valid = mask_math
+    result[valid] = 1000.0 * (h / li)[valid] / r
+    return result
+    # return np.where(li < 0.001, float("nan"), 1000 * (h / li - r) / r)
 
 
 def get_delta_from_concentration(c, li, r):
