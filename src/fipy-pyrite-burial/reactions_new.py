@@ -82,7 +82,7 @@ def diagenetic_reactions(mp, c, k, f):
     aerobic_respiration(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     sulfate_reduction(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     h2s_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    # iron_reduction_h2s(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    iron_reduction_h2s(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # fe2_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # iron_sulfide_formation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # fes_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
@@ -182,7 +182,7 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     add_implicit_coupling(
         CROSS,
         RATES,
-        "h2s",  # sink species
+        "h2s",  # species that is produced
         "so4",  # source species
         coeff_so4,
         so4_rate,
@@ -203,7 +203,7 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         add_implicit_coupling(
             CROSS,
             RATES,
-            "h2s_32",  # sink species
+            "h2s_32",  # species that is produced
             "so4_32",  # source species
             coeff_so4_32,  # implicit coeff for sink
             coeff_so4_32 * c.so4_32,  # explicit rate for reporting
@@ -227,7 +227,7 @@ def h2s_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     add_implicit_coupling(
         CROSS,
         RATES,
-        "s0",  # sink species
+        "s0",  # species that is produced
         "h2s",  # source species
         coeff_h2s * fac_s,  # implicit coeff for sink
         coeff_h2s * c.h2s * fac_s,  # explicit rate for reporting
@@ -265,7 +265,7 @@ def h2s_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         add_implicit_coupling(
             CROSS,
             RATES,
-            "s0_32",  # sink species
+            "s0_32",  # species that is produced
             "h2s_32",  # source species
             coeff_h2s_32 * fac_s,  # implicit coeff for sink
             coeff_h2s_32 * c.h2s_32 * fac_s,  # explicit rate for reporting
@@ -277,8 +277,7 @@ def iron_reduction_h2s(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     1 Fe3 + 0.5 H2S -> 1 Fe2 + 0.5 S0
     Fe2+ is a liquid!
     """
-    phi = mp.phi
-    fac_s = phi / (1.0 - phi)
+    fac_s = mp.phi / (1.0 - mp.phi)
     k.fe3_h2s = calculate_k_iron_reduction(c.fe3, c.h2s)
 
     # Fe3 Sink - SOLID
@@ -286,7 +285,7 @@ def iron_reduction_h2s(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     add_implicit_sink(LHS, RATES, "fe3", coeff_fe3, coeff_fe3 * c.fe3)
 
     # H2S Sink (0.5x) - LIQUID
-    coeff_h2s = 0.5 * k.fe3_h2s * c.fe3
+    coeff_h2s = k.fe3_h2s * c.fe3 * 0.5
     add_implicit_sink(LHS, RATES, "h2s", coeff_h2s, coeff_h2s * c.h2s)
     add_implicit_sink(LHS, RATES, "h2s_32", coeff_h2s, coeff_h2s * c.h2s_32)
 
@@ -296,32 +295,32 @@ def iron_reduction_h2s(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     add_implicit_coupling(
         CROSS,
         RATES,
-        "fe2",
-        "fe3",
+        "fe2",  # species that is produced
+        "fe3",  # species that is consumed
         rate_fe2,
         rate_fe2 * c.fe3,
     )
 
-    # S0 Source (0.5x) - SOLID
-    # Couple to Fe3
-    # s0_rate = 0.5 * k.fe3_h2s * c.fe3 * c.h2s * fac_s
-    s0_coeff = 0.5 * k.fe3_h2s * c.h2s * fac_s
-    s0_32_coeff = 0.5 * k.fe3_h2s * c.h2s_32 * fac_s
-    add_implicit_coupling(CROSS, RATES, "s0", "fe3", s0_coeff, s0_coeff * c.fe3)
+    # Elemental sulfur - Solid
     add_implicit_coupling(
-        CROSS, RATES, "s0_32", "fe3", s0_32_coeff, s0_32_coeff * c.fe3
+        CROSS,
+        RATES,
+        "s0",  # species that is produced
+        "h2s",  # species that is consumed
+        coeff_h2s * fac_s,  # implicit coeff (same as sink, scaled to solid)
+        coeff_h2s * c.h2s * fac_s,  # explicit rate for reporting only
     )
 
-    # # S0_32 Couple to Fe3
-    # add_implicit_coupling(
-    #     CROSS,
-    #     RATES,
-    #     "s0_32",
-    #     "h2s_32",
-    #     fac_s * 0.5 * k.fe3_h2s * c.fe3,
-    #     0.5 * k.fe3_h2s * c.fe3 * c.h2s_32 * fac_s,
-    # )
-    # S0_32 Couple to Fe3
+    if hasattr(c, "h2s_32"):
+        # Elemental sulfur 32S  - Solid
+        add_implicit_coupling(
+            CROSS,
+            RATES,
+            "s0_32",  # species that is produced
+            "h2s_32",  # species that is consumed
+            coeff_h2s * fac_s,  # implicit coeff (same as sink, scaled to solid)
+            coeff_h2s * c.h2s_32 * fac_s,  # explicit rate for reporting only
+        )
 
 
 def fe2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
