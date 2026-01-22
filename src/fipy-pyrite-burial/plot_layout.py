@@ -77,6 +77,7 @@ def get_layout(df):
                 [df.f_fes, "f_fes", {"color": "C6"}],
                 [df.f_fes2, "f_fes2", {"color": "C7"}],
                 [df.f_fe2, "f_fe2", {"color": "C8"}],
+                [df.f_fe2_p, "f_fe2+p", {"color": "C9"}],
                 # [df.D_bio, "D_bio", {"color": "C8"}],
             ],
             "xlim": (0.01, None),
