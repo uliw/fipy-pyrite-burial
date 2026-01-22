@@ -58,7 +58,8 @@ def run_model(p_dict: dict):
         "bc_om": weight_percent_to_mol(4, 12, 2.6),  # wt% C
         "bc_so4": 28.0,  # mmol/l
         "bc_s0": 0.0,  # mmol/l
-        "bc_fe2": 0,  # wt% Fe
+        "bc_fe2": 0,  # wt% Fe2
+        "bc_fe2_p": 0,  # wt% sorbed Fe2
         "bc_fe3": weight_percent_to_mol(0.5, 56, 2.6),  # wt% Fe
         "DB0": 4e-12,  # Bioturbation coefficient
         "DB_depth": 0,  # Bioturbation depth in m
@@ -68,7 +69,7 @@ def run_model(p_dict: dict):
         "relax": 0.1,  # use 0.1 for coupled solver, and 0.8 otherwise
         "tolerance": 1e-11,  # convergence criterion
         "dt_max": 100,  # time step in years
-        "max_steps": 500,  # max number of iterations
+        "max_steps": 200,  # max number of iterations
         "run_time": 3e5,  # run time in years
         "VCDT": 0.044162589,  # VCDT reference ratio
         "hplus": 10 ** (-7.5),  # Velde at al 2016
@@ -83,12 +84,14 @@ def run_model(p_dict: dict):
         "poc_o2": 5e-11,  # POC + O2 -> CO2
         "poc_so4": 1e-12,  # POC + SO4 -> H2S # within range of Halevy 7e-12
         "h2s_ox": 8e-3,  # H2S + O2 -> S0 #, Millero * 1e3 after Halevey
+        "fe2_h2s": 3.17e-4,  # Fe2+ + H2S -> FeS basically instantly. Velde 2016
+        "fe2_p_eq": 696, # partitioning of Fe2+ sorbed vs F2+ liquid , Velde at al.
+        "fe2_sorp": 1e-4, # adsorption coefficient
         "fe2_ox": 1e-7,  # Fe2+ + Occccc2 -> Fe3OOH, Velde 2016
         "fes_ox": 5e-10,  # FeS + O2 -> Fe3 + SO4, Halevy et al.
         "fes2_ox": 1e-10,  # FeS2 + O2 -> SO4, Halevy et al
         "fes_s0": 5e-8,  # FeS + S0 -> FeS2, TBD ???
         "fes_h2s": 5e-8,  # FeS + H2S -> FeS2, at 10C -> notes.org
-        "fe2_h2s": 3.17e-4,  # Fe2+ + H2S -> FeS basically instantly. Velde 2016
         "isp_fes": 3160,  # mol/m^3 saturation_constant for FeS, Velde 2016
         "isd_fes": 9.51e-8 / 1e3,  # 1/s dissolution constant, Velde 2016
         # Fe3 + H2S -> FeS * S0 -> calculate_k_iron_reduction, Halevy
@@ -114,6 +117,7 @@ def run_model(p_dict: dict):
         "o2",
         "poc",
         "fe2",
+        "fe2_p",
         "fe3",
         "fes",
         "fes_32",
@@ -142,6 +146,7 @@ def run_model(p_dict: dict):
         "poc",
         "fe3",
         "fes",
+        "fe2_p",
         "fes_32",
         "s0",
         "s0_32",
@@ -180,14 +185,13 @@ def run_model(p_dict: dict):
         "s0": {"top": mp.bc_s0, "type": "particulate"},
         "s0_32": {"top": mp.bc_s0, "type": "particulate"},
         "fe2": {"top": mp.bc_fe2, "type": "dissolved"},
+        "fe2_p": {"top": mp.bc_fe2, "type": "particulate"},
         "fe3": {"top": mp.bc_fe3, "type": "particulate"},
         "fes": {"top": 0.0, "type": "particulate"},
         "fes_32": {"top": 0.0, "type": "particulate"},
         "fes2": {"top": 0.0, "type": "particulate"},
         "fes2_32": {"top": 0.0, "type": "particulate"},
     }
-
-    print(f"DEBUG CONFIRM: Fe2 type is '{bc_map['fe2']['type']}'.")
 
     for species_name, props in bc_map.items():
         var = getattr(c, species_name)
@@ -249,7 +253,7 @@ if __name__ == "__main__":
         "bc_fe3": weight_percent_to_mol(0.0001, 56, 2.6),
         "DB_depth": 0,
         "DB0": 4e-12,
-        "relax": 0.1,  # use 0.1 with with coupled solver, and 0.8 with regular solver
+        "relax": 0.8,  # use 0.1 with with coupled solver, and 0.8 with regular solver
         "tolerance": 1e-11,  # convergence criterion
     }
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
