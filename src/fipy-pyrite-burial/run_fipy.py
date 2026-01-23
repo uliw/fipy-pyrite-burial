@@ -24,10 +24,10 @@ def run_model(p_dict: dict):
         # relax_solution,
         get_l_mass,
         # get_delta,
-        run_non_steady_solver,
+        # run_non_steady_solver,
         # run_steady_state_solver_optimized as run_steady_state_solver,
         run_steady_state_solver_coupled as run_steady_state_solver,
-        build_non_steady_equations,
+        # build_non_steady_equations,
         weight_percent_to_mol,
         compute_bio_irrigation_alpha,
         make_grid,
@@ -45,7 +45,7 @@ def run_model(p_dict: dict):
         "plot_name": "pyrite_model_fipy.csv",
         "layout_file": "plot_layout.py",  # Plot layout file
         "steady_state": True,  # assume steady state?
-        "max_depth": 100.0,  # meters
+        "max_depth": 10.0,  # meters
         "display_length": 2,  # meters
         "temp": [10.0, 10.1],  # temp top, bottom, in C
         "phi": 0.65,  # porosity
@@ -68,8 +68,8 @@ def run_model(p_dict: dict):
         "eps": 1e-4,  # limiters
         "relax": 0.1,  # use 0.1 for coupled solver, and 0.8 otherwise
         "tolerance": 1e-11,  # convergence criterion
-        "dt_max": 100,  # time step in years
-        "max_steps": 200,  # max number of iterations
+        "dt_max": Q_("100 years").to("seconds").magnitude,  # time step in years
+        "max_steps": 2000,  # max number of iterations
         "run_time": 3e5,  # run time in years
         "VCDT": 0.044162589,  # VCDT reference ratio
         "hplus": 10 ** (-7.5),  # Velde at al 2016
@@ -85,9 +85,9 @@ def run_model(p_dict: dict):
         "poc_so4": 1e-12,  # POC + SO4 -> H2S # within range of Halevy 7e-12
         "h2s_ox": 8e-3,  # H2S + O2 -> S0 #, Millero * 1e3 after Halevey
         "fe2_h2s": 3.17e-4,  # Fe2+ + H2S -> FeS basically instantly. Velde 2016
-        "fe2_p_eq": 696, # partitioning of Fe2+ sorbed vs F2+ liquid , Velde at al.
-        "fe2_sorp": 1e-4, # adsorption coefficient
-        "fe2_ox": 1e-7,  # Fe2+ + Occccc2 -> Fe3OOH, Velde 2016
+        "fe2_p_eq": 696,  # partitioning of Fe2+ sorbed vs F2+ liquid , Velde at al.
+        "fe2_sorp": 1e-6,  # adsorption coefficient
+        "fe2_ox": 1e-7,  # Fe2+ + O2 -> Fe3OOH, Velde 2016
         "fes_ox": 5e-10,  # FeS + O2 -> Fe3 + SO4, Halevy et al.
         "fes2_ox": 1e-10,  # FeS2 + O2 -> SO4, Halevy et al
         "fes_s0": 5e-8,  # FeS + S0 -> FeS2, TBD ???
@@ -126,10 +126,13 @@ def run_model(p_dict: dict):
         "fes2",
         "fes2_32",
     ]
-    c = data_container()
 
-    # Initialize CellVariables
+    # Initialize CellVariables and diffusion coefficients
+    D_mol = data_container()
+    c = data_container()
+    zeros = np.zeros(mp.grid_points)
     for species_name in species_list:
+        setattr(D_mol, species_name, zeros)
         setattr(
             c,
             species_name,
@@ -138,24 +141,9 @@ def run_model(p_dict: dict):
 
     # -- Temperature & Porosity Profiles --
     T_profile = np.linspace(mp.temp[0], mp.temp[1], mp.grid_points)
-    phi_profile = np.ones(mp.grid_points) * mp.phi
-    D_mol = data_container()
-    # Solid species
-    zeros = np.zeros(mp.grid_points)
-    for species_name in [
-        "poc",
-        "fe3",
-        "fes",
-        "fe2_p",
-        "fes_32",
-        "s0",
-        "s0_32",
-        "fes2",
-        "fes2_32",
-    ]:
-        setattr(D_mol, species_name, zeros)
+    # phi_profile = np.ones(mp.grid_points) * mp.phi
 
-    # liquid species
+    # ----- diffusion coefficients for liquid species ------ #
     D_mol.so4 = diff_coeff(T_profile, 4.88, 0.232, mp.phi)
     D_mol.so4_32 = D_mol.so4
     D_mol.h2s = diff_coeff(T_profile, 10.4, 0.273, mp.phi)
@@ -167,8 +155,7 @@ def run_model(p_dict: dict):
         / (1 - np.log(mp.phi**2))
     )
 
-    # -- Bioturbation Profile (Robust Sigmoid) --
-    # D_mol.D_bio = bioturbation_profile(z, mp.DB0, mp.DB_depth)
+    # -- Bioturbation and Irrigation Profiles (Robust Sigmoid) --
     D_mol.D_irr = compute_bio_irrigation_alpha(z, mp.BI0, mp.BI_depth)
     D_mol.D_bio = compute_sigmoidal_db(z, mp.DB0, mp.DB_depth, 0.1)
 
@@ -185,7 +172,7 @@ def run_model(p_dict: dict):
         "s0": {"top": mp.bc_s0, "type": "particulate"},
         "s0_32": {"top": mp.bc_s0, "type": "particulate"},
         "fe2": {"top": mp.bc_fe2, "type": "dissolved"},
-        "fe2_p": {"top": mp.bc_fe2, "type": "particulate"},
+        "fe2_p": {"top": mp.bc_fe2_p, "type": "particulate"},
         "fe3": {"top": mp.bc_fe3, "type": "particulate"},
         "fes": {"top": 0.0, "type": "particulate"},
         "fes_32": {"top": 0.0, "type": "particulate"},
@@ -254,6 +241,7 @@ if __name__ == "__main__":
         "DB_depth": 0,
         "DB0": 4e-12,
         "relax": 0.8,  # use 0.1 with with coupled solver, and 0.8 with regular solver
+        "max_steps": 200,  # max number of iterations
         "tolerance": 1e-11,  # convergence criterion
     }
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
@@ -276,7 +264,7 @@ if __name__ == "__main__":
     # -----------------------------------------------------------------------------
     df, fqfn = save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions)
 
-    phi = mp.phi
+    phi = mp.phi  # FIXME: do we need to scale this?
     s = phi * (df.c_so4.iloc[-1] + df.c_h2s.iloc[-1]) + (1 - phi) * (
         df.c_s0.iloc[-1] + df.c_fes.iloc[-1] + 2 * df.c_fes2.iloc[-1]
     )

@@ -34,8 +34,8 @@ def get_layout(df):
             ],
             "yscale": "log",
             "xscale": "log",
-            "ylim": (1e-6, 1e3),
-            "xlim": (0.01, None),
+            "ylim": (1e-10, 1e3),
+            "xlim": (1e-3, None),
             "left_ylabel": r"[mmol/l]",
             # "right": [
             #     # [df.c_poc, "OM [mmol]", {"color": "C4"}],

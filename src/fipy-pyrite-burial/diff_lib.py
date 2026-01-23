@@ -96,7 +96,7 @@ def get_delta(c, li, r):
 
     """
     h = c - li
-    
+
     return np.where(li < 0.001, float("nan"), 1000 * (h / li - r) / r)
 
 
@@ -474,7 +474,7 @@ def run_steady_state_solver_coupled(
 
             # Update Diagonal
             lhs_vars[species_name].setValue(getattr(lhs_val, "value", lhs_val))
-            rhs_vars[species_name].setValue(-getattr(rhs_val, "value", rhs_val))
+            rhs_vars[species_name].setValue(getattr(rhs_val, "value", rhs_val))
 
             # Update Cross-Terms if present
             if len(res_tuple) > 3:
@@ -528,341 +528,6 @@ def run_steady_state_solver_coupled(
     print(f"Coupled Solver Wall Time: {total_time:.2f} seconds")
 
     return converged, step, total_time
-
-
-def run_steady_state_solver_optimized(
-    mp,
-    equations,  # not used, but keeps the call compatible
-    c,
-    species_list,
-    k,
-    diagenetic_reactions,
-    mesh,
-    D_mol,
-    D_bio,
-    D_irr,
-    bc_map,
-    z,
-):
-    """
-    Optimized FiPy solver loop for steady state with Picard iteration.
-    Moves Equation Construction outside the loop for better performance.
-    """
-    from fipy import LinearLUSolver, CellVariable
-    from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
-    from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
-    from fipy.terms.diffusionTerm import DiffusionTerm
-    import numpy as np
-    import time
-
-    start_wall = time.time()
-    print("Starting Optimized Steady State Solver (Coupled Picard Iteration)...")
-    solver = LinearLUSolver(tolerance=mp.tolerance)
-
-    # 1. PRE-BUILD THE EQUATIONS
-    # --------------------------
-    # Placeholders for dynamic reaction terms
-    lhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list}
-    rhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list}
-
-    # Store equations for each species
-    species_eqs = {}
-
-    for species_name in species_list:
-        var = getattr(c, species_name)
-        props = bc_map[species_name]
-
-        # -- Transport --
-        D_total = getattr(D_mol, species_name) + D_bio
-        D_total = np.maximum(D_total, 1e-20)
-
-        vel = mp.w
-        if props["type"] == "dissolved":
-            vel = mp.w - mp.advection
-
-        u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
-        conv_term = PowerLawConvectionTerm(coeff=u_var)
-        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total))
-
-        # -- Reactions (Symbolic links to lhs_vars and rhs_vars) --
-        lhs_term = ImplicitSourceTerm(coeff=lhs_vars[species_name])
-        rhs_term = rhs_vars[species_name]
-
-        # -- Irrigation --
-        if props["type"] == "dissolved":
-            irr_sink = ImplicitSourceTerm(coeff=-CellVariable(mesh=mesh, value=D_irr))
-            irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"])
-        else:
-            irr_sink = 0.0
-            irr_source = 0.0
-
-        # Assemble Equation ONCE
-        eq = conv_term == diff_term + lhs_term + rhs_term + irr_sink + irr_source
-        species_eqs[species_name] = eq
-
-    # 2. PICARD ITERATION LOOP
-    # ------------------------
-    max_change = 1e10
-    step = 0
-
-    while max_change > mp.tolerance and step < mp.max_steps:
-        step += 1
-
-        # Store previous iteration values
-        last_sol = {s: getattr(c, s).value.copy() for s in species_list}
-
-        # Update numerical reaction terms
-        f_res = diagenetic_reactions(mp, c, k, f=data_container())
-
-        res = 0
-        for species_name in species_list:
-            var = getattr(c, species_name)
-
-            # Update the placeholders with current reaction values
-            lhs_val = getattr(f_res, species_name)[0]
-            rhs_val = getattr(f_res, species_name)[1]
-
-            # Use .value if the result is symbolic to avoid recursion/overhead
-            lhs_vars[species_name].setValue(getattr(lhs_val, "value", lhs_val))
-            rhs_vars[species_name].setValue(-getattr(rhs_val, "value", rhs_val))
-
-            # Sweep the PRE-BUILT equation
-            res += species_eqs[species_name].sweep(var=var, solver=solver)
-
-        # Relaxation and Convergence check
-        max_change = 0
-        for species_name in species_list:
-            var = getattr(c, species_name)
-            new_val = relax_solution(var.value, last_sol[species_name], mp.relax)
-            var.setValue(new_val)
-
-            change = np.max(np.abs(var.value - last_sol[species_name]))
-            max_change = max(max_change, change)
-
-        if step % 10 == 0 or step == 1:
-            print(
-                f"Iteration {step}: Max Var Change {max_change:.2e}, Linear Residual {res:.2e}"
-            )
-            df, fqfn = save_data_async(
-                mp, c, k, species_list, z, D_mol, diagenetic_reactions
-            )
-
-    # 3. FINALIZE
-    # -----------
-    if step >= mp.max_steps:
-        converged = "No"
-        print(
-            f"Warning: Steady state solver did not converge. Last change: {max_change:.2e}"
-        )
-    else:
-        converged = "Yes"
-        print(f"Steady state converged in {step} iterations.")
-
-    end_wall = time.time()
-    total_time = end_wall - start_wall
-    print(f"Steady State Wall Time: {total_time:.2f} seconds")
-
-    return converged, step, total_time
-
-
-def run_steady_state_solver(
-    mp,
-    equations,
-    c,
-    species_list,
-    k,
-    diagenetic_reactions,
-    mesh,
-    D_mol,
-    D_bio,
-    D_irr,
-    bc_map,
-    z,
-):
-    """
-    Run the FiPy solver loop for steady state with Picard iteration for non-linearity.
-    """
-    from fipy import LinearLUSolver, CellVariable
-    import numpy as np
-    import time
-
-    start_wall = time.time()
-    print("Starting Steady State Solver (Coupled Picard Iteration)...")
-    solver = LinearLUSolver(tolerance=mp.tolerance)
-
-    max_change = 1e10
-    step = 0
-
-    # Pre-build the transport part of the equations (they are linear and constant)
-    # Re-use build_steady_state_equations logic but only for transport
-    transport_eqs = {}
-    for species_name in species_list:
-        var = getattr(c, species_name)
-        props = bc_map[species_name]
-
-        D_total = getattr(D_mol, species_name) + D_bio
-        D_total = np.maximum(D_total, 1e-20)
-        vel = mp.w
-        if props["type"] == "dissolved":
-            vel = mp.w - mp.advection
-
-        # Scaling factor for porosity
-        phi = mp.phi
-        scaling = phi if props["type"] == "dissolved" else (1.0 - phi)
-
-        # Divided form: no scaling for convection and diffusion coefficients
-        u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
-        from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
-        from fipy.terms.diffusionTerm import DiffusionTerm
-
-        conv_term = PowerLawConvectionTerm(coeff=u_var)
-        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total))
-        transport_eqs[species_name] = (conv_term, diff_term, 1.0)
-
-    while max_change > mp.tolerance and step < mp.max_steps:
-        step += 1
-
-        # Store previous iteration values for relaxation and convergence check
-        last_sol = {s: getattr(c, s).value.copy() for s in species_list}
-
-        # 1. Update reaction terms based on CURRENT concentration values
-        f_res = diagenetic_reactions(mp, c, k, f=data_container())
-
-        res = 0
-        total_change = 0
-
-        from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
-
-        for species_name in species_list:
-            var = getattr(c, species_name)
-            props = bc_map[species_name]
-
-            # Reconstruct the equation with UPDATED reaction terms
-            conv_term, diff_term, scaling = transport_eqs[species_name]
-
-            lhs_val = getattr(f_res, species_name)[0]
-            rhs_val = getattr(f_res, species_name)[1]
-
-            lhs_term = ImplicitSourceTerm(coeff=lhs_val * scaling)
-
-            if hasattr(rhs_val, "rank"):
-                rhs_term = -rhs_val * scaling
-            else:
-                rhs_term = CellVariable(mesh=mesh, value=-rhs_val * scaling)
-
-            # Irrigation only affects dissolved species
-            if props["type"] == "dissolved":
-                irr_sink = ImplicitSourceTerm(
-                    coeff=-CellVariable(mesh=mesh, value=D_irr)
-                )
-                irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"])
-            else:
-                irr_sink = 0.0
-                irr_source = 0.0
-
-            eq = conv_term == diff_term + lhs_term + rhs_term + irr_sink + irr_source
-
-            # Sweep to update the variable
-            res += eq.sweep(var=var, solver=solver)
-
-        # 2. Apply relaxation and calculate max relative change
-        max_change = 0
-        for species_name in species_list:
-            var = getattr(c, species_name)
-
-            # Relaxation
-            new_val = relax_solution(var.value, last_sol[species_name], mp.relax)
-            var.setValue(new_val)
-
-            # Convergence check: max change relative to scale
-            # We use absolute change here but could use relative if values are large
-            change = np.max(np.abs(var.value - last_sol[species_name]))
-            # Scale by typical value if needed, for now just max absolute
-            max_change = max(max_change, change)
-
-        if step % 10 == 0 or step == 1:
-            print(
-                f"Iteration {step}: Max Var Change {max_change:.2e}, Linear Residual {res:.2e}"
-            )
-
-    if step >= mp.max_steps:
-        converged = "No"
-        print(
-            f"Warning: Steady state solver did not converge after {mp.max_steps} steps. Last change: {max_change:.2e}"
-        )
-    else:
-        converged = "Yes"
-        print(
-            f"Steady state converged in {step} iterations (Max change: {max_change:.2e})."
-        )
-
-    end_wall = time.time()
-    total_time = end_wall - start_wall
-    print(f"Steady State Wall Time: {total_time:.2f} seconds")
-
-    return converged, step, total_time
-
-
-def run_non_steady_solver(mp, equations, c, species_list):
-    """
-    Run the FiPy solver loop.
-    """
-    from fipy import LinearLUSolver, CellVariable
-    import time
-
-    start_wall = time.time()
-
-    dt = 1e-2 * 3600 * 24 * 365.0  # Start with 0.01 years
-    elapsed_time = 0.0
-    target_time = mp.run_time * 3600 * 24 * 365.0  # 10,000 years
-
-    print(f"Starting Solver... Target Time: {target_time / 3600 / 24 / 365:.1f} years")
-    solver = LinearLUSolver(tolerance=mp.tolerance)
-
-    step = 0
-    while elapsed_time < target_time and step < mp.max_steps:
-        step += 1
-
-        # f_res, _ = diagenetic_reactions(mp, None, c, k, data_container(), None, None)
-        # Update Old values
-        for var in vars(c).values():
-            if isinstance(var, CellVariable):
-                var.updateOld()
-
-        res = 1e10
-        sweeps = 0
-        while res > mp.tolerance and sweeps < 20:
-            # Store previous iteration values for relaxation
-            last_sol = {s: getattr(c, s).value.copy() for s in species_list}
-
-            res = 0
-            for var, eq in equations:
-                res += eq.sweep(var=var, dt=dt, solver=solver)
-
-            # Apply relaxation
-            for species_name in species_list:
-                var = getattr(c, species_name)
-                var.setValue(
-                    relax_solution(var.value, last_sol[species_name], mp.relax)
-                )
-
-            sweeps += 1
-
-        elapsed_time += dt
-        # Increase time step geometrically
-        dt *= 1.2
-        # Cap dt to prevent loss of accuracy
-        if dt > mp.dt_max * 3600 * 24 * 365.0:
-            dt = mp.dt_max * 3600 * 24 * 365.0
-
-        if step % 10 == 0:
-            print(
-                f"Step {step}: Time {elapsed_time / 3600 / 24 / 365:.2f} yr (dt={dt / 3600 / 24 / 365:.2f} yr) - Residual {res:.2e}"
-            )
-
-    print("Simulation Complete.")
-    end_wall = time.time()
-    print(f"Non-Steady State Wall Time: {end_wall - start_wall:.2f} seconds")
 
 
 def save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions):
@@ -920,107 +585,7 @@ def _save_data_to_disk(mp, c, k, species_list, z, D_mol, f_final):
     return df, fqfn
 
 
-def build_non_steady_equations(
-    mp, c, k, species_list, mesh, D_mol, D_bio, D_irr, bc_map, diagenetic_reactions
-):
-    """
-    Build the reaction-transport equations.
-    """
-    from fipy import CellVariable
-    from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
-    from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
-    from fipy.terms.diffusionTerm import DiffusionTerm
-    from fipy.terms.transientTerm import TransientTerm
-
-    equations = []
-    # Call reaction function once to set up the Terms
-    # We pass None for z, sc, results as they might not be used or needed for setup
-    f_res = diagenetic_reactions(mp, c, k, f=data_container())
-
-    for species_name in species_list:
-        var = getattr(c, species_name)
-        props = bc_map[species_name]
-
-        # 1. Transport
-        D_total = getattr(D_mol, species_name) + D_bio
-        D_total = np.maximum(D_total, 1e-20)
-
-        vel = mp.w
-        if props["type"] == "dissolved":
-            vel = mp.w - mp.advection
-
-        # Scaling for porosity
-        phi = mp.phi
-        scaling = phi if props["type"] == "dissolved" else (1.0 - phi)
-
-        # Explicitly create Rank 1 CellVariable for velocity to avoid shape errors
-        u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
-
-        # Use VanLeerConvectionTerm to minimize numerical dispersion artifacts in isotope ratios
-        # conv_term = VanLeerConvectionTerm(coeff=u_var)
-        conv_term = PowerLawConvectionTerm(coeff=u_var)
-
-        # Wrap D_total in CellVariable to avoid shape ambiguity
-        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total))
-
-        # 2. Reactions
-        # Imported diagenetic_reactions returns (LHS_coeff, RHS_val, rate)
-        # OR (LHS_coeff, RHS_val, rate, CROSS_list)
-        res_tuple = getattr(f_res, species_name)
-        lhs_val = res_tuple[0]
-        rhs_val = res_tuple[1]
-
-        # LHS from reactions_new is a constant or CellVariable expression.
-        # We pass it directly to ImpicitSourceTerm to ensure it stays dynamic.
-        lhs_term = ImplicitSourceTerm(coeff=lhs_val * scaling)
-
-        # RHS from reactions_new is " - rate". We want "+ rate".
-        # Use dynamic expression if it's a Variable, otherwise wrap static values
-        if hasattr(rhs_val, "rank"):
-            rhs_term = -rhs_val * scaling
-        else:
-            # It's an array or number (static)
-            rhs_term = CellVariable(mesh=mesh, value=-rhs_val * scaling)
-
-        # Cross-Terms (Coupled Dependencies)
-        cross_reaction_terms = 0.0
-        if len(res_tuple) > 3:
-            # res_tuple[3] is the list of (source_name, coeff) couplings
-            for source_name, coeff in res_tuple[3]:
-                source_var = getattr(c, source_name)
-                # In our convention: dC/dt = Rate.
-                # Coupled term adds `ImplicitSourceTerm(coeff=coeff, var=source_var)`
-                # which corresponds to adding `coeff * source_var` to the equation.
-                # Scaling must be applied!
-                cross_reaction_terms += ImplicitSourceTerm(
-                    coeff=coeff * scaling, var=source_var
-                )
-
-        # 3. Irrigation
-        if props["type"] == "dissolved":
-            irr_sink = ImplicitSourceTerm(coeff=-CellVariable(mesh=mesh, value=D_irr))
-            irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"])
-        else:
-            irr_sink = 0.0
-            irr_source = 0.0
-
-        # Assemble
-        # Divided form uses coefficient 1.0 for TransientTerm
-        eq = (
-            TransientTerm(coeff=scaling) + conv_term
-            == diff_term
-            + lhs_term
-            + rhs_term
-            + cross_reaction_terms
-            + irr_sink
-            + irr_source
-        )
-        equations.append((var, eq))
-
-    return equations
-
-
-def build_steady_state_equations(
+def build_steady_state_equations_old(
     mp, c, k, species_list, mesh, D_mol, D_bio, D_irr, bc_map, diagenetic_reactions
 ):
     """
@@ -1169,3 +734,136 @@ def save_data_async(mp, c, k, species_list, z, D_mol, diagenetic_reactions) -> N
     )
 
     return None, None
+
+
+import time
+import numpy as np
+from fipy import LinearLUSolver, CellVariable
+from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
+from fipy.terms.diffusionTerm import DiffusionTerm
+from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
+from fipy.terms.transientTerm import TransientTerm
+
+
+def run_non_steady_state_solver(
+    mp,
+    c,
+    species_list,
+    k,
+    diagenetic_reactions,
+    mesh,
+    D_mol,
+    D_bio,
+    D_irr,
+    bc_map,
+    f_container_cls,
+):
+    """
+    Run the FiPy solver loop for steady state using Pseudo-Transient Continuation.
+
+    This solves Transient + Advection = Diffusion + Reaction
+    By stepping forward in time, the system relaxes to the steady state solution.
+    """
+    start_wall = time.time()
+    print(f"Starting Pseudo-Transient Solver (dt={dt / (60 * 60 * 24 * 365):.1e} yr)")
+
+    solver = LinearLUSolver(tolerance=mp.tolerance)
+    max_change = 1e10
+    step = 0
+
+    # 1. Pre-build Transport Terms (Linear & Constant)
+    transport_eqs = {}
+
+    for s in species_list:
+        props = bc_map[s]
+
+        # Diffusion Coefficient
+        D_total = getattr(D_mol, s) + D_bio
+        D_total = np.maximum(D_total, 1e-20)  # Safety floor
+
+        # Advection Velocity
+        vel = mp.w
+        if props["type"] == "dissolved":
+            vel = mp.w - mp.advection
+
+        # Create Terms
+        u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
+        conv_term = PowerLawConvectionTerm(coeff=u_var)
+        diff_term = DiffusionTerm(coeff=D_total)
+
+        transport_eqs[s] = (conv_term, diff_term)
+
+    # 2. Time Stepping Loop
+    while max_change > mp.tolerance and step < mp.max_loops:
+        step += 1
+
+        # A. Update Old Values (Advance Time)
+        for s in species_list:
+            getattr(c, s).updateOld()
+
+        # Snapshot for convergence check
+        last_sol = {s: getattr(c, s).value.copy() for s in species_list}
+
+        # B. Update Reaction Rates (Non-Linear Step)
+        # Calculates LHS (Sinks) and RHS (Sources) based on current C
+        f_res = diagenetic_reactions(mp, c, k, f=f_container_cls())
+
+        res = 0.0
+
+        # C. Solve Coupled Equations
+        for s in species_list:
+            var = getattr(c, s)
+            props = bc_map[s]
+
+            conv_term, diff_term = transport_eqs[s]
+
+            # Unpack reaction terms
+            lhs_val = getattr(f_res, s)[0]
+            rhs_val = getattr(f_res, s)[1]
+
+            # Create Reaction Terms
+            reaction_sink = ImplicitSourceTerm(coeff=lhs_val)
+
+            # Explicit Source (POSITIVE for Production)
+            if np.isscalar(rhs_val) or isinstance(rhs_val, np.ndarray):
+                reaction_source = CellVariable(mesh=mesh, value=rhs_val)
+            else:
+                reaction_source = rhs_val
+
+            # Irrigation (Dissolved only)
+            if props["type"] == "dissolved":
+                irr_sink = ImplicitSourceTerm(coeff=-D_irr)
+                irr_source = D_irr * props["top"]
+            else:
+                irr_sink = 0.0
+                irr_source = 0.0
+
+            # Assemble and Sweep
+            # Equation: Transient + Advection == Diffusion + Reactions + Irrigation
+            # Note: We rely on dt for relaxation, so mp.relax is usually not needed here.
+            eq = (
+                TransientTerm(var=var) + conv_term
+                == diff_term + reaction_sink + reaction_source + irr_sink + irr_source
+            )
+
+            res += eq.sweep(var=var, dt=mp.dt, solver=solver)
+
+        # D. Convergence Check
+        max_change = 0.0
+        for s in species_list:
+            var = getattr(c, s)
+            curr_val = var.value
+            prev_val = last_sol[s]
+
+            # Calculate absolute change
+            diff = np.abs(curr_val - prev_val)
+            max_change = max(max_change, np.max(diff))
+
+        if step % 10 == 0 or step == 1:
+            print(f"Step {step}: Max Change {max_change:.2e}, Residual {res:.2e}")
+
+    # 3. Final Report
+    status = "Converged" if step < mp.max_loops else "Failed"
+    print(f"{status} in {step} steps. Wall time: {time.time() - start_wall:.2f}s")
+
+    return step, max_change

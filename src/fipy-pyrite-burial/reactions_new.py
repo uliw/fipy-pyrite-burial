@@ -116,13 +116,24 @@ def add_implicit_sink(LHS, RATES, species, coeff, rate):
     RATES[species] -= rate
 
 
+def add_explicit_source_old(RHS, RATES, species, rate):
+    """Add a production term to the RHS vector.
+
+    Add a production term to the RHS vector.
+    RHS = -Rate (Standard library quirk for production)
+    """
+    # RHS[species] = RHS[species] - rate
+    RHS[species] -= rate
+    RATES[species] += rate  # reporting only
+
+
 def add_explicit_source(RHS, RATES, species, rate):
     """Add a production term to the RHS vector.
 
     Add a production term to the RHS vector.
     RHS = -Rate (Standard library quirk for production)
     """
-    RHS[species] = RHS[species] - rate
+    RHS[species] = RHS[species] + rate
     RATES[species] += rate
 
 
@@ -272,7 +283,7 @@ def h2s_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             coeff_h2s_32 * c.h2s_32 * fac_s,  # explicit rate for reporting
         )
 
-        
+
 def iron_reduction_h2s(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Define iron reduction by h2s.
     1 Fe3 + 0.5 H2S -> 1 Fe2 + 0.5 S0
@@ -289,7 +300,7 @@ def iron_reduction_h2s(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 2. H2S Sink (0.5x) - LIQUID (Linear)
     coeff_h2s = k.fe3_h2s * c.fe3 * 0.5
     add_implicit_sink(LHS, RATES, "h2s", coeff_h2s, coeff_h2s * c.h2s)
-    
+
     if hasattr(c, "h2s_32"):
         add_implicit_sink(LHS, RATES, "h2s_32", coeff_h2s, coeff_h2s * c.h2s_32)
 
@@ -297,16 +308,16 @@ def iron_reduction_h2s(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # MUST BE LINEAR to match Fe3 Sink
     # Rate = k * [H2S] * [Fe3]
     # Coeff = k * [H2S]
-    
-    coeff_coupling_fe2 = k.fe3_h2s * c.h2s 
-    
+
+    coeff_coupling_fe2 = k.fe3_h2s * c.h2s
+
     add_implicit_coupling(
         CROSS,
         RATES,
         "fe2",  # target
         "fe3",  # source
-        coeff_coupling_fe2, # implicit coefficient
-        coeff_coupling_fe2 * c.fe3, # explicit rate
+        coeff_coupling_fe2,  # implicit coefficient
+        coeff_coupling_fe2 * c.fe3,  # explicit rate
     )
 
     # 4. Elemental sulfur - Solid (Coupled to H2S)
@@ -315,10 +326,10 @@ def iron_reduction_h2s(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     add_implicit_coupling(
         CROSS,
         RATES,
-        "s0", 
-        "h2s", 
-        coeff_h2s * fac_s, 
-        coeff_h2s * c.h2s * fac_s, 
+        "s0",
+        "h2s",
+        coeff_h2s * fac_s,
+        coeff_h2s * c.h2s * fac_s,
     )
 
     if hasattr(c, "h2s_32"):
@@ -326,67 +337,68 @@ def iron_reduction_h2s(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         add_implicit_coupling(
             CROSS,
             RATES,
-            "s0_32", 
-            "h2s_32", 
-            coeff_h2s * fac_s, 
-            coeff_h2s * c.h2s_32 * fac_s, 
+            "s0_32",
+            "h2s_32",
+            coeff_h2s * fac_s,
+            coeff_h2s * c.h2s_32 * fac_s,
         )
+
 
 def fe2_sorption(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     Reaction: Fe2 <-> Fe2_sorbed
     Ref: Fe2 (Liquid)
-    
-    Model: Fast kinetic exchange to approximate equilibrium.
-    Equilibrium: [Fe2_p] = K_ads * [Fe2]
-    Rate = k_kinetic * ( [Fe2] - [Fe2_p]/K_ads )
     """
     # 1. Porosity correction
-    # K_ads in paper is likely dimensionless (bulk or specific?).
-    # Paper says K_ads = 696 (dimensionless).
-    # Usually: Cs = K * Cw. If units are same (mmol/L_solid vs mmol/L_liquid),
-    # we need to account for phase volumes if K is defined per mass.
-    # Assuming K_ads is the partition coefficient: Cs / Cw.
-    
-    K_partition = k.fe2_p_eq # e.g. 696
-    
-    # Kinetic rate constant (Penalty parameter)
-    # Must be fast enough to maintain equilibrium, but stable.
-    k_kinetic = k.fe2_sorp # e.g. 100 or 1000 1/time
-    
+    # fac_s: Conversion factor from Liquid Rate -> Solid Rate
+    # fac_l: Conversion factor from Solid Rate -> Liquid Rate
+    fac_s = mp.phi / (1.0 - mp.phi)
+    fac_l = (1.0 - mp.phi) / mp.phi  # Or 1.0 / fac_s
+
+    K_partition = k.fe2_p_eq  # e.g. 696
+    k_sorp = k.fe2_sorp  # Penalty parameter (fast)
+
+    # -------------------------------------------------------
     # 2. Sorption (Forward: Fe2 -> Fe2_p)
-    # Rate = k * [Fe2]
+    # -------------------------------------------------------
+    # Rate_Liquid = k * [Fe2]
+    # Rate_Solid  = k * [Fe2] * fac_s
+
     # Sink for Fe2 (Implicit)
-    add_implicit_sink(LHS, RATES, "fe2", k.fe2_sorp, k.fe2_sorp * c.fe2)
-    
-    # Source for Fe2_p (Coupled to Fe2)
-    # Note: Fe2_p is solid. If units are "concentration per bulk volume", scaling is needed.
-    # If variables are "Concentration in Phase", we usually scale by porosity ratio.
-    # Assuming your model tracks concentration in respective phase (mmol/L_porewater vs mmol/L_solid):
-    fac_s = mp.phi / (1.0 - mp.phi) # Transfer liquid rate to solid rate
-    
+    add_implicit_sink(LHS, RATES, "fe2", k_sorp, k_sorp * c.fe2)
+
+    # Source for Fe2_p (Coupled)
+    # Driven by Fe2
     add_implicit_coupling(
-        CROSS, RATES, "fe2_p", "fe2",  k.fe2_sorp * fac_s, k.fe2_sorp * c.fe2 * fac_s
+        CROSS, RATES, "fe2_p", "fe2", k_sorp * fac_s, k_sorp * c.fe2 * fac_s
     )
 
+    # -------------------------------------------------------
     # 3. Desorption (Backward: Fe2_p -> Fe2)
-    # Rate = k * [Fe2_p] / K_partition
-    # This ensures that when Rate_net = 0, [Fe2_p] = K * [Fe2].
-    
-    k_desorp = k.fe2_sorp / k.fe2_p_eq
-    
+    # -------------------------------------------------------
+    # We want Equilibrium: [Fe2_p] = K * [Fe2]
+    # Flux_Solid_Loss = Flux_Solid_Gain
+    # k_des * [Fe2_p] = k_sorp * [Fe2] * fac_s
+    # k_des * (K * [Fe2]) = k_sorp * [Fe2] * fac_s
+    # k_des = k_sorp * fac_s / K
+
+    # CORRECTION: Include fac_s in the desorption constant!
+    k_desorp = (k_sorp * fac_s) / K_partition
+
     # Sink for Fe2_p (Implicit)
-    # This is a solid species.
     add_implicit_sink(LHS, RATES, "fe2_p", k_desorp, k_desorp * c.fe2_p)
-    
-    # Source for Fe2 (Coupled to Fe2_p)
-    # Transfer solid rate to liquid rate (Inverse of fac_s)
-    fac_l = (1.0 - mp.phi) / mp.phi
-    
-    add_implicit_coupling(
-        CROSS, RATES, "fe2", "fe2_p", k_desorp * fac_l, k_desorp * c.fe2_p * fac_l
-    )
-    
+
+    # Source for Fe2 (Coupled)
+    # Driven by Fe2_p
+    # Rate_Liquid = Rate_Solid * fac_l
+    # add_implicit_coupling(
+    #     CROSS, RATES, "fe2", "fe2_p", k_desorp * fac_l, k_desorp * c.fe2_p * fac_l
+    # )
+
+    rate_desorp_liquid = k_desorp * c.fe2_p * fac_l
+    add_explicit_source(RHS, RATES, "fe2", rate_desorp_liquid)
+
+
 def fe2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """reaction: 4 FeS2+ O2 -> 1 Fe3OOH"""
     phi = mp.phi
