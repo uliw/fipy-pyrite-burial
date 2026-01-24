@@ -24,10 +24,8 @@ def run_model(p_dict: dict):
         # relax_solution,
         get_l_mass,
         # get_delta,
-        # run_non_steady_solver,
-        # run_steady_state_solver_optimized as run_steady_state_solver,
-        run_steady_state_solver_coupled as run_steady_state_solver,
-        # build_non_steady_equations,
+        run_non_steady_state_solver_coupled,
+        run_steady_state_solver_coupled,
         weight_percent_to_mol,
         compute_bio_irrigation_alpha,
         make_grid,
@@ -41,62 +39,66 @@ def run_model(p_dict: dict):
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
 
-    mp = data_container({
-        "plot_name": "pyrite_model_fipy.csv",
-        "layout_file": "plot_layout.py",  # Plot layout file
-        "steady_state": True,  # assume steady state?
-        "max_depth": 10.0,  # meters
-        "display_length": 2,  # meters
-        "temp": [10.0, 10.1],  # temp top, bottom, in C
-        "phi": 0.65,  # porosity
-        "w": Q_("46 cm/kyr").to("m/s").m,  # sedimentation rate in m/s
-        "advection": 0,  # upward directed flow componentu
-        "so4_d": 21,  # seawater delta
-        "msr_alpha": 1.07,  # MSR enrichment factor in mUr
-        "h2s_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
-        "bc_o2": 0.20,  # mmmol/l
-        "bc_om": weight_percent_to_mol(4, 12, 2.6),  # wt% C
-        "bc_so4": 28.0,  # mmol/l
-        "bc_s0": 0.0,  # mmol/l
-        "bc_fe2": 0,  # wt% Fe2
-        "bc_fe2_p": 0,  # wt% sorbed Fe2
-        "bc_fe3": weight_percent_to_mol(0.5, 56, 2.6),  # wt% Fe
-        "DB0": 4e-12,  # Bioturbation coefficient
-        "DB_depth": 0,  # Bioturbation depth in m
-        "BI0": 1e-6,  # should be < 1e-5
-        "BI_depth": 0.0,  # Irrigation depth (0 = off)
-        "eps": 1e-4,  # limiters
-        "relax": 0.1,  # use 0.1 for coupled solver, and 0.8 otherwise
-        "tolerance": 1e-11,  # convergence criterion
-        "dt_max": Q_("100 years").to("seconds").magnitude,  # time step in years
-        "max_steps": 2000,  # max number of iterations
-        "run_time": 3e5,  # run time in years
-        "VCDT": 0.044162589,  # VCDT reference ratio
-        "hplus": 10 ** (-7.5),  # Velde at al 2016
-        "initial_spacing": 0.001,  # meters
-        "max_spacing": 0.05,  # meters, None = no cap
-    })
+    mp = data_container(
+        {
+            "plot_name": "pyrite_model_fipy.csv",
+            "layout_file": "plot_layout.py",  # Plot layout file
+            "steady_state": True,  # assume steady state?
+            "max_depth": 10.0,  # meters
+            "display_length": 2,  # meters
+            "temp": [10.0, 10.1],  # temp top, bottom, in C
+            "phi": 0.65,  # porosity
+            "w": Q_("46 cm/kyr").to("m/s").m,  # sedimentation rate in m/s
+            "advection": 0,  # upward directed flow componentu
+            "so4_d": 21,  # seawater delta
+            "msr_alpha": 1.07,  # MSR enrichment factor in mUr
+            "h2s_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
+            "bc_o2": 0.20,  # mmmol/l
+            "bc_om": weight_percent_to_mol(4, 12, 2.6),  # wt% C
+            "bc_so4": 28.0,  # mmol/l
+            "bc_s0": 0.0,  # mmol/l
+            "bc_fe2": 0,  # wt% Fe2
+            "bc_fe2_p": 0,  # wt% sorbed Fe2
+            "bc_fe3": weight_percent_to_mol(0.5, 56, 2.6),  # wt% Fe
+            "DB0": 4e-12,  # Bioturbation coefficient
+            "DB_depth": 0,  # Bioturbation depth in m
+            "BI0": 1e-6,  # should be < 1e-5
+            "BI_depth": 0.0,  # Irrigation depth (0 = off)
+            "eps": 1e-4,  # limiters
+            "relax": 0.1,  # use 0.1 for coupled solver, and 0.8 otherwise
+            "tolerance": 1e-9,  # convergence criterion
+            "dt_max": Q_("100 years").to("seconds").magnitude,  # time step in years
+            "max_steps": 2000,  # max number of iterations
+            "run_time": 3e5,  # run time in years
+            "VCDT": 0.044162589,  # VCDT reference ratio
+            "hplus": 10 ** (-7.5),  # Velde at al 2016
+            "initial_spacing": 0.001,  # meters
+            "max_spacing": 0.05,  # meters, None = no cap
+        }
+    )
 
     mp.update(p_dict)
 
     # Reaction Constants (k)
-    k = data_container({
-        "poc_o2": 5e-11,  # POC + O2 -> CO2
-        "poc_so4": 1e-12,  # POC + SO4 -> H2S # within range of Halevy 7e-12
-        "h2s_ox": 8e-3,  # H2S + O2 -> S0 #, Millero * 1e3 after Halevey
-        "fe2_h2s": 3.17e-4,  # Fe2+ + H2S -> FeS basically instantly. Velde 2016
-        "fe2_p_eq": 696,  # partitioning of Fe2+ sorbed vs F2+ liquid , Velde at al.
-        "fe2_sorp": 1e-6,  # adsorption coefficient
-        "fe2_ox": 1e-7,  # Fe2+ + O2 -> Fe3OOH, Velde 2016
-        "fes_ox": 5e-10,  # FeS + O2 -> Fe3 + SO4, Halevy et al.
-        "fes2_ox": 1e-10,  # FeS2 + O2 -> SO4, Halevy et al
-        "fes_s0": 5e-8,  # FeS + S0 -> FeS2, TBD ???
-        "fes_h2s": 5e-8,  # FeS + H2S -> FeS2, at 10C -> notes.org
-        "isp_fes": 3160,  # mol/m^3 saturation_constant for FeS, Velde 2016
-        "isd_fes": 9.51e-8 / 1e3,  # 1/s dissolution constant, Velde 2016
-        # Fe3 + H2S -> FeS * S0 -> calculate_k_iron_reduction, Halevy
-        "fe3_h2s": calculate_k_iron_reduction(mp.bc_fe3, 0),  # ~1.6e-8
-    })
+    k = data_container(
+        {
+            "poc_o2": 5e-11,  # POC + O2 -> CO2
+            "poc_so4": 1e-12,  # POC + SO4 -> H2S # within range of Halevy 7e-12
+            "h2s_ox": 8e-3,  # H2S + O2 -> S0 #, Millero * 1e3 after Halevey
+            "fe2_h2s": 3.17e-4,  # Fe2+ + H2S -> FeS basically instantly. Velde 2016
+            "fe2_p_eq": 696,  # partitioning of Fe2+ sorbed vs F2+ liquid , Velde at al.
+            "fe2_sorp": 1e-3,  # adsorption coefficient
+            "fe2_ox": 1e-7,  # Fe2+ + O2 -> Fe3OOH, Velde 2016
+            "fes_ox": 5e-10,  # FeS + O2 -> Fe3 + SO4, Halevy et al.
+            "fes2_ox": 1e-10,  # FeS2 + O2 -> SO4, Halevy et al
+            "fes_s0": 5e-8,  # FeS + S0 -> FeS2, TBD ???
+            "fes_h2s": 5e-8,  # FeS + H2S -> FeS2, at 10C -> notes.org
+            "isp_fes": 3160,  # mol/m^3 saturation_constant for FeS, Velde 2016
+            "isd_fes": 9.51e-8 / 1e3,  # 1/s dissolution constant, Velde 2016
+            # Fe3 + H2S -> FeS * S0 -> calculate_k_iron_reduction, Halevy
+            "fe3_h2s": calculate_k_iron_reduction(mp.bc_fe3, 0),  # ~1.6e-8
+        }
+    )
 
     mp.bc_so4_32 = get_l_mass(mp.bc_so4, mp.so4_d, mp.VCDT)
 
@@ -118,6 +120,7 @@ def run_model(p_dict: dict):
         "poc",
         "fe2",
         "fe2_p",
+        "fe2_total",
         "fe3",
         "fes",
         "fes_32",
@@ -130,6 +133,7 @@ def run_model(p_dict: dict):
     # Initialize CellVariables and diffusion coefficients
     D_mol = data_container()
     c = data_container()
+    f = data_container()
     zeros = np.zeros(mp.grid_points)
     for species_name in species_list:
         setattr(D_mol, species_name, zeros)
@@ -158,6 +162,8 @@ def run_model(p_dict: dict):
     # -- Bioturbation and Irrigation Profiles (Robust Sigmoid) --
     D_mol.D_irr = compute_bio_irrigation_alpha(z, mp.BI0, mp.BI_depth)
     D_mol.D_bio = compute_sigmoidal_db(z, mp.DB0, mp.DB_depth, 0.1)
+    # lumped modeling of Fe2 liq and Fe2 adsorbed
+    D_mol.fe2_total = 1 / (1 + k.fe2_p_eq) * D_mol.fe2
 
     # -----------------------------------------------------------------------------
     # 4. BOUNDARY CONDITIONS
@@ -188,7 +194,7 @@ def run_model(p_dict: dict):
 
     # build equation system and solve
     if mp.steady_state:
-        converged, step, total_time = run_steady_state_solver(
+        converged, step, total_time = run_steady_state_solver_coupled(
             mp,
             None,
             c,
@@ -197,26 +203,21 @@ def run_model(p_dict: dict):
             diagenetic_reactions,
             mesh,
             D_mol,
-            D_mol.D_bio,
-            D_mol.D_irr,
             bc_map,
             z,
         )
     else:
-        equations = build_non_steady_equations(
+        run_non_steady_state_solver_coupled(
             mp,
             c,
-            k,
             species_list,
+            k,
+            diagenetic_reactions,
             mesh,
             D_mol,
-            D_mol.D_bio,
-            D_mol.D_irr,
             bc_map,
-            diagenetic_reactions,
+            f,
         )
-        run_non_steady_solver(mp, equations, c, species_list)
-
     return (
         mp,
         c,
@@ -242,7 +243,7 @@ if __name__ == "__main__":
         "DB0": 4e-12,
         "relax": 0.8,  # use 0.1 with with coupled solver, and 0.8 with regular solver
         "max_steps": 200,  # max number of iterations
-        "tolerance": 1e-11,  # convergence criterion
+        "tolerance": 1e-12,  # convergence criterion
     }
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
 

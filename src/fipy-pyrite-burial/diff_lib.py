@@ -352,8 +352,6 @@ def run_steady_state_solver_coupled(
     diagenetic_reactions,
     mesh,
     D_mol,
-    D_bio,
-    D_irr,
     bc_map,
     z,
 ):
@@ -400,7 +398,7 @@ def run_steady_state_solver_coupled(
         props = bc_map[species_name]
 
         # -- Transport --
-        D_total = getattr(D_mol, species_name) + D_bio
+        D_total = getattr(D_mol, species_name) + D_mol.D_bio
         D_total = np.maximum(D_total, 1e-20)
 
         vel = mp.w
@@ -432,9 +430,9 @@ def run_steady_state_solver_coupled(
         # -- Irrigation --
         if props["type"] == "dissolved":
             irr_sink = ImplicitSourceTerm(
-                coeff=-CellVariable(mesh=mesh, value=D_irr), var=var
+                coeff=-CellVariable(mesh=mesh, value=D_mol.D_irr), var=var
             )
-            irr_source = CellVariable(mesh=mesh, value=D_irr * props["top"])
+            irr_source = CellVariable(mesh=mesh, value=D_mol.D_irr * props["top"])
         else:
             irr_sink = 0.0
             irr_source = 0.0
@@ -736,16 +734,7 @@ def save_data_async(mp, c, k, species_list, z, D_mol, diagenetic_reactions) -> N
     return None, None
 
 
-import time
-import numpy as np
-from fipy import LinearLUSolver, CellVariable
-from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
-from fipy.terms.diffusionTerm import DiffusionTerm
-from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
-from fipy.terms.transientTerm import TransientTerm
-
-
-def run_non_steady_state_solver(
+def run_non_steady_state_solver_coupled(
     mp,
     c,
     species_list,
@@ -753,8 +742,6 @@ def run_non_steady_state_solver(
     diagenetic_reactions,
     mesh,
     D_mol,
-    D_bio,
-    D_irr,
     bc_map,
     f_container_cls,
 ):
@@ -764,8 +751,18 @@ def run_non_steady_state_solver(
     This solves Transient + Advection = Diffusion + Reaction
     By stepping forward in time, the system relaxes to the steady state solution.
     """
+    import time
+    import numpy as np
+    from fipy import LinearLUSolver, CellVariable
+    from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
+    from fipy.terms.diffusionTerm import DiffusionTerm
+    from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
+    from fipy.terms.transientTerm import TransientTerm
+
     start_wall = time.time()
-    print(f"Starting Pseudo-Transient Solver (dt={dt / (60 * 60 * 24 * 365):.1e} yr)")
+    print(
+        f"Starting Pseudo-Transient Solver (dt={mp.dt / (60 * 60 * 24 * 365):.1e} yr)"
+    )
 
     solver = LinearLUSolver(tolerance=mp.tolerance)
     max_change = 1e10
@@ -778,7 +775,7 @@ def run_non_steady_state_solver(
         props = bc_map[s]
 
         # Diffusion Coefficient
-        D_total = getattr(D_mol, s) + D_bio
+        D_total = getattr(D_mol, s) + D_mol.D_bio
         D_total = np.maximum(D_total, 1e-20)  # Safety floor
 
         # Advection Velocity
@@ -867,3 +864,111 @@ def run_non_steady_state_solver(
     print(f"{status} in {step} steps. Wall time: {time.time() - start_wall:.2f}s")
 
     return step, max_change
+
+
+def run_transient_solver(
+    mp,
+    c,
+    species_list,
+    k,
+    diagenetic_reactions,
+    mesh,
+    D_mol,
+    D_bio,
+    D_irr,
+    bc_map,
+    f_container_cls,
+    dt=3600 * 24,  # 1 day time step
+    total_time=3600 * 24 * 365 * 100,  # Run for 100 years
+):
+    """
+    Run a full transient simulation.
+    Captures time-dependent behavior (seasonal cycles, pulses, etc.).
+    """
+    import time
+    import numpy as np
+    from fipy import LinearLUSolver, CellVariable
+    from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
+    from fipy.terms.diffusionTerm import DiffusionTerm
+    from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
+    from fipy.terms.transientTerm import TransientTerm
+
+    start_wall = time.time()
+    print(f"Starting Transient Solver (dt={dt:.1e} s, Total={total_time:.1e} s)...")
+
+    solver = LinearLUSolver(tolerance=mp.tolerance)
+    current_time = 0.0
+    step = 0
+
+    # 1. Pre-build Transport Terms (Linear & Constant)
+    transport_eqs = {}
+    for s in species_list:
+        props = bc_map[s]
+        D_total = np.maximum(getattr(D_mol, s) + D_bio, 1e-20)
+        vel = mp.w if props["type"] == "particulate" else mp.w - mp.advection
+
+        u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
+        conv_term = PowerLawConvectionTerm(coeff=u_var)
+        diff_term = DiffusionTerm(coeff=D_total)
+        transport_eqs[s] = (conv_term, diff_term)
+
+    # 2. Time Stepping Loop
+    while current_time < total_time:
+        step += 1
+        current_time += dt
+
+        # A. Update Old Values (Advance Time)
+        for s in species_list:
+            getattr(c, s).updateOld()
+
+        # B. Non-Linear Sweep Loop (Inner Iteration for each Time Step)
+        # For transient, we need to ensure the non-linearities (Monod, couplings)
+        # are resolved WITHIN the time step.
+        res = 1e10
+        sweeps = 0
+        while res > mp.tolerance and sweeps < 10:
+            # Note: 10 sweeps is usually enough for well-behaved transient steps
+            sweeps += 1
+            res = 0.0
+
+            # Update Rates based on current guess
+            f_res = diagenetic_reactions(mp, c, k, f=f_container_cls())
+
+            # Solve Equations
+            for s in species_list:
+                var = getattr(c, s)
+                props = bc_map[s]
+                conv_term, diff_term = transport_eqs[s]
+                lhs_val = getattr(f_res, s)[0]
+                rhs_val = getattr(f_res, s)[1]
+
+                reaction_sink = ImplicitSourceTerm(coeff=lhs_val)
+
+                if np.isscalar(rhs_val) or isinstance(rhs_val, np.ndarray):
+                    reaction_source = CellVariable(mesh=mesh, value=rhs_val)
+                else:
+                    reaction_source = rhs_val
+
+                if props["type"] == "dissolved":
+                    irr_sink = ImplicitSourceTerm(coeff=-D_irr)
+                    irr_source = D_irr * props["top"]
+                else:
+                    irr_sink = 0.0
+                    irr_source = 0.0
+
+                eq = (
+                    TransientTerm(var=var) + conv_term
+                    == diff_term
+                    + reaction_sink
+                    + reaction_source
+                    + irr_sink
+                    + irr_source
+                )
+
+                res += eq.sweep(var=var, dt=dt, solver=solver)
+
+        if step % 10 == 0:
+            print(f"Time {current_time / (3600 * 24 * 365):.2f} yr: Residual {res:.2e}")
+
+    print(f"Transient run complete. Wall time: {time.time() - start_wall:.2f}s")
+    return step, current_time
