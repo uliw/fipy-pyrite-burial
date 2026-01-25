@@ -82,14 +82,17 @@ def diagenetic_reactions(mp, c, k, f):
     aerobic_respiration(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     sulfate_reduction(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     h2s_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    iron_reduction_h2s(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    fe2_sorption(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    iron_reduction_h2s_lumped(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    fe2_adsoption_lumped(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # fe2_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # iron_sulfide_formation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # fes_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # pyrite_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # pyrite_formation_s0(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # pyrite_formation_fes_h2s(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    # ---- old ----
+    # fe2_sorption(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    # iron_reduction_h2s(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
 
     # 4. FINALIZE
     # -----------
@@ -284,6 +287,66 @@ def h2s_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         )
 
 
+def iron_reduction_h2s_lumped(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """Define iron reduction by h2s.
+    1 Fe3 + 0.5 H2S -> 1 Fe2 + 0.5 S0
+    Fe2+ is a liquid!
+    """
+    fac_s = mp.phi / (1.0 - mp.phi)
+    k.fe3_h2s = calculate_k_iron_reduction(c.fe3, c.h2s)
+
+    # 1. Fe3 Sink - SOLID (Linear)
+    # Rate = k * [H2S] * [Fe3]
+    coeff_fe3 = k.fe3_h2s * c.h2s * fac_s
+    add_implicit_sink(LHS, RATES, "fe3", coeff_fe3, coeff_fe3 * c.fe3)
+
+    # 2. H2S Sink (0.5x) - LIQUID (Linear)
+    coeff_h2s = k.fe3_h2s * c.fe3 * 0.5
+    add_implicit_sink(LHS, RATES, "h2s", coeff_h2s, coeff_h2s * c.h2s)
+
+    if hasattr(c, "h2s_32"):
+        add_implicit_sink(LHS, RATES, "h2s_32", coeff_h2s, coeff_h2s * c.h2s_32)
+
+    # 3. Fe2+ Source (1.0x) - Liquid (Coupled to Fe3)
+    # MUST BE LINEAR to match Fe3 Sink
+    # Rate = k * [H2S] * [Fe3]
+    # Coeff = k * [H2S]
+
+    coeff_coupling_fe2 = k.fe3_h2s * c.h2s
+
+    add_implicit_coupling(
+        CROSS,
+        RATES,
+        "fe2_total",  # target
+        "fe3",  # source
+        coeff_coupling_fe2,  # implicit coefficient
+        coeff_coupling_fe2 * c.fe3,  # explicit rate
+    )
+
+    # 4. Elemental sulfur - Solid (Coupled to H2S)
+    # Rate = 0.5 * k * [Fe3] * [H2S] * fac_s
+    # Matches H2S Sink stoichiometry and kinetics exactly
+    add_implicit_coupling(
+        CROSS,
+        RATES,
+        "s0",
+        "h2s",
+        coeff_h2s * fac_s,
+        coeff_h2s * c.h2s * fac_s,
+    )
+
+    if hasattr(c, "h2s_32"):
+        # Elemental sulfur 32S - Solid
+        add_implicit_coupling(
+            CROSS,
+            RATES,
+            "s0_32",
+            "h2s_32",
+            coeff_h2s * fac_s,
+            coeff_h2s * c.h2s_32 * fac_s,
+        )
+
+
 def iron_reduction_h2s(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Define iron reduction by h2s.
     1 Fe3 + 0.5 H2S -> 1 Fe2 + 0.5 S0
@@ -342,6 +405,50 @@ def iron_reduction_h2s(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             coeff_h2s * fac_s,
             coeff_h2s * c.h2s_32 * fac_s,
         )
+
+
+def fe2_adsoption_lumped(c, k, lim, LHS, RHS, RATES, Cross, mp):
+    """
+    Handle Iron Partitioning algebraically.
+    Instead of calculating rates, we calculate fractions.
+
+    System State: 'fe_total' is the primary variable.
+    fe2 (liquid) and fe2_p (solid) are derived helper views.
+    """
+    phi = mp.phi
+    K_ads = k.fe2_p_eq  # 696
+
+    # Check Units of K_ads!
+    # If K_ads is dimensionless (Conc_solid_vol / Conc_liquid_vol):
+    #   Capacity = phi + (1-phi)*K_ads
+    # If K_ads is (Conc_solid_mass / Conc_liquid_vol) [L/kg]:
+    #   Capacity = phi + (1-phi)*rho*K_ads
+
+    # Assuming K_ads is dimensionless (based on previous fac_s logic):
+    R_factor = phi + (1.0 - phi) * K_ads
+
+    # Calculate Fractions
+    f_diss = phi / R_factor
+    f_sorb = (1.0 - phi) * K_ads / R_factor
+
+    # -----------------------------------------------------------
+    # RECONSTRUCT SPECIES FOR OTHER REACTIONS
+    # -----------------------------------------------------------
+    # Other reactions (Pyrite precip, etc.) need [Fe2] and [Fe2_p].
+    # We essentially 'distribute' the total iron to these views.
+    # NOTE: c.fe2 and c.fe2_p must be updated so subsequent functions
+    # (like iron_sulfide_formation) read the correct values.
+
+    # This might require c to be mutable or update the variables in place.
+    # In FiPy, we can't easily overwrite 'c.fe2' if it's the solution variable.
+    # STRATEGY:
+    # 1. Solve for 'fe_total' in the main solver.
+    # 2. Inside this function, calculate fe2 and fe2_p from fe_total.
+    # 3. Store them in 'c' so subsequent reactions use them.
+
+    if hasattr(c, "fe2_total"):
+        c.fe2.setValue(c.fe2_total * f_diss)
+        c.fe2_p.setValue(c.fe2_total * f_sorb)
 
 
 def fe2_sorption(c, k, lim, LHS, RHS, RATES, CROSS, mp):

@@ -69,7 +69,7 @@ def run_model(p_dict: dict):
             "tolerance": 1e-9,  # convergence criterion
             "dt_max": Q_("100 years").to("seconds").magnitude,  # time step in years
             "max_steps": 2000,  # max number of iterations
-            "run_time": 3e5,  # run time in years
+            "total_time": 3e5,  # run time in years only used in non-steady state solver
             "VCDT": 0.044162589,  # VCDT reference ratio
             "hplus": 10 ** (-7.5),  # Velde at al 2016
             "initial_spacing": 0.001,  # meters
@@ -111,7 +111,7 @@ def run_model(p_dict: dict):
     # -----------------------------------------------------------------------------
     # 3. VARIABLES & DIFFUSION PROFILES
     # -----------------------------------------------------------------------------
-    species_list = [
+    species_list_full = [
         "so4",
         "so4_32",
         "h2s",
@@ -130,12 +130,17 @@ def run_model(p_dict: dict):
         "fes2_32",
     ]
 
+    # these are not part of the T & R equation system
+    species_list_partial = species_list_full.copy()
+    species_list_partial.remove("fe2")
+    species_list_partial.remove("fe2_p")
+
     # Initialize CellVariables and diffusion coefficients
     D_mol = data_container()
     c = data_container()
     f = data_container()
     zeros = np.zeros(mp.grid_points)
-    for species_name in species_list:
+    for species_name in species_list_full:
         setattr(D_mol, species_name, zeros)
         setattr(
             c,
@@ -177,8 +182,7 @@ def run_model(p_dict: dict):
         "o2": {"top": mp.bc_o2, "type": "dissolved"},
         "s0": {"top": mp.bc_s0, "type": "particulate"},
         "s0_32": {"top": mp.bc_s0, "type": "particulate"},
-        "fe2": {"top": mp.bc_fe2, "type": "dissolved"},
-        "fe2_p": {"top": mp.bc_fe2_p, "type": "particulate"},
+        "fe2_total": {"top": mp.bc_fe2, "type": "dissolved"},
         "fe3": {"top": mp.bc_fe3, "type": "particulate"},
         "fes": {"top": 0.0, "type": "particulate"},
         "fes_32": {"top": 0.0, "type": "particulate"},
@@ -198,7 +202,8 @@ def run_model(p_dict: dict):
             mp,
             None,
             c,
-            species_list,
+            species_list_full,
+            species_list_partial,
             k,
             diagenetic_reactions,
             mesh,
@@ -210,7 +215,8 @@ def run_model(p_dict: dict):
         run_non_steady_state_solver_coupled(
             mp,
             c,
-            species_list,
+            species_list_full,
+            species_list_partial,
             k,
             diagenetic_reactions,
             mesh,
@@ -222,7 +228,7 @@ def run_model(p_dict: dict):
         mp,
         c,
         k,
-        species_list,
+        species_list_full,
         z,
         D_mol,
         diagenetic_reactions,
@@ -242,7 +248,7 @@ if __name__ == "__main__":
         "DB_depth": 0,
         "DB0": 4e-12,
         "relax": 0.8,  # use 0.1 with with coupled solver, and 0.8 with regular solver
-        "max_steps": 200,  # max number of iterations
+        "max_steps": 50,  # max number of iterations
         "tolerance": 1e-12,  # convergence criterion
     }
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}

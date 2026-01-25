@@ -347,7 +347,8 @@ def run_steady_state_solver_coupled(
     mp,
     equations,  # not used, but keeps the call compatible
     c,
-    species_list,
+    species_list_full,
+    species_list_partial,
     k,
     diagenetic_reactions,
     mesh,
@@ -373,17 +374,17 @@ def run_steady_state_solver_coupled(
 
     # 1. PRE-BUILD THE EQUATIONS
     # --------------------------
-    lhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list}
-    rhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list}
+    lhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list_partial}
+    rhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list_partial}
 
     # Store cross-term placeholders: dict of dicts
     # cross_vars[target_species][source_species] = CellVariable
-    cross_vars = {s: {} for s in species_list}
+    cross_vars = {s: {} for s in species_list_partial}
 
     # Analyze Topology once
     f_init = diagenetic_reactions(mp, c, k, f=data_container())
 
-    for s in species_list:
+    for s in species_list_partial:
         res = getattr(f_init, s)
         if len(res) > 3:
             # res[3] is the list of (source_name, coeff) couplings
@@ -393,7 +394,7 @@ def run_steady_state_solver_coupled(
 
     eqs = []
 
-    for species_name in species_list:
+    for species_name in species_list_partial:
         var = getattr(c, species_name)
         props = bc_map[species_name]
 
@@ -460,12 +461,13 @@ def run_steady_state_solver_coupled(
     while max_change > mp.tolerance and step < mp.max_steps:
         step += 1
 
-        last_sol = {s: getattr(c, s).value.copy() for s in species_list}
+        last_sol = {s: getattr(c, s).value.copy() for s in species_list_full}
 
         # Update reaction terms
         f_res = diagenetic_reactions(mp, c, k, f=data_container())
 
-        for species_name in species_list:
+        # update matrix
+        for species_name in species_list_partial:
             res_tuple = getattr(f_res, species_name)
             lhs_val = res_tuple[0]
             rhs_val = res_tuple[1]
@@ -495,7 +497,7 @@ def run_steady_state_solver_coupled(
 
         # Relaxation and Convergence
         max_change = 0
-        for species_name in species_list:
+        for species_name in species_list_partial:
             var = getattr(c, species_name)
             new_val = relax_solution(var.value, last_sol[species_name], mp.relax)
             var.setValue(new_val)
@@ -508,7 +510,7 @@ def run_steady_state_solver_coupled(
                 f"Iteration {step}: Max Var Change {max_change:.2e}, Coupled Residual {res:.2e}"
             )
             df, fqfn = save_data_async(
-                mp, c, k, species_list, z, D_mol, diagenetic_reactions
+                mp, c, k, species_list_full, z, D_mol, diagenetic_reactions
             )
 
     # 3. FINALIZE
@@ -581,16 +583,6 @@ def _save_data_to_disk(mp, c, k, species_list, z, D_mol, f_final):
     # print(f"Data saved to {fqfn}")
 
     return df, fqfn
-
-
-def build_steady_state_equations_old(
-    mp, c, k, species_list, mesh, D_mol, D_bio, D_irr, bc_map, diagenetic_reactions
-):
-    """
-    DEPRECATED: Steady state solver now builds equations inside the loop.
-    This function remains for compatibility but returns None.
-    """
-    return None
 
 
 def safe_ratio(
@@ -709,9 +701,9 @@ def save_data_async(mp, c, k, species_list, z, D_mol, diagenetic_reactions) -> N
         return obj
 
     c_snap = data_container({s: snap(getattr(c, s)) for s in species_list})
-    f_snap = data_container({
-        s: (None, None, snap(getattr(f_final, s)[2])) for s in species_list
-    })
+    f_snap = data_container(
+        {s: (None, None, snap(getattr(f_final, s)[2])) for s in species_list}
+    )
     D_mol_snap = data_container({key: snap(val) for key, val in D_mol.items()})
 
     # Copy metadata
@@ -737,7 +729,8 @@ def save_data_async(mp, c, k, species_list, z, D_mol, diagenetic_reactions) -> N
 def run_non_steady_state_solver_coupled(
     mp,
     c,
-    species_list,
+    species_list_full,
+    species_list_partial,
     k,
     diagenetic_reactions,
     mesh,
@@ -771,7 +764,7 @@ def run_non_steady_state_solver_coupled(
     # 1. Pre-build Transport Terms (Linear & Constant)
     transport_eqs = {}
 
-    for s in species_list:
+    for s in species_list_partial:
         props = bc_map[s]
 
         # Diffusion Coefficient
@@ -795,11 +788,11 @@ def run_non_steady_state_solver_coupled(
         step += 1
 
         # A. Update Old Values (Advance Time)
-        for s in species_list:
+        for s in species_list_partial:
             getattr(c, s).updateOld()
 
         # Snapshot for convergence check
-        last_sol = {s: getattr(c, s).value.copy() for s in species_list}
+        last_sol = {s: getattr(c, s).value.copy() for s in species_list_partial}
 
         # B. Update Reaction Rates (Non-Linear Step)
         # Calculates LHS (Sinks) and RHS (Sources) based on current C
@@ -808,7 +801,7 @@ def run_non_steady_state_solver_coupled(
         res = 0.0
 
         # C. Solve Coupled Equations
-        for s in species_list:
+        for s in species_list_partial:
             var = getattr(c, s)
             props = bc_map[s]
 
@@ -829,8 +822,8 @@ def run_non_steady_state_solver_coupled(
 
             # Irrigation (Dissolved only)
             if props["type"] == "dissolved":
-                irr_sink = ImplicitSourceTerm(coeff=-D_irr)
-                irr_source = D_irr * props["top"]
+                irr_sink = ImplicitSourceTerm(coeff=-D_mol.D_irr)
+                irr_source = D_mol.D_irr * props["top"]
             else:
                 irr_sink = 0.0
                 irr_source = 0.0
@@ -847,7 +840,7 @@ def run_non_steady_state_solver_coupled(
 
         # D. Convergence Check
         max_change = 0.0
-        for s in species_list:
+        for s in species_list_partial:
             var = getattr(c, s)
             curr_val = var.value
             prev_val = last_sol[s]
@@ -864,111 +857,3 @@ def run_non_steady_state_solver_coupled(
     print(f"{status} in {step} steps. Wall time: {time.time() - start_wall:.2f}s")
 
     return step, max_change
-
-
-def run_transient_solver(
-    mp,
-    c,
-    species_list,
-    k,
-    diagenetic_reactions,
-    mesh,
-    D_mol,
-    D_bio,
-    D_irr,
-    bc_map,
-    f_container_cls,
-    dt=3600 * 24,  # 1 day time step
-    total_time=3600 * 24 * 365 * 100,  # Run for 100 years
-):
-    """
-    Run a full transient simulation.
-    Captures time-dependent behavior (seasonal cycles, pulses, etc.).
-    """
-    import time
-    import numpy as np
-    from fipy import LinearLUSolver, CellVariable
-    from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
-    from fipy.terms.diffusionTerm import DiffusionTerm
-    from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
-    from fipy.terms.transientTerm import TransientTerm
-
-    start_wall = time.time()
-    print(f"Starting Transient Solver (dt={dt:.1e} s, Total={total_time:.1e} s)...")
-
-    solver = LinearLUSolver(tolerance=mp.tolerance)
-    current_time = 0.0
-    step = 0
-
-    # 1. Pre-build Transport Terms (Linear & Constant)
-    transport_eqs = {}
-    for s in species_list:
-        props = bc_map[s]
-        D_total = np.maximum(getattr(D_mol, s) + D_bio, 1e-20)
-        vel = mp.w if props["type"] == "particulate" else mp.w - mp.advection
-
-        u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
-        conv_term = PowerLawConvectionTerm(coeff=u_var)
-        diff_term = DiffusionTerm(coeff=D_total)
-        transport_eqs[s] = (conv_term, diff_term)
-
-    # 2. Time Stepping Loop
-    while current_time < total_time:
-        step += 1
-        current_time += dt
-
-        # A. Update Old Values (Advance Time)
-        for s in species_list:
-            getattr(c, s).updateOld()
-
-        # B. Non-Linear Sweep Loop (Inner Iteration for each Time Step)
-        # For transient, we need to ensure the non-linearities (Monod, couplings)
-        # are resolved WITHIN the time step.
-        res = 1e10
-        sweeps = 0
-        while res > mp.tolerance and sweeps < 10:
-            # Note: 10 sweeps is usually enough for well-behaved transient steps
-            sweeps += 1
-            res = 0.0
-
-            # Update Rates based on current guess
-            f_res = diagenetic_reactions(mp, c, k, f=f_container_cls())
-
-            # Solve Equations
-            for s in species_list:
-                var = getattr(c, s)
-                props = bc_map[s]
-                conv_term, diff_term = transport_eqs[s]
-                lhs_val = getattr(f_res, s)[0]
-                rhs_val = getattr(f_res, s)[1]
-
-                reaction_sink = ImplicitSourceTerm(coeff=lhs_val)
-
-                if np.isscalar(rhs_val) or isinstance(rhs_val, np.ndarray):
-                    reaction_source = CellVariable(mesh=mesh, value=rhs_val)
-                else:
-                    reaction_source = rhs_val
-
-                if props["type"] == "dissolved":
-                    irr_sink = ImplicitSourceTerm(coeff=-D_irr)
-                    irr_source = D_irr * props["top"]
-                else:
-                    irr_sink = 0.0
-                    irr_source = 0.0
-
-                eq = (
-                    TransientTerm(var=var) + conv_term
-                    == diff_term
-                    + reaction_sink
-                    + reaction_source
-                    + irr_sink
-                    + irr_source
-                )
-
-                res += eq.sweep(var=var, dt=dt, solver=solver)
-
-        if step % 10 == 0:
-            print(f"Time {current_time / (3600 * 24 * 365):.2f} yr: Residual {res:.2e}")
-
-    print(f"Transient run complete. Wall time: {time.time() - start_wall:.2f}s")
-    return step, current_time
