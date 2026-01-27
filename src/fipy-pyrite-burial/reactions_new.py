@@ -84,7 +84,7 @@ def diagenetic_reactions(mp, c, k, f):
     h2s_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     iron_reduction_h2s_lumped(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     fe2_adsoption_lumped(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    # fe2_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    fe2_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # iron_sulfide_formation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # fes_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # pyrite_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
@@ -428,8 +428,8 @@ def fe2_adsoption_lumped(c, k, lim, LHS, RHS, RATES, Cross, mp):
     R_factor = phi + (1.0 - phi) * K_ads
 
     # Calculate Fractions
-    f_diss = phi / R_factor
-    f_sorb = (1.0 - phi) * K_ads / R_factor
+    c.f_diss = phi / R_factor
+    c.f_sorb = (1.0 - phi) * K_ads / R_factor
 
     # -----------------------------------------------------------
     # RECONSTRUCT SPECIES FOR OTHER REACTIONS
@@ -447,78 +447,26 @@ def fe2_adsoption_lumped(c, k, lim, LHS, RHS, RATES, Cross, mp):
     # 3. Store them in 'c' so subsequent reactions use them.
 
     if hasattr(c, "fe2_total"):
-        c.fe2.setValue(c.fe2_total * f_diss)
-        c.fe2_p.setValue(c.fe2_total * f_sorb)
-
-
-def fe2_sorption(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """
-    Reaction: Fe2 <-> Fe2_sorbed
-    Ref: Fe2 (Liquid)
-    """
-    # 1. Porosity correction
-    # fac_s: Conversion factor from Liquid Rate -> Solid Rate
-    # fac_l: Conversion factor from Solid Rate -> Liquid Rate
-    fac_s = mp.phi / (1.0 - mp.phi)
-    fac_l = (1.0 - mp.phi) / mp.phi  # Or 1.0 / fac_s
-
-    K_partition = k.fe2_p_eq  # e.g. 696
-    k_sorp = k.fe2_sorp  # Penalty parameter (fast)
-
-    # -------------------------------------------------------
-    # 2. Sorption (Forward: Fe2 -> Fe2_p)
-    # -------------------------------------------------------
-    # Rate_Liquid = k * [Fe2]
-    # Rate_Solid  = k * [Fe2] * fac_s
-
-    # Sink for Fe2 (Implicit)
-    add_implicit_sink(LHS, RATES, "fe2", k_sorp, k_sorp * c.fe2)
-
-    # Source for Fe2_p (Coupled)
-    # Driven by Fe2
-    add_implicit_coupling(
-        CROSS, RATES, "fe2_p", "fe2", k_sorp * fac_s, k_sorp * c.fe2 * fac_s
-    )
-
-    # -------------------------------------------------------
-    # 3. Desorption (Backward: Fe2_p -> Fe2)
-    # -------------------------------------------------------
-    # We want Equilibrium: [Fe2_p] = K * [Fe2]
-    # Flux_Solid_Loss = Flux_Solid_Gain
-    # k_des * [Fe2_p] = k_sorp * [Fe2] * fac_s
-    # k_des * (K * [Fe2]) = k_sorp * [Fe2] * fac_s
-    # k_des = k_sorp * fac_s / K
-
-    # CORRECTION: Include fac_s in the desorption constant!
-    k_desorp = (k_sorp * fac_s) / K_partition
-
-    # Sink for Fe2_p (Implicit)
-    add_implicit_sink(LHS, RATES, "fe2_p", k_desorp, k_desorp * c.fe2_p)
-
-    # Source for Fe2 (Coupled)
-    # Driven by Fe2_p
-    # Rate_Liquid = Rate_Solid * fac_l
-    # add_implicit_coupling(
-    #     CROSS, RATES, "fe2", "fe2_p", k_desorp * fac_l, k_desorp * c.fe2_p * fac_l
-    # )
-
-    rate_desorp_liquid = k_desorp * c.fe2_p * fac_l
-    add_explicit_source(RHS, RATES, "fe2", rate_desorp_liquid)
+        c.fe2.setValue(c.fe2_total * c.f_diss)
+        c.fe2_p.setValue(c.fe2_total * c.f_sorb)
 
 
 def fe2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """reaction: 4 FeS2+ O2 -> 1 Fe3OOH"""
-    phi = mp.phi
-    fac_s = phi / (1.0 - phi)
+    """Reaction: 4 FeS2+ O2 -> 1 Fe3OOH
+    Note: Fe2_total tracks Fe2 liquid and sorbed. We need to use
+    the respective fractions c.f_diss and c.f_sorb
+    """
+    fac_s = mp.phi / (1.0 - mp.phi)
 
-    rate_base = k.fe2_ox * c.fe2 * c.o2
+    # mp.f_diss = dissolved fraction of fe2_total
+    rate_base = k.fe2_ox * c.fe2_total * c.f_diss * c.o2
 
     # Fe2+ Sink - Liquid
-    coeff_fe2 = k.fe2_ox * c.o2
-    add_implicit_sink(LHS, RATES, "fe2", coeff_fe2, rate_base)
+    coeff_fe2 = k.fe2_ox * c.o2 * c.f_diss
+    add_implicit_sink(LHS, RATES, "fe2_total", coeff_fe2, rate_base)
 
     # O2 Sink (1/4) - LIQUID
-    coeff_o2 = 0.25 * k.fe2_ox * c.fe2
+    coeff_o2 = k.fe2_ox * c.fe2_total * c.f_diss * 0.25
     add_implicit_sink(LHS, RATES, "o2", coeff_o2, rate_base * 0.25)
 
     # Fe3 Source (1.0x) - SOLID
@@ -528,7 +476,12 @@ def fe2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # coeff * (1-phi) = phi * k * O2.
     # coeff = fac_s * k * O2.
     add_implicit_coupling(
-        CROSS, RATES, "fe3", "fe2", fac_s * k.fe2_ox * c.o2, rate_base * fac_s
+        CROSS,
+        RATES,
+        "fe3",  # product
+        "fe2_total",  # source
+        k.fe2_ox * c.o2 * fac_s * c.f_diss,  # coefficient
+        rate_base * fac_s,  # rate for reporting
     )
 
 

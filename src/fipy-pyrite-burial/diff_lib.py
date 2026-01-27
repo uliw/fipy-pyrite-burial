@@ -95,9 +95,13 @@ def get_delta(c, li, r):
     :return : delta
 
     """
-    h = c - li
+    import numpy
 
-    return np.where(li < 0.001, float("nan"), 1000 * (h / li - r) / r)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        h = c - li
+        d = np.where(li < 0.001, float("nan"), 1000 * (h / li - r) / r)
+
+    return d
 
 
 def get_delta_from_concentration(c, li, r):
@@ -110,6 +114,7 @@ def get_delta_from_concentration(c, li, r):
     """
     h = c - li
     d = 1000 * (h / li - r) / r
+
     return d
 
 
