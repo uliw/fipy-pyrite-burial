@@ -406,21 +406,6 @@ def fe2_adsoption_lumped(c, k, lim, LHS, RHS, RATES, Cross, mp):
     System State: 'fe_total' is the primary variable.
     fe2 (liquid) and fe2_p (solid) are derived helper views.
     """
-    phi = mp.phi
-    K_ads = k.fe2_p_eq  # 696
-
-    # Check Units of K_ads!
-    # If K_ads is dimensionless (Conc_solid_vol / Conc_liquid_vol):
-    #   Capacity = phi + (1-phi)*K_ads
-    # If K_ads is (Conc_solid_mass / Conc_liquid_vol) [L/kg]:
-    #   Capacity = phi + (1-phi)*rho*K_ads
-
-    # Assuming K_ads is dimensionless (based on previous mp.fac_s logic):
-    R_factor = phi + (1.0 - phi) * K_ads
-
-    # Calculate Fractions
-    c.f_diss = phi / R_factor
-    c.f_sorb = (1.0 - phi) * K_ads / R_factor
 
     # -----------------------------------------------------------
     # RECONSTRUCT SPECIES FOR OTHER REACTIONS
@@ -438,14 +423,14 @@ def fe2_adsoption_lumped(c, k, lim, LHS, RHS, RATES, Cross, mp):
     # 3. Store them in 'c' so subsequent reactions use them.
 
     if hasattr(c, "fe2_total"):
-        c.fe2.setValue(c.fe2_total * c.f_diss)
-        c.fe2_p.setValue(c.fe2_total * c.f_sorb)
+        c.fe2.setValue(c.fe2_total * mp.f_diss)
+        c.fe2_p.setValue(c.fe2_total * mp.f_sorb)
 
 
 def fe2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Reaction: 4 FeS2+ O2 -> 1 Fe3OOH
     Note: Fe2_total tracks Fe2 liquid and sorbed. We need to use
-    the respective fractions c.f_diss and c.f_sorb
+    the respective fractions mp.f_diss and mp.f_sorb
     """
     rate_base = k.fe2_ox * c.fe2_total * c.o2
 
