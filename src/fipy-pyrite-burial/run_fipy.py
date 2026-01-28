@@ -48,7 +48,8 @@ def run_model(p_dict: dict):
             "temp": [10.0, 10.1],  # temp top, bottom, in C
             "phi": 0.65,  # porosity
             "w": Q_("46 cm/kyr").to("m/s").m,  # sedimentation rate in m/s
-            "advection": 0,  # upward directed flow componentu
+            "advection": 0,  # upward directed flow component
+            "pH": 7.5,  # porewater pH
             "so4_d": 21,  # seawater delta
             "msr_alpha": 1.07,  # MSR enrichment factor in mUr
             "h2s_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
@@ -89,7 +90,7 @@ def run_model(p_dict: dict):
         # Fe3 + H2S -> FeS * S0 -> calculate_k_iron_reduction, Halevy
         # "fe3_h2s": calculate_k_iron_reduction(mp.bc_fe3, 0),  # ~1.6e-8
     }
-    _k1, k2 = get_reaction_constants()
+    _k1, k2 = get_reaction_constants(mp.phi)
     k.update(k2)
     k = data_container(k)
     mp.bc_so4_32 = get_l_mass(mp.bc_so4, mp.so4_d, mp.VCDT)
@@ -120,12 +121,14 @@ def run_model(p_dict: dict):
         "s0_32",
         "fes2",
         "fes2_32",
+        "hplus",
     ]
 
     # these are not part of the T & R equation system
     species_list_partial = species_list_full.copy()
     species_list_partial.remove("fe2")
     species_list_partial.remove("fe2_p")
+    species_list_partial.remove("hplus")
 
     # ---- calculate some helper coefficients ----- #
     # Note: All of these assume that porosity does not change with time!
@@ -145,9 +148,12 @@ def run_model(p_dict: dict):
     #   Capacity = phi + (1-phi)*rho*K_ads
     R_factor = mp.phi + (1.0 - mp.phi) * k.fe2_p_eq
 
-    # Calculate Fractions
+    # Calculate Fe2+ Fractions
     mp.f_diss = mp.phi / R_factor
     mp.f_sorb = (1.0 - mp.phi) * k.fe2_p_eq / R_factor
+
+    # [H+] concentration. Move to c.hplus if using variable pH
+    mp.hplus = 10 ** (-mp.pH)
 
     # ---- Initialize CellVariables and diffusion coefficients ---- #
     D_mol = data_container()
@@ -263,7 +269,7 @@ if __name__ == "__main__":
         "DB0": 4e-12,
         "relax": 0.8,  # use 0.1 with with coupled solver, and 0.8 with regular solver
         "max_steps": 200,  # max number of iterations
-        "tolerance": 1e-12,  # convergence criterion
+        "tolerance": 1e-14,  # convergence criterion
     }
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
 
