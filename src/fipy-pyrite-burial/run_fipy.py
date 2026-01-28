@@ -127,11 +127,29 @@ def run_model(p_dict: dict):
     species_list_partial.remove("fe2")
     species_list_partial.remove("fe2_p")
 
-    # calculate some helper coefficients
+    # ---- calculate some helper coefficients ----- #
+    # Note: All of these assume that porosity does not change with time!
+
     # Porosity correction factor
     mp.fac_s = mp.phi / (1.0 - mp.phi)
 
-    # Initialize CellVariables and diffusion coefficients
+    # Fe2 sorption fraction. Since sorption is faster than transport
+    # we treat it as instantenous, i.e. it is just a function of
+    # concentration
+    K_ads = k.fe2_p_eq  # 696
+
+    # Check Units of K_ads!
+    # If K_ads is dimensionless (Conc_solid_vol / Conc_liquid_vol):
+    #   Capacity = phi + (1-phi)*K_ads
+    # If K_ads is (Conc_solid_mass / Conc_liquid_vol) [L/kg]:
+    #   Capacity = phi + (1-phi)*rho*K_ads
+    R_factor = mp.phi + (1.0 - mp.phi) * k.fe2_p_eq
+
+    # Calculate Fractions
+    mp.f_diss = mp.phi / R_factor
+    mp.f_sorb = (1.0 - mp.phi) * k.fe2_p_eq / R_factor
+
+    # ---- Initialize CellVariables and diffusion coefficients ---- #
     D_mol = data_container()
     c = data_container()
     f = data_container()
