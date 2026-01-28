@@ -127,6 +127,10 @@ def run_model(p_dict: dict):
     species_list_partial.remove("fe2")
     species_list_partial.remove("fe2_p")
 
+    # calculate some helper coefficients
+    # Porosity correction factor
+    mp.fac_s = mp.phi / (1.0 - mp.phi)
+
     # Initialize CellVariables and diffusion coefficients
     D_mol = data_container()
     c = data_container()
