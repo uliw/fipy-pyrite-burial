@@ -459,14 +459,14 @@ def fe2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     fac_s = mp.phi / (1.0 - mp.phi)
 
     # mp.f_diss = dissolved fraction of fe2_total
-    rate_base = k.fe2_ox * c.fe2_total * c.f_diss * c.o2
+    rate_base = k.fe2_ox * c.fe2_total * c.o2
 
     # Fe2+ Sink - Liquid
-    coeff_fe2 = k.fe2_ox * c.o2 * c.f_diss
+    coeff_fe2 = k.fe2_ox * c.o2
     add_implicit_sink(LHS, RATES, "fe2_total", coeff_fe2, rate_base)
 
     # O2 Sink (1/4) - LIQUID
-    coeff_o2 = k.fe2_ox * c.fe2_total * c.f_diss * 0.25
+    coeff_o2 = k.fe2_ox * c.fe2_total * 0.25
     add_implicit_sink(LHS, RATES, "o2", coeff_o2, rate_base * 0.25)
 
     # Fe3 Source (1.0x) - SOLID
@@ -480,7 +480,7 @@ def fe2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         RATES,
         "fe3",  # product
         "fe2_total",  # source
-        k.fe2_ox * c.o2 * fac_s * c.f_diss,  # coefficient
+        k.fe2_ox * c.o2 * fac_s,  # coefficient
         rate_base * fac_s,  # rate for reporting
     )
 
