@@ -590,6 +590,58 @@ def _save_data_to_disk(mp, c, k, species_list, z, D_mol, f_final):
     return df, fqfn
 
 
+def save_state(c, filename):
+    """
+    Save the current concentration profiles (state) to a compressed numpy file.
+
+    :param c: data_container containing species as CellVariables
+    :param filename: Path to save the NPZ file
+    """
+    from pathlib import Path
+
+    path = Path(filename)
+    if path.exists():
+        path.rename(f"{filename}-old")
+
+    state_dict = {}
+    for key, var in c.items():
+        if hasattr(var, "value"):
+            state_dict[key] = var.value
+
+    np.savez_compressed(filename, **state_dict)
+    print(f"State saved to {filename}")
+
+
+def read_state(c, filename):
+    """
+    Read concentration profiles (state) from a compressed numpy file and update c.
+
+    :param c: data_container containing species as CellVariables
+    :param filename: Path to the NPZ file
+    """
+    import pathlib as pl
+
+    if not pl.Path(filename).exists():
+        print(f"Warning: State file {filename} not found. Skipping initialization.")
+        return False
+
+    with np.load(filename) as data:
+        for key in data.files:
+            if hasattr(c, key):
+                var = getattr(c, key)
+                if hasattr(var, "setValue"):
+                    var.setValue(data[key])
+                else:
+                    c[key] = data[key]
+            else:
+                print(
+                    f"Warning: Species {key} found in state file but not in model container."
+                )
+
+    print(f"State loaded from {filename}")
+    return True
+
+
 def safe_ratio(
     num: np.ndarray,
     den: np.ndarray,
