@@ -27,6 +27,7 @@ def run_model(p_dict: dict):
         weight_percent_to_mol,
         compute_bio_irrigation_alpha,
         make_grid,
+        read_state,
     )
 
     from reactions_new import diagenetic_reactions
@@ -56,6 +57,7 @@ def run_model(p_dict: dict):
             "bc_o2": 0.20,  # mmmol/l
             "bc_om": weight_percent_to_mol(4, 12, 2.6),  # wt% C
             "bc_so4": 28.0,  # mmol/l
+            "bc_h2s": 0.0,  # mmol/l
             "bc_s0": 0.0,  # mmol/l
             "bc_fe2": 0,  # wt% Fe2
             "bc_fe2_p": 0,  # wt% sorbed Fe2
@@ -74,6 +76,7 @@ def run_model(p_dict: dict):
             "hplus": 10 ** (-7.5),  # Velde at al 2016
             "initial_spacing": 0.001,  # meters
             "max_spacing": 0.01,  # meters, None = no cap
+            "state_data": None,
         }
     )
 
@@ -94,6 +97,7 @@ def run_model(p_dict: dict):
     k.update(k2)
     k = data_container(k)
     mp.bc_so4_32 = get_l_mass(mp.bc_so4, mp.so4_d, mp.VCDT)
+    mp.bc_h2s_32 = get_l_mass(mp.bc_h2s, 0.0, mp.VCDT)  # Assume 0 delta for bc_h2s
 
     # -----------------------------------------------------------------------------
     # 2. MESH GENERATION (Variable Grid)
@@ -196,8 +200,8 @@ def run_model(p_dict: dict):
     bc_map = {
         "so4": {"top": mp.bc_so4, "type": "dissolved"},
         "so4_32": {"top": mp.bc_so4_32, "type": "dissolved"},
-        "h2s": {"top": 0.0, "type": "dissolved"},
-        "h2s_32": {"top": 0.0, "type": "dissolved"},
+        "h2s": {"top": mp.bc_h2s, "type": "dissolved"},
+        "h2s_32": {"top": mp.bc_h2s_32, "type": "dissolved"},
         "poc": {"top": mp.bc_om, "type": "particulate"},
         "o2": {"top": mp.bc_o2, "type": "dissolved"},
         "s0": {"top": mp.bc_s0, "type": "particulate"},
@@ -215,6 +219,9 @@ def run_model(p_dict: dict):
         var.setValue(props["top"])
         var.constrain(props["top"], mesh.facesLeft)
         var.faceGrad.constrain(0.0, mesh.facesRight)
+
+    if mp.state_data:
+        read_state(c, mp.state_data)
 
     # build equation system and solve
     if mp.steady_state:
@@ -259,17 +266,22 @@ def run_model(p_dict: dict):
 
 
 if __name__ == "__main__":
-    from diff_lib import save_data, get_delta, weight_percent_to_mol
-
-    # import plot_data_new
+    from diff_lib import (
+        save_data,
+        get_delta,
+        weight_percent_to_mol,
+        save_state,
+        read_state,
+    )
 
     p_dict = {
         "bc_fe3": weight_percent_to_mol(0.0001, 56, 2.6),
         "DB_depth": 0,
         "DB0": 4e-12,
-        "relax": 0.8,  # use 0.1 with with coupled solver, and 0.8 with regular solver
-        "max_steps": 200,  # max number of iterations
-        "tolerance": 1e-14,  # convergence criterion
+        "relax": 0.001,  # use 0.1 with with coupled solver, and 0.8 with regular solver
+        "max_steps": 10,  # max number of iterations
+        "tolerance": 1e-11,  # convergence criterion
+        "state_data": "fipy_state.npz",  # save state into
     }
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
 
@@ -302,6 +314,7 @@ if __name__ == "__main__":
     d34s = get_delta(s, s32, mp.VCDT)
     print(f"d34S = {d34s:0.2f}, d34S pyrite = {df.d_fes2.iloc[-1]:.2f}")
 
+    # save_state(c, p_dict["state_data"])
     # 9. PLOTTING
     # -----------------------------------------------------------------------------
     # plt_desc = plot_data_new.load_layout_from_file(df, mp.layout_file)
