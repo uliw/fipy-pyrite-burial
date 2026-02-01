@@ -462,23 +462,34 @@ def fe2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
 
 def fes_formation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """
-    Reaction: Fe2 + H2S <-> FeS.
+    """Model ironsulfide precipitation and dissolution.
+
+    Reaction: Fe2 + H2S <-> FeS
     Here we use the fraction of Fe2 that is liquid.
     c.fe2_total is the lumped expression for Fe2 liquid + sorbed
     mp.f_diss is the Fe2 fraction that is dissolved
+
+    The precipitation reaction is
+    mp.fac_s * k.fes_isp * (c.fe2_liq * c.h2s/(c.hplus * k.fes_sp) -1)
+    and dissolution is
+    mp.fac_s * k.fes_isd * c.fes * (1 - c.fe2_liq * c.h2s/(c.hplus * k.fes_sp))
+
+    Note that dissolution is much slower. The relevant k-values are:
+
+    fes_isp = 3.17e-04 [mol/m^3/s]
+    fes_isd = 9.51e-08 [1/s]
+    fes_sp = 3.16e+03 [mol/m^3]
+    hplus = 3.1e-8  [mol/m^3]
     """
     # 1. Get current values (numpy arrays for coefficients)
     fe2_val = c.fe2_total.value
-    h2s_val = c.h2s.value
     fe2_liq_val = fe2_val * mp.f_diss
+    h2s_val = c.h2s.value
 
     # 2. Calculate Saturation State (Omega)
     # Omega = [Fe2+][H2S] / ([H+] * Ksp)
     omega_den = mp.hplus * k.fes_sp + 1e-30
     omega = (fe2_liq_val * h2s_val) / omega_den
-    print(omega.max())
-    breakpoint()
 
     # 3. Switches
     is_precip = (omega > 1.0).astype(float)
@@ -486,70 +497,79 @@ def fes_formation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     # 4. Precipitation Rates and Coefficients
     # --- PRECIPITATION (Omega > 1) ---
-    coeffs_precip = [
-        (k.fes_isp * mp.f_diss * h2s_val / omega_den) * is_precip,  # Fe2
-        (k.fes_isp * fe2_liq_val / omega_den) * is_precip,  # H2S
-    ]
+    fes_precip_coeff = k.fes_isp * mp.f_diss * is_precip / omega_den
+    fes_precip_rate = k.fes_isp * fe2_liq_val * is_precip / omega_den
     rate_source_correction = k.fes_isp * is_precip
     rate_precip_sink = k.fes_isp * omega * is_precip
 
     # --- DISSOLUTION (Omega <= 1) ---
     omega_diss = np.minimum(omega, 1.0)
     # Rate = k * (1 - Omega) * FeS
-    coeff_diss = k.fes_isd * (1.0 - omega_diss) * is_diss * limiters["fes_explicit"]
+    fes_diss_coeff = k.fes_isd * (1.0 - omega_diss) * is_diss * lim["fes_explicit"]
+    fes_diss_rate = fes_diss_coeff * c.fes.value
 
-    # Needs explicit FeS value
-    if hasattr(c.fes, "value"):
-        fes_val = c.fes.value
-    else:
-        fes_val = c.fes
-    rate_diss = coeff_diss * fes_val
+    """Precip is super fast, so we need to prevent negative concentration values.  This
+    stabilizes the solver, for the steady state case.  However it distorts the physics
+    when transport (i.e., bioturbation) is faster than precipitation, as is artificially
+    slows the tyhe precipitation reaction.  In this case, one needs to reduce the time
+    step, so that the solver can properly deal with transport and precipitation.  Here
+    we limit the rate so it cannot deplete the reservoir by more than 90%
+    """
+
+    # Fixme: add an Inventory Limiter for the precipitation reaction
 
     # 5. Apply terms to Solver matrices
     # --- Fe2_total (Liquid) ---
-    add_implicit_sink(LHS, RATES, "fe2_total", coeffs_precip[0], rate_precip_sink)
-    # Precip Source Check: Theorically needed: add_explicit_source(RHS, RATES, "fe2_total", rate_source_correction)
+    add_implicit_sink(
+        LHS, RATES, "fe2_total", fes_precip_coeff * c.h2s, fes_precip_rate * c.h2s
+    )
+    # Fixme: do we need  add_explicit_source(RHS, RATES, "fe2_total", rate_source_correction) ?
+
     # Dissolution Source (Coupled to FeS):
-    # Rate (Liquid) = Rate (Solid) / fac_s
-    # Coeff (Liquid) = Coeff (Solid) / fac_s
     add_implicit_coupling(
-        CROSS, RATES, "fe2_total", "fes", coeff_diss / mp.fac_s, rate_diss / mp.fac_s
+        CROSS,
+        RATES,
+        "fe2_total",
+        "fes",
+        fes_diss_coeff * c.h2s / mp.fac_s,
+        fes_diss_rate * c.h2s * fe2_liq_val / mp.fac_s,
     )
 
     # --- H2S (Liquid) ---
-    add_implicit_sink(LHS, RATES, "h2s", coeffs_precip[1], rate_precip_sink)
+    add_implicit_sink(LHS, RATES, "h2s", fes_precip_rate * c.fe, rate_precip_sink)
     add_explicit_source(RHS, RATES, "h2s", rate_source_correction)
-    # Dissolution Source (Coupled to FeS):
+
+    # FeS dissolution:
     add_implicit_coupling(
-        CROSS, RATES, "h2s", "fes", coeff_diss / mp.fac_s, rate_diss / mp.fac_s
+        CROSS,
+        RATES,
+        "h2s",
+        "fes",
+        fes_diss_coeff / mp.fac_s,
+        fes_diss_rate / mp.fac_s,
     )
 
-    # --- FeS (Solid) ---
-    # --- FeS (Solid) ---
-    # Precip Source (Coupled to Fe2):
+    # --- FeS (Solid) --- #
     add_implicit_coupling(
         CROSS,
         RATES,
         "fes",
         "fe2_total",
-        coeffs_precip[0] * mp.fac_s,
-        rate_precip_sink * mp.fac_s,
+        fes_precip_coeff * mp.fac_s,
+        fes_precip_rate * mp.fac_s,
     )
     # Precip Correction (-k):
-    # Constant term +k (const_rhs) in equation becomes -k in RHS.
-    # Rate reported is -const_rhs because it's a consumption relative to simple k*Omega
     add_explicit_source(RHS, RATES, "fes", -rate_source_correction * mp.fac_s)
 
     # Dissolution Sink:
-    add_implicit_sink(LHS, RATES, "fes", coeff_diss, rate_diss * mp.fac_s)
+    add_implicit_sink(LHS, RATES, "fes", fes_diss_coeff, fes_diss_rate * mp.fac_s)
 
-    # 6. Isotopes (32S)
     # 6. Isotopes (32S)
     if hasattr(c, "h2s_32"):
         # --- PRECIPITATION ---
         # Rate_32 = Rate_Precip * (H2S_32 / H2S)
         h2s_inv = 1.0 / (h2s_val + 1e-20)
-        coeff_h2s_32_precip = (coeffs_precip[1] - k.fes_isp * h2s_inv) * is_precip
+        coeff_h2s_32_precip = (fes_precip_rate - k.fes_isp * h2s_inv) * is_precip
         coeff_h2s_32_precip = np.maximum(coeff_h2s_32_precip, 0.0)
 
         rate_precip_32 = coeff_h2s_32_precip * c.h2s_32.value
@@ -575,314 +595,18 @@ def fes_formation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         else:
             fes_32_val = c.fes_32
 
-        rate_diss_32 = coeff_diss * fes_32_val
+        rate_diss_32 = fes_diss_coeff * fes_32_val
 
         # Sink for FeS_32
-        add_implicit_sink(LHS, RATES, "fes_32", coeff_diss, rate_diss_32 * mp.fac_s)
+        add_implicit_sink(LHS, RATES, "fes_32", fes_diss_coeff, rate_diss_32 * mp.fac_s)
 
         # Source for H2S_32 (Coupled from FeS_32)
         # H2S is liquid. R_divided_liq = R_divided_solid / fac_s
-        coeff_coupling_diss = coeff_diss / mp.fac_s
+        coeff_coupling_diss = fes_diss_coeff / mp.fac_s
         rate_source_h2s_32 = rate_diss_32 / mp.fac_s
 
         add_implicit_coupling(
             CROSS, RATES, "h2s_32", "fes_32", coeff_coupling_diss, rate_source_h2s_32
-        )
-
-
-def iron_sulfide_formation_old2(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """
-    Reaction: Fe2 + H2S <-> FeS
-    Method: Switch Kinetic Model with Full Linearization
-    """
-    # 2. Clamping (Prevent negative concentrations in rate laws)
-    fe2_pos = (c.fe2 + abs(c.fe2)) * 0.5
-    h2s_pos = (c.h2s + abs(c.h2s)) * 0.5
-    fes_pos = (c.fes + abs(c.fes)) * 0.5
-
-    # 3. Saturation State
-    # Omega = [Fe][H2S] / (H * Ksp)
-    omega_den = mp.hplus * k.isp_fes + 1e-30
-    omega = (fe2_pos * h2s_pos) / omega_den
-
-    # 4. Switches
-    is_supersat = omega > 1.0
-    is_undersat = omega <= 1.0
-
-    # =======================================================================
-    # PRECIPITATION (Omega > 1)
-    # Rate = k_ISP * (Omega - 1)  =  k_ISP * Omega  -  k_ISP
-    # =======================================================================
-    k_isp = k.fe2_h2s
-
-    # A. Implicit Sink Coefficients ( k_ISP * Omega / [Species] )
-    precip_coeff_fe2 = (k_isp * h2s_pos / omega_den) * is_supersat
-    precip_coeff_h2s = (k_isp * fe2_pos / omega_den) * is_supersat
-
-    # B. Explicit Source Correction ( k_ISP )
-    precip_const_correction = k_isp * is_supersat
-
-    # =======================================================================
-    # DISSOLUTION (Omega < 1)
-    # Rate = k_ISD * [FeS] * (1 - Omega)
-    # =======================================================================
-    k_isd = k.isd_fes
-    conv = 1.0 / mp.fac_s
-
-    # A. Explicit Source Term ( k_ISD * [FeS] )
-    diss_source_max = k_isd * fes_pos * conv * is_undersat
-
-    # B. Implicit Damping Term ( - k_ISD * [FeS] * Omega )
-    diss_damping_base = (k_isd * fes_pos * conv) / omega_den * is_undersat
-    diss_coeff_fe2 = diss_damping_base * h2s_pos
-    diss_coeff_h2s = diss_damping_base * fe2_pos
-
-    # =======================================================================
-    # RATE REPORTING (Net Rates for Plots)
-    # =======================================================================
-    # Calculate the exact NET rates here to avoid double-counting corrections
-    # Rate_Liquid = (Precipitation - Dissolution)
-    #             = (k_isp * Omega - k_isp) - (k_isd * FeS * (1-Omega))
-
-    rate_precip_net = precip_coeff_fe2 * fe2_pos - precip_const_correction
-    rate_diss_net = diss_source_max - diss_coeff_fe2 * fe2_pos
-
-    # Net Consumption of Fe2/H2S (Positive = Consumption)
-    net_consumption_liquid = rate_precip_net - rate_diss_net
-
-    # =======================================================================
-    # APPLY TERMS TO SOLVER
-    # =======================================================================
-
-    # --- Fe2 (Liquid) ---
-    # Sink: Precip (+ Damping)
-    # We pass 0.0 for rate because we update RATES manually at the end
-    add_implicit_sink(LHS, RATES, "fe2", precip_coeff_fe2 + diss_coeff_fe2, 0.0)
-
-    # Source: Dissolution Max + Precip Correction
-    # Target Equation: dC/dt = -Rate = -(Precip - Diss) = Diss - Precip
-    # Diss term: +diss_source_max
-    # Precip term: -(-k_isp) = +k_isp
-    # We use 'add_explicit_source' which adds to RHS.
-    add_explicit_source(RHS, RATES, "fe2", diss_source_max + precip_const_correction)
-
-    # Manual Rate Update
-    RATES["fe2"] -= net_consumption_liquid
-
-    # --- H2S (Liquid) ---
-    add_implicit_sink(LHS, RATES, "h2s", precip_coeff_h2s + diss_coeff_h2s, 0.0)
-    add_explicit_source(RHS, RATES, "h2s", diss_source_max + precip_const_correction)
-    RATES["h2s"] -= net_consumption_liquid
-
-    # --- FeS (Solid) ---
-    # Target Equation: dC/dt = +Rate * mp.fac_s
-
-    # 1. Source from Fe2 (Precipitation)
-    # Logic: Source = (k_isp * Omega) * mp.fac_s
-    # We implement this as an Explicit Source using the CURRENT Fe2 value
-    # to avoid complex coupling structures if not supported.
-    # If using segregated solver, this uses Fe2 from previous sweep.
-    # Note: This is the critical "Thin Air" fix. We MUST multiply by fe2_pos.
-    source_from_fe2 = precip_coeff_fe2 * fe2_pos * mp.fac_s
-    add_explicit_source(RHS, RATES, "fes", source_from_fe2)
-
-    # 2. Correction Term (Precipitation)
-    # Logic: Correction = -k_isp * mp.fac_s
-    add_explicit_source(RHS, RATES, "fes", -precip_const_correction * fac_s)
-
-    # 3. Sink (Dissolution)
-    # Logic: Sink = -k_isd * (1-Omega) * [FeS]
-    diss_coeff_solid = k_isd * (1.0 - omega) * is_undersat
-    add_implicit_sink(LHS, RATES, "fes", diss_coeff_solid, 0.0)
-
-    # Manual Rate Update (Production - Consumption)
-    RATES["fes"] += net_consumption_liquid * mp.fac_s
-
-    # --- ISOTOPES (32S) ---
-    if hasattr(c, "h2s_32"):
-        # 1. H2S_32 Sink
-        h2s_inv = 1.0 / (h2s_pos + 1e-20)
-        coeff_precip_32 = precip_coeff_h2s - k_isp * h2s_inv * is_supersat
-        coeff_precip_32 = np.maximum(coeff_precip_32, 0.0)
-
-        # Rate calc for reporting
-        rate_precip_32 = coeff_precip_32 * c.h2s_32
-
-        add_implicit_sink(LHS, RATES, "h2s_32", coeff_precip_32 + diss_coeff_h2s, 0.0)
-
-        # 2. FeS_32 Source (From H2S_32)
-        # Source = coeff * H2S_32 * mp.fac_s
-        add_explicit_source(RHS, RATES, "fes_32", rate_precip_32 * mp.fac_s)
-
-        # 3. Dissolution (Source for H2S_32 from FeS_32)
-        # Ratio = fes_32 / fes
-        ratio_solid = c.fes_32 / (c.fes + 1e-20)
-        rate_diss_32 = (
-            diss_source_max * ratio_solid
-        )  # Note: diss_source_max already has conv factor
-
-        add_explicit_source(RHS, RATES, "h2s_32", rate_diss_32)
-
-        # 4. FeS_32 Sink
-        add_implicit_sink(LHS, RATES, "fes_32", diss_coeff_solid, 0.0)
-
-        # Update Rates
-        net_32 = rate_precip_32 - (diss_coeff_solid * c.fes_32 / mp.fac_s)  # approx
-        RATES["h2s_32"] -= net_32
-        RATES["fes_32"] += net_32 * mp.fac_s
-
-
-def iron_sulfide_formation_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """
-    Reaction: Fe2 + H2S <-> FeS
-    Method: Switch Kinetic Model with Full Linearization (Taylor Expansion)
-    """
-    # 2. Clamping
-    # Ensure non-negative concentrations for rate calculations to prevent instability
-    fe2_pos = (c.fe2 + abs(c.fe2)) * 0.5
-    h2s_pos = (c.h2s + abs(c.h2s)) * 0.5
-    fes_pos = (c.fes + abs(c.fes)) * 0.5
-
-    # 3. Saturation State
-    omega_den = mp.hplus * k.isp_fes + 1e-30
-    omega = (fe2_pos * h2s_pos) / omega_den
-
-    # 4. Switches
-    is_supersat = omega > 1.0
-    is_undersat = omega <= 1.0
-
-    # =======================================================================
-    # PRECIPITATION (Omega > 1)
-    # Rate = k_ISP * (Omega - 1)  =  k_ISP * Omega  -  k_ISP
-    # =======================================================================
-    k_isp = k.fe2_h2s
-
-    # A. Implicit Sink Term ( k_ISP * Omega )
-    # Note: Coefficients for implicit solver can/should use clamped values to guide solving?
-    # Actually, if we want Implicit Linearization: Rate ~ k * fe2 * h2s.
-    # If we use fe2_pos in coefficient, we linearize around the clamped value.
-    # This is safer.
-    precip_coeff_fe2 = (k_isp * h2s_pos / omega_den) * is_supersat
-    precip_coeff_h2s = (k_isp * fe2_pos / omega_den) * is_supersat
-
-    # B. Explicit Source Correction ( -k_ISP )
-    precip_const_correction = k_isp * is_supersat
-
-    # =======================================================================
-    # DISSOLUTION (Omega < 1)
-    # Rate = k_ISD * [FeS] * (1 - Omega)  =  k_ISD*[FeS]  -  k_ISD*[FeS]*Omega
-    # =======================================================================
-    k_isd = k.isd_fes
-    conv = 1.0 / mp.fac_s
-
-    # A. Explicit Source Term ( k_ISD * [FeS] )
-    # CRITICAL: Use clamped FeS to prevent negative source feedback loop
-    diss_source_max = k_isd * fes_pos * conv * is_undersat
-
-    # B. Implicit Damping Term ( - k_ISD * [FeS] * Omega )
-    diss_damping_base = (k_isd * fes_pos * conv) / omega_den * is_undersat
-
-    diss_coeff_fe2 = diss_damping_base * c.h2s
-    diss_coeff_h2s = diss_damping_base * c.fe2
-
-    # =======================================================================
-    # APPLY TERMS (Linearized)
-    # =======================================================================
-
-    # --- Fe2 (Liquid) ---
-    # Sink side: Precipitation + Dissolution Damping
-    add_implicit_sink(LHS, RATES, "fe2", precip_coeff_fe2 + diss_coeff_fe2, 0.0)
-    # Source side: Dissolution Max + Precip Correction
-    # Dissolution Max is Source (+k_dis). Pass -k_dis.
-    # Precip Correction is Source (+k_isp). Pass -k_isp.
-    add_explicit_source(RHS, RATES, "fe2", -diss_source_max - precip_const_correction)
-
-    # --- H2S (Liquid) ---
-    add_implicit_sink(LHS, RATES, "h2s", precip_coeff_h2s + diss_coeff_h2s, 0.0)
-    add_explicit_source(RHS, RATES, "h2s", -diss_source_max - precip_const_correction)
-
-    # --- FeS (Solid) ---
-    term_precip = precip_coeff_fe2 * c.fe2 - precip_const_correction
-    term_diss = diss_source_max - diss_coeff_fe2 * c.fe2
-
-    # 1. The "+ k * Omega" part (Source for FeS, Sink for Fe2)
-    # Coupled Source from Fe2 to FeS.
-    add_implicit_coupling(
-        CROSS, RATES, "fes", "fe2", precip_coeff_fe2 * mp.fac_s, term_precip * mp.fac_s
-    )
-
-    # 2. The "- k * 1" part (Correction)
-    # Correction is Sink (-k_isp). Pass +k_isp.
-    add_explicit_source(RHS, RATES, "fes", precip_const_correction * mp.fac_s)
-
-    # Sink: Dissolution
-    diss_coeff_solid = k_isd * (1.0 - omega) * is_undersat
-    add_implicit_sink(LHS, RATES, "fes", diss_coeff_solid, term_diss * mp.fac_s)
-
-    # --- ISOTOPES (32S) ---
-    if hasattr(c, "h2s_32"):
-        # I. PRECIPITATION (H2S_32 -> FeS_32)
-        # Rate_32 = Rate_Bulk * (H2S_32 / H2S) (assuming alpha=1)
-        # Rate_Bulk = k_ISP * ( Fe2 * H2S / Den - 1 )
-        # Rate_32 = k_ISP * ( Fe2 / Den - 1/H2S ) * H2S_32
-        # Implicit Coeff = k_ISP * ( Fe2 / Den - 1/H2S )
-
-        # Stability: 1/H2S can be large. However, we only precipitate if Omega > 1.
-        # Omega = Fe2 * H2S / Den. So H2S > Den / Fe2.
-        # So 1/H2S < Fe2 / Den.
-        # So (Fe2 / Den - 1/H2S) should be positive and bounded.
-
-        # 1. H2S_32 Sink (Liquid)
-        h2s_inv = 1.0 / (h2s_pos + 1e-20)
-        # coeff_precip_32 = k_isp * (c.fe2 / omega_den - h2s_inv) * is_supersat
-        # Use existing calculation parts for efficiency/consistency
-        coeff_precip_32 = precip_coeff_h2s - k_isp * h2s_inv * is_supersat
-
-        # Clip to 0 to avoid numerical noise if Omega ~ 1
-        coeff_precip_32 = np.maximum(coeff_precip_32, 0.0)
-
-        add_implicit_sink(LHS, RATES, "h2s_32", coeff_precip_32 + diss_coeff_h2s, 0.0)
-
-        # 2. FeS_32 Source (Solid)
-        # Coupled Source from H2S_32 to FeS_32
-        rate_precip_32 = coeff_precip_32 * c.h2s_32 * mp.fac_s
-        add_implicit_coupling(
-            CROSS, RATES, "fes_32", "h2s_32", coeff_precip_32 * mp.fac_s, rate_precip_32
-        )
-
-        # H2S_32 Source Correction: + k_isp/H2S * H2S_32 ??
-        # Rate_32 = k_isp * Omega * H2S_32/H2S - k_isp * H2S_32/H2S.
-        # Implicit part (Coeff*H2S_32) = k_isp * Omega * H2S_32/H2S - k_isp * H2S_32/H2S.
-        # Wait.
-        # Coeff used: k_isp * fe2 / den - k_isp / h2s.
-        # Coeff * H2S_32 = k_isp * Omega/h2s * H2S_32 * fe2/fe2 ?? No.
-        # Coeff = k_isp * Omega / H2S - k_isp / H2S.
-        # So Coeff*H2S_32 = k_isp * Omega * (H2S_32/H2S) - k_isp * (H2S_32/H2S).
-        # This matches Rate exactly!
-        # So Normalized Rate_32 is fully covered by Implicit Term.
-        # Is there a correction term needed?
-        # Only if linearization error vs clamped values?
-        # No explicit correction needed for Isotopes if fully implicit?
-
-        # II. DISSOLUTION (FeS_32 -> H2S_32)
-        # Rate_32 = Rate_Diss_Bulk * (FeS_32 / FeS)
-        # Rate_Diss_Bulk = k_ISD * FeS * (1 - Omega)
-        # Rate_32 = k_ISD * (1 - Omega) * FeS_32
-
-        # 1. H2S_32 Source (Liquid)
-        # Coupled Source from FeS_32 to H2S_32
-        coeff_diss_32_coupling = k_isd * (1.0 - omega) * is_undersat * conv
-        rate_diss_32 = coeff_diss_32_coupling * c.fes_32
-
-        add_implicit_coupling(
-            CROSS, RATES, "h2s_32", "fes_32", coeff_diss_32_coupling, rate_diss_32
-        )
-
-        # 2. FeS_32 Sink (Solid)
-        # Implemented via `diss_coeff_solid` which is `k_isd * (1-Omega)`.
-        term_diss_32_est = diss_coeff_solid * c.fes_32  # Estimate for reporting?
-        add_implicit_sink(
-            LHS, RATES, "fes_32", diss_coeff_solid, term_diss_32_est * mp.fac_s
         )
 
 

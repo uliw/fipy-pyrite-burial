@@ -510,7 +510,8 @@ def run_steady_state_solver_coupled(
             change = np.max(np.abs(var.value - last_sol[species_name]))
             max_change = max(max_change, change)
 
-        if step % 10 == 0 or step == 1:
+        # if step % 10 == 0 or step == 1:
+        if step > 0:
             print(
                 f"Iteration {step}: Max Var Change {max_change:.2e}, Coupled Residual {res:.2e}"
             )

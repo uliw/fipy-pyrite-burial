@@ -279,7 +279,7 @@ if __name__ == "__main__":
         "DB_depth": 0,
         "DB0": 4e-12,
         "relax": 0.001,  # use 0.1 with with coupled solver, and 0.8 with regular solver
-        "max_steps": 10,  # max number of iterations
+        "max_steps": 100,  # max number of iterations
         "tolerance": 1e-11,  # convergence criterion
         "state_data": "fipy_state.npz",  # save state into
     }
