@@ -12,6 +12,8 @@ def get_reaction_constants(phi):
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
 
+    phi = 1
+
     velde: dict = {
         # Oxidation reactions after Velde at eal 2016
         "h2s_ox": [1e7 * phi, "cm^3/(umol*year)", "m^3/(mol*second)"],
@@ -29,7 +31,7 @@ def get_reaction_constants(phi):
             "mol/(m^3 *second)",
         ],  # FeS precipitation
         "fes_isd": [3, "1/year", "1/second"],  # FeS dissolution
-        "fes_sp": [3160 / phi, "umol/cm^3", "mol/m^3"],  # FeS Saturation constant
+        "fes_sp": [3160 / phi, "umol / cm^3", "mol / m^3"],  # FeS Saturation constant
     }
 
     k_values: dict = {}

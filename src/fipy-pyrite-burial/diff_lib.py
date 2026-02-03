@@ -348,194 +348,6 @@ def make_grid(L, initial_spacing, max_spacing, r=1.05):
     return mesh, z_centers
 
 
-def run_steady_state_solver_coupled(
-    mp,
-    equations,  # not used, but keeps the call compatible
-    c,
-    species_list_full,
-    species_list_partial,
-    k,
-    diagenetic_reactions,
-    mesh,
-    D_mol,
-    bc_map,
-    z,
-):
-    """
-    Solve the equation system as a set of coupled reactions, rather than
-    sequentially.
-    """
-    from fipy import LinearLUSolver, CellVariable
-    from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
-    from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
-    from fipy.terms.diffusionTerm import DiffusionTerm
-    import numpy as np
-    import time
-    from functools import reduce
-
-    start_wall = time.time()
-    print("Starting Coupled Steady State Solver...")
-    solver = LinearLUSolver(tolerance=mp.tolerance)
-
-    # 1. PRE-BUILD THE EQUATIONS
-    # --------------------------
-    lhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list_partial}
-    rhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list_partial}
-
-    # Store cross-term placeholders: dict of dicts
-    # cross_vars[target_species][source_species] = CellVariable
-    cross_vars = {s: {} for s in species_list_partial}
-
-    # Analyze Topology once
-    f_init = diagenetic_reactions(mp, c, k, f=data_container())
-
-    for s in species_list_partial:
-        res = getattr(f_init, s)
-        if len(res) > 3:
-            # res[3] is the list of (source_name, coeff) couplings
-            for source_name, _ in res[3]:
-                if source_name not in cross_vars[s]:
-                    cross_vars[s][source_name] = CellVariable(mesh=mesh, value=0.0)
-
-    eqs = []
-
-    for species_name in species_list_partial:
-        var = getattr(c, species_name)
-        props = bc_map[species_name]
-
-        # -- Transport --
-        D_total = getattr(D_mol, species_name) + D_mol.D_bio
-        D_total = np.maximum(D_total, 1e-20)
-
-        vel = mp.w
-        if props["type"] == "dissolved":
-            vel = mp.w - mp.advection
-
-        u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
-        # FIX: Explicitly bind variables to terms for coupled solver inference
-        conv_term = PowerLawConvectionTerm(coeff=u_var, var=var)
-        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total), var=var)
-
-        # -- Reactions (Diagonal) --
-        lhs_term = ImplicitSourceTerm(coeff=lhs_vars[species_name], var=var)
-        rhs_term = rhs_vars[species_name]
-
-        # -- Reactions (Cross-Coupling) --
-        # Add implicit source terms for dependencies on other variables
-        cross_reaction_terms = 0.0
-        for source_name, cv in cross_vars[species_name].items():
-            source_var = getattr(c, source_name)
-            # ImplicitSourceTerm(coeff, var) adds `coeff * var` to the equation check.
-            # In our convention: dC/dt = Rate. If Rate = k * Source.
-            # We want + k*Source.
-            # ImplicitSourceTerm(coeff=k, var=Source) adds +k*Source to the Operator?
-            # FiPy equation: ... == ... + term.
-            # Yes.
-            cross_reaction_terms += ImplicitSourceTerm(coeff=cv, var=source_var)
-
-        # -- Irrigation --
-        if props["type"] == "dissolved":
-            irr_sink = ImplicitSourceTerm(
-                coeff=-CellVariable(mesh=mesh, value=D_mol.D_irr), var=var
-            )
-            irr_source = CellVariable(mesh=mesh, value=D_mol.D_irr * props["top"])
-        else:
-            irr_sink = 0.0
-            irr_source = 0.0
-
-        # Assemble Equation
-        eq = (
-            conv_term
-            == diff_term
-            + lhs_term
-            + rhs_term
-            + cross_reaction_terms
-            + irr_sink
-            + irr_source
-        )
-        eqs.append(eq)
-
-    # Create the Coupled Equation System
-    coupled_eq = reduce(lambda a, b: a & b, eqs)
-
-    # 2. PICARD ITERATION LOOP
-    # ------------------------
-    max_change = 1e10
-    step = 0
-
-    while max_change > mp.tolerance and step < mp.max_steps:
-        step += 1
-
-        last_sol = {s: getattr(c, s).value.copy() for s in species_list_full}
-
-        # Update reaction terms
-        f_res = diagenetic_reactions(mp, c, k, f=data_container())
-
-        # update matrix
-        for species_name in species_list_partial:
-            res_tuple = getattr(f_res, species_name)
-            lhs_val = res_tuple[0]
-            rhs_val = res_tuple[1]
-
-            # Update Diagonal
-            lhs_vars[species_name].setValue(getattr(lhs_val, "value", lhs_val))
-            rhs_vars[species_name].setValue(getattr(rhs_val, "value", rhs_val))
-
-            # Update Cross-Terms if present
-            if len(res_tuple) > 3:
-                # Accumulate coefficients first to avoid overwriting if multiple terms exist for same source
-                # Initialize with 0.0
-                batch_coeffs = {src: 0.0 for src in cross_vars[species_name]}
-
-                for source_name, coeff in res_tuple[3]:
-                    if source_name in batch_coeffs:
-                        val = getattr(coeff, "value", coeff)
-                        batch_coeffs[source_name] += val
-
-                # Update CellVariables
-                for src_name, total_coeff in batch_coeffs.items():
-                    target_cv = cross_vars[species_name][src_name]
-                    target_cv.setValue(total_coeff)
-
-        # Sweep the Coupled System
-        res = coupled_eq.sweep(solver=solver)
-
-        # Relaxation and Convergence
-        max_change = 0
-        for species_name in species_list_partial:
-            var = getattr(c, species_name)
-            new_val = relax_solution(var.value, last_sol[species_name], mp.relax)
-            var.setValue(new_val)
-
-            change = np.max(np.abs(var.value - last_sol[species_name]))
-            max_change = max(max_change, change)
-
-        # if step % 10 == 0 or step == 1:
-        if step > 0:
-            print(
-                f"Iteration {step}: Max Var Change {max_change:.2e}, Coupled Residual {res:.2e}"
-            )
-            df, fqfn = save_data_async(
-                mp, c, k, species_list_full, z, D_mol, diagenetic_reactions
-            )
-
-    # 3. FINALIZE
-    if step >= mp.max_steps:
-        converged = "No"
-        print(
-            f"Warning: Coupled solver did not converge. Last change: {max_change:.2e}"
-        )
-    else:
-        converged = "Yes"
-        print(f"Coupled steady state converged in {step} iterations.")
-
-    end_wall = time.time()
-    total_time = end_wall - start_wall
-    print(f"Coupled Solver Wall Time: {total_time:.2f} seconds")
-
-    return converged, step, total_time
-
-
 def save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions):
     """
     Save the model results to a CSV file (Synchronous).
@@ -784,6 +596,193 @@ def save_data_async(mp, c, k, species_list, z, D_mol, diagenetic_reactions) -> N
     return None, None
 
 
+def run_steady_state_solver_coupled(
+    mp,
+    c,
+    species_list_full,
+    species_list_partial,
+    k,
+    diagenetic_reactions,
+    mesh,
+    D_mol,
+    bc_map,
+    z,
+):
+    """
+    Solve the equation system as a set of coupled reactions, rather than
+    sequentially.
+    """
+    from fipy import LinearLUSolver, CellVariable
+    from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
+    from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
+    from fipy.terms.diffusionTerm import DiffusionTerm
+    import numpy as np
+    import time
+    from functools import reduce
+
+    start_wall = time.time()
+    print("Starting Coupled Steady State Solver...")
+    solver = LinearLUSolver(tolerance=mp.tolerance)
+
+    # 1. PRE-BUILD THE EQUATIONS
+    # --------------------------
+    lhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list_partial}
+    rhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list_partial}
+
+    # Store cross-term placeholders: dict of dicts
+    # cross_vars[target_species][source_species] = CellVariable
+    cross_vars = {s: {} for s in species_list_partial}
+
+    # Analyze Topology once
+    f_init = diagenetic_reactions(mp, c, k, f=data_container())
+
+    for s in species_list_partial:
+        res = getattr(f_init, s)
+        if len(res) > 3:
+            # res[3] is the list of (source_name, coeff) couplings
+            for source_name, _ in res[3]:
+                if source_name not in cross_vars[s]:
+                    cross_vars[s][source_name] = CellVariable(mesh=mesh, value=0.0)
+
+    eqs = []
+
+    for species_name in species_list_partial:
+        var = getattr(c, species_name)
+        props = bc_map[species_name]
+
+        # -- Transport --
+        D_total = getattr(D_mol, species_name) + D_mol.D_bio
+        D_total = np.maximum(D_total, 1e-20)
+
+        vel = mp.w
+        if props["type"] == "dissolved":
+            vel = mp.w - mp.advection
+
+        u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
+        # FIX: Explicitly bind variables to terms for coupled solver inference
+        conv_term = PowerLawConvectionTerm(coeff=u_var, var=var)
+        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total), var=var)
+
+        # -- Reactions (Diagonal) --
+        lhs_term = ImplicitSourceTerm(coeff=lhs_vars[species_name], var=var)
+        rhs_term = rhs_vars[species_name]
+
+        # -- Reactions (Cross-Coupling) --
+        # Add implicit source terms for dependencies on other variables
+        cross_reaction_terms = 0.0
+        for source_name, cv in cross_vars[species_name].items():
+            source_var = getattr(c, source_name)
+            # ImplicitSourceTerm(coeff, var) adds `coeff * var` to the equation check.
+            # In our convention: dC/dt = Rate. If Rate = k * Source.
+            # We want + k*Source.
+            # ImplicitSourceTerm(coeff=k, var=Source) adds +k*Source to the Operator?
+            # FiPy equation: ... == ... + term.
+            # Yes.
+            cross_reaction_terms += ImplicitSourceTerm(coeff=cv, var=source_var)
+
+        # -- Irrigation --
+        if props["type"] == "dissolved":
+            irr_sink = ImplicitSourceTerm(
+                coeff=-CellVariable(mesh=mesh, value=D_mol.D_irr), var=var
+            )
+            irr_source = CellVariable(mesh=mesh, value=D_mol.D_irr * props["top"])
+        else:
+            irr_sink = 0.0
+            irr_source = 0.0
+
+        # Assemble Equation
+        eq = (
+            conv_term
+            == diff_term
+            + lhs_term
+            + rhs_term
+            + cross_reaction_terms
+            + irr_sink
+            + irr_source
+        )
+        eqs.append(eq)
+
+    # Create the Coupled Equation System
+    coupled_eq = reduce(lambda a, b: a & b, eqs)
+
+    # 2. PICARD ITERATION LOOP
+    # ------------------------
+    max_change = 1e10
+    step = 0
+
+    while max_change > mp.tolerance and step < mp.max_steps:
+        step += 1
+
+        last_sol = {s: getattr(c, s).value.copy() for s in species_list_full}
+
+        # Update reaction terms
+        f_res = diagenetic_reactions(mp, c, k, f=data_container())
+
+        # update matrix
+        for species_name in species_list_partial:
+            res_tuple = getattr(f_res, species_name)
+            lhs_val = res_tuple[0]
+            rhs_val = res_tuple[1]
+
+            # Update Diagonal
+            lhs_vars[species_name].setValue(getattr(lhs_val, "value", lhs_val))
+            rhs_vars[species_name].setValue(getattr(rhs_val, "value", rhs_val))
+
+            # Update Cross-Terms if present
+            if len(res_tuple) > 3:
+                # Accumulate coefficients first to avoid overwriting if multiple terms exist for same source
+                # Initialize with 0.0
+                batch_coeffs = {src: 0.0 for src in cross_vars[species_name]}
+
+                for source_name, coeff in res_tuple[3]:
+                    if source_name in batch_coeffs:
+                        val = getattr(coeff, "value", coeff)
+                        batch_coeffs[source_name] += val
+
+                # Update CellVariables
+                for src_name, total_coeff in batch_coeffs.items():
+                    target_cv = cross_vars[species_name][src_name]
+                    target_cv.setValue(total_coeff)
+
+        # Sweep the Coupled System
+        res = coupled_eq.sweep(solver=solver)
+
+        # Relaxation and Convergence
+        max_change = 0
+        for species_name in species_list_partial:
+            var = getattr(c, species_name)
+            new_val = relax_solution(var.value, last_sol[species_name], mp.relax)
+            var.setValue(new_val)
+
+            change = np.max(np.abs(var.value - last_sol[species_name]))
+            max_change = max(max_change, change)
+
+        if step % 10 == 0 or step == 1:
+            # if step > 0:
+            print(
+                f"Iteration {step}: Max Var Change {max_change:.2e}, Coupled Residual {res:.2e}"
+            )
+            df, fqfn = save_data_async(
+                mp, c, k, species_list_full, z, D_mol, diagenetic_reactions
+            )
+
+    # 3. FINALIZE
+    if step >= mp.max_steps:
+        converged = "No"
+        print(
+            f"Warning: Coupled solver did not converge. Last change: {max_change:.2e}"
+        )
+    else:
+        converged = "Yes"
+        print(f"Coupled steady state converged in {step} iterations.")
+
+    end_wall = time.time()
+    total_time = end_wall - start_wall
+    print(f"Coupled Solver Wall Time: {total_time:.2f} seconds")
+
+    return converged, step, total_time
+
+
 def run_non_steady_state_solver_coupled(
     mp,
     c,
@@ -794,14 +793,8 @@ def run_non_steady_state_solver_coupled(
     mesh,
     D_mol,
     bc_map,
-    f_container_cls,
+    z,
 ):
-    """
-    Run the FiPy solver loop for steady state using Pseudo-Transient Continuation.
-
-    This solves Transient + Advection = Diffusion + Reaction
-    By stepping forward in time, the system relaxes to the steady state solution.
-    """
     import time
     import numpy as np
     from fipy import LinearLUSolver, CellVariable
@@ -809,40 +802,84 @@ def run_non_steady_state_solver_coupled(
     from fipy.terms.diffusionTerm import DiffusionTerm
     from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
     from fipy.terms.transientTerm import TransientTerm
+    from functools import reduce
 
     start_wall = time.time()
     print(
-        f"Starting Pseudo-Transient Solver (dt={mp.dt / (60 * 60 * 24 * 365):.1e} yr)"
+        f"Starting Pseudo-Transient Solver (dt={mp.dt_max / (60 * 60 * 24 * 365):.1e} yr)"
     )
 
     solver = LinearLUSolver(tolerance=mp.tolerance)
-    max_change = 1e10
-    step = 0
 
-    # 1. Pre-build Transport Terms (Linear & Constant)
-    transport_eqs = {}
+    # 1. PRE-BUILD THE EQUATIONS
+    # --------------------------
+    lhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list_partial}
+    rhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list_partial}
+    cross_vars = {s: {} for s in species_list_partial}
+
+    # Analyze Topology
+    f_init = diagenetic_reactions(mp, c, k, f=data_container())
 
     for s in species_list_partial:
-        props = bc_map[s]
+        res = getattr(f_init, s)
+        if len(res) > 3:
+            for source_name, _ in res[3]:
+                if source_name not in cross_vars[s]:
+                    cross_vars[s][source_name] = CellVariable(mesh=mesh, value=0.0)
 
-        # Diffusion Coefficient
-        D_total = getattr(D_mol, s) + D_mol.D_bio
-        D_total = np.maximum(D_total, 1e-20)  # Safety floor
+    eqs = []
 
-        # Advection Velocity
+    for species_name in species_list_partial:
+        var = getattr(c, species_name)
+        props = bc_map[species_name]
+
+        # -- Transport --
+        D_total = getattr(D_mol, species_name) + D_mol.D_bio
+        D_total = np.maximum(D_total, 1e-20)
+
         vel = mp.w
         if props["type"] == "dissolved":
             vel = mp.w - mp.advection
 
-        # Create Terms
         u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
-        conv_term = PowerLawConvectionTerm(coeff=u_var)
-        diff_term = DiffusionTerm(coeff=D_total)
+        conv_term = PowerLawConvectionTerm(coeff=u_var, var=var)
+        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total), var=var)
 
-        transport_eqs[s] = (conv_term, diff_term)
+        # -- Reactions --
+        lhs_term = ImplicitSourceTerm(coeff=lhs_vars[species_name], var=var)
+        rhs_term = rhs_vars[species_name]
+
+        cross_reaction_terms = 0.0
+        for source_name, cv in cross_vars[species_name].items():
+            source_var = getattr(c, source_name)
+            cross_reaction_terms += ImplicitSourceTerm(coeff=cv, var=source_var)
+
+        # -- Irrigation --
+        if props["type"] == "dissolved":
+            irr_sink = ImplicitSourceTerm(
+                coeff=CellVariable(mesh=mesh, value=-D_mol.D_irr), var=var
+            )
+            irr_source = CellVariable(mesh=mesh, value=D_mol.D_irr * props["top"])
+        else:
+            irr_sink = 0.0
+            irr_source = 0.0
+
+        # Assemble Equation
+        eq = (
+            TransientTerm(var=var) + conv_term
+            == diff_term + lhs_term + rhs_term + cross_reaction_terms + irr_sink + irr_source
+        )
+        eqs.append(eq)
+
+    # Create the Coupled Equation System
+    coupled_eq = reduce(lambda a, b: a & b, eqs)
+
+    max_change = 1e10
+    step = 0
+    total_time = 0
 
     # 2. Time Stepping Loop
-    while max_change > mp.tolerance and step < mp.max_loops:
+    while max_change > mp.tolerance and step < mp.max_steps:
         step += 1
 
         # A. Update Old Values (Advance Time)
@@ -853,50 +890,35 @@ def run_non_steady_state_solver_coupled(
         last_sol = {s: getattr(c, s).value.copy() for s in species_list_partial}
 
         # B. Update Reaction Rates (Non-Linear Step)
-        # Calculates LHS (Sinks) and RHS (Sources) based on current C
-        f_res = diagenetic_reactions(mp, c, k, f=f_container_cls())
+        f_res = diagenetic_reactions(mp, c, k, f=data_container())
 
-        res = 0.0
+        # update placeholders
+        for species_name in species_list_partial:
+            res_tuple = getattr(f_res, species_name)
+            lhs_val = res_tuple[0]
+            rhs_val = res_tuple[1]
 
-        # C. Solve Coupled Equations
-        for s in species_list_partial:
-            var = getattr(c, s)
-            props = bc_map[s]
+            # Update Diagonal
+            lhs_vars[species_name].setValue(getattr(lhs_val, "value", lhs_val))
+            rhs_vars[species_name].setValue(getattr(rhs_val, "value", rhs_val))
 
-            conv_term, diff_term = transport_eqs[s]
+            # Update Cross-Terms if present
+            if len(res_tuple) > 3:
+                batch_coeffs = {src: 0.0 for src in cross_vars[species_name]}
+                for source_name, coeff in res_tuple[3]:
+                    if source_name in batch_coeffs:
+                        val = getattr(coeff, "value", coeff)
+                        batch_coeffs[source_name] += val
 
-            # Unpack reaction terms
-            lhs_val = getattr(f_res, s)[0]
-            rhs_val = getattr(f_res, s)[1]
+                for src_name, total_coeff in batch_coeffs.items():
+                    target_cv = cross_vars[species_name][src_name]
+                    target_cv.setValue(total_coeff)
 
-            # Create Reaction Terms
-            reaction_sink = ImplicitSourceTerm(coeff=lhs_val)
-
-            # Explicit Source (POSITIVE for Production)
-            if np.isscalar(rhs_val) or isinstance(rhs_val, np.ndarray):
-                reaction_source = CellVariable(mesh=mesh, value=rhs_val)
-            else:
-                reaction_source = rhs_val
-
-            # Irrigation (Dissolved only)
-            if props["type"] == "dissolved":
-                irr_sink = ImplicitSourceTerm(coeff=-D_mol.D_irr)
-                irr_source = D_mol.D_irr * props["top"]
-            else:
-                irr_sink = 0.0
-                irr_source = 0.0
-
-            # Assemble and Sweep
-            # Equation: Transient + Advection == Diffusion + Reactions + Irrigation
-            # Note: We rely on dt for relaxation, so mp.relax is usually not needed here.
-            eq = (
-                TransientTerm(var=var) + conv_term
-                == diff_term + reaction_sink + reaction_source + irr_sink + irr_source
-            )
-
-            res += eq.sweep(var=var, dt=mp.dt, solver=solver)
+        # C. Sweep the Coupled System
+        res = coupled_eq.sweep(dt=mp.dt_max, solver=solver)
 
         # D. Convergence Check
+        total_time = total_time + mp.dt_max
         max_change = 0.0
         for s in species_list_partial:
             var = getattr(c, s)
@@ -907,11 +929,18 @@ def run_non_steady_state_solver_coupled(
             diff = np.abs(curr_val - prev_val)
             max_change = max(max_change, np.max(diff))
 
+        # Reporting
         if step % 10 == 0 or step == 1:
-            print(f"Step {step}: Max Change {max_change:.2e}, Residual {res:.2e}")
+            years = total_time / (60 * 60 * 24 * 365)
+            print(
+                f"Time: {years:.2e} [yr], Step: {step}: Max Change: {max_change:.2e}, Residual {res:.2e}"
+            )
+            df, fqfn = save_data_async(
+                mp, c, k, species_list_full, z, D_mol, diagenetic_reactions
+            )
 
     # 3. Final Report
-    status = "Converged" if step < mp.max_loops else "Failed"
+    status = "Converged" if step < mp.max_steps else "Failed"
     print(f"{status} in {step} steps. Wall time: {time.time() - start_wall:.2f}s")
 
     return step, max_change

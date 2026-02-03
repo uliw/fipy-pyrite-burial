@@ -43,14 +43,14 @@ def run_model(p_dict: dict):
         {
             "plot_name": "pyrite_model_fipy.csv",
             "layout_file": "plot_layout.py",  # Plot layout file
-            "steady_state": True,  # assume steady state?
+            "steady_state": False,  # assume steady state?
             "max_depth": 10.0,  # meters
             "display_length": 2,  # meters
             "temp": [10.0, 10.1],  # temp top, bottom, in C
             "phi": 0.65,  # porosity
             "w": Q_("46 cm/kyr").to("m/s").m,  # sedimentation rate in m/s
             "advection": 0,  # upward directed flow component
-            "pH": 7.5,  # porewater pH
+            "pH": 7.5,  # porewater pH, Velde et al.
             "so4_d": 21,  # seawater delta
             "msr_alpha": 1.07,  # MSR enrichment factor in mUr
             "h2s_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
@@ -69,11 +69,10 @@ def run_model(p_dict: dict):
             "eps": 1e-8,  # limiters
             "relax": 0.1,  # use 0.1 for coupled solver, and 0.8 otherwise
             "tolerance": 1e-9,  # convergence criterion
-            "dt_max": Q_("100 years").to("seconds").magnitude,  # time step in years
+            "dt_max": Q_("1 years").to("seconds").magnitude,  # time step in years
             "max_steps": 2000,  # max number of iterations
             "total_time": 3e5,  # run time in years only used in non-steady state solver
             "VCDT": 0.044162589,  # VCDT reference ratio
-            "hplus": 10 ** (-7.5),  # Velde at al 2016
             "initial_spacing": 0.001,  # meters
             "max_spacing": 0.01,  # meters, None = no cap
             "state_data": None,
@@ -157,7 +156,7 @@ def run_model(p_dict: dict):
     mp.f_sorb = (1.0 - mp.phi) * k.fe2_p_eq / R_factor
 
     # [H+] concentration. Move to c.hplus if using variable pH
-    mp.hplus = 10 ** (-mp.pH)
+    mp.hplus = 10 ** (-mp.pH) * 1e3  # units are mol/m^3!
 
     # ---- Initialize CellVariables and diffusion coefficients ---- #
     D_mol = data_container()
@@ -227,7 +226,6 @@ def run_model(p_dict: dict):
     if mp.steady_state:
         converged, step, total_time = run_steady_state_solver_coupled(
             mp,
-            None,
             c,
             species_list_full,
             species_list_partial,
@@ -239,7 +237,7 @@ def run_model(p_dict: dict):
             z,
         )
     else:
-        run_non_steady_state_solver_coupled(
+        step, max_change = run_non_steady_state_solver_coupled(
             mp,
             c,
             species_list_full,
@@ -249,8 +247,10 @@ def run_model(p_dict: dict):
             mesh,
             D_mol,
             bc_map,
-            f,
+            z,
         )
+        converged = "Yes" if step < mp.max_steps else "No"
+        total_time = 0.0
     return (
         mp,
         c,
@@ -266,6 +266,7 @@ def run_model(p_dict: dict):
 
 
 if __name__ == "__main__":
+    import pint
     from diff_lib import (
         save_data,
         get_delta,
@@ -274,14 +275,21 @@ if __name__ == "__main__":
         read_state,
     )
 
+    ureg = pint.UnitRegistry()
+    Q_ = ureg.Quantity
+
     p_dict = {
         "bc_fe3": weight_percent_to_mol(0.0001, 56, 2.6),
+        "bc_fe3": weight_percent_to_mol(0.1, 56, 2.6),
         "DB_depth": 0,
         "DB0": 4e-12,
-        "relax": 0.001,  # use 0.1 with with coupled solver, and 0.8 with regular solver
-        "max_steps": 100,  # max number of iterations
+        "relax": 0.8,  # use 0.1 with with coupled solver, and 0.8 with regular solver
+        "max_steps": 200,  # max number of iterations
         "tolerance": 1e-11,  # convergence criterion
-        "state_data": "fipy_state.npz",  # save state into
+        "state_data": "fipy_state_1wt_fe3.npz",  # read state data
+        "dt_max": Q_("10 years").to("seconds").magnitude,  # time step in years
+        "dt_max": Q_("1 day").to("seconds").magnitude,  # time step in years
+        "steady_state": False,  # use non-steady solver
     }
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
 
@@ -314,7 +322,7 @@ if __name__ == "__main__":
     d34s = get_delta(s, s32, mp.VCDT)
     print(f"d34S = {d34s:0.2f}, d34S pyrite = {df.d_fes2.iloc[-1]:.2f}")
 
-    # save_state(c, p_dict["state_data"])
+    # save_state(c, "fipy_state_1wt_fe3.npz")
     # 9. PLOTTING
     # -----------------------------------------------------------------------------
     # plt_desc = plot_data_new.load_layout_from_file(df, mp.layout_file)
