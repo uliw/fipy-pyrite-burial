@@ -75,7 +75,7 @@ def run_model(p_dict: dict):
             "VCDT": 0.044162589,  # VCDT reference ratio
             "initial_spacing": 0.001,  # meters
             "max_spacing": 0.01,  # meters, None = no cap
-            "state_data": None,
+            "state_data": "state_data.npz",
         }
     )
 
@@ -142,7 +142,7 @@ def run_model(p_dict: dict):
     # Fe2 sorption fraction. Since sorption is faster than transport
     # we treat it as instantenous, i.e. it is just a function of
     # concentration
-    K_ads = k.fe2_p_eq  # 696
+    # K_ads = k.fe2_p_eq  # 696
 
     # Check Units of K_ads!
     # If K_ads is dimensionless (Conc_solid_vol / Conc_liquid_vol):
@@ -278,17 +278,22 @@ if __name__ == "__main__":
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
 
+    experiment = "fe2_ox"
+    state_in = "fipy_state_1wt_fe3.npz"
+    state_out = "fipy_state_fe2_ox.npz"
+
     p_dict = {
         "bc_fe3": weight_percent_to_mol(0.0001, 56, 2.6),
-        "bc_fe3": weight_percent_to_mol(0.1, 56, 2.6),
+        "bc_fe3": weight_percent_to_mol(1, 56, 2.6),
         "DB_depth": 0,
         "DB0": 4e-12,
         "relax": 0.8,  # use 0.1 with with coupled solver, and 0.8 with regular solver
-        "max_steps": 200,  # max number of iterations
-        "tolerance": 1e-11,  # convergence criterion
-        "state_data": "fipy_state_1wt_fe3.npz",  # read state data
+        "max_steps": 20,  # max number of iterations
+        "tolerance": 1e-9,  # convergence criterion
+        "state_data": state_in,  # read state data
+        # "plot_name": f"{experiment}.csv",
         "dt_max": Q_("10 years").to("seconds").magnitude,  # time step in years
-        "dt_max": Q_("1 day").to("seconds").magnitude,  # time step in years
+        # "dt_max": Q_("1 second").to("seconds").magnitude,  # time step in years
         "steady_state": False,  # use non-steady solver
     }
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
@@ -322,7 +327,7 @@ if __name__ == "__main__":
     d34s = get_delta(s, s32, mp.VCDT)
     print(f"d34S = {d34s:0.2f}, d34S pyrite = {df.d_fes2.iloc[-1]:.2f}")
 
-    # save_state(c, "fipy_state_1wt_fe3.npz")
+    # save_state(c, state_out)
     # 9. PLOTTING
     # -----------------------------------------------------------------------------
     # plt_desc = plot_data_new.load_layout_from_file(df, mp.layout_file)
