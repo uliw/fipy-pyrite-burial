@@ -220,6 +220,7 @@ def run_model(p_dict: dict):
         var.faceGrad.constrain(0.0, mesh.facesRight)
 
     if mp.state_data:
+        print(f"Reading state from {mp.state_data}")
         read_state(c, mp.state_data)
 
     # build equation system and solve
@@ -278,9 +279,9 @@ if __name__ == "__main__":
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
 
-    experiment = "fe2_ox"
-    state_in = "fipy_state_1wt_fe3.npz"
-    state_out = "fipy_state_fe2_ox.npz"
+    experiment = "msr_h2s_ox_fe3_sorb_fe2_ox_fes"
+    state_in = "msr_h2s_ox_fe3_sorb_fe2_ox.npz"
+    state_out = f"{experiment}.npz"
 
     p_dict = {
         "bc_fe3": weight_percent_to_mol(0.0001, 56, 2.6),
@@ -288,13 +289,14 @@ if __name__ == "__main__":
         "DB_depth": 0,
         "DB0": 4e-12,
         "relax": 0.8,  # use 0.1 with with coupled solver, and 0.8 with regular solver
-        "max_steps": 20,  # max number of iterations
-        "tolerance": 1e-9,  # convergence criterion
+        "max_steps": 200,  # max number of iterations
+        "tolerance": 1e-8,  # convergence criterion
         "state_data": state_in,  # read state data
         # "plot_name": f"{experiment}.csv",
-        "dt_max": Q_("10 years").to("seconds").magnitude,  # time step in years
+        "dt_max": Q_("1 second").to("seconds").magnitude,  # time step in years
         # "dt_max": Q_("1 second").to("seconds").magnitude,  # time step in years
         "steady_state": False,  # use non-steady solver
+        "max_spacing": 0.01,  # meters, None = no cap
     }
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
 
@@ -327,7 +329,7 @@ if __name__ == "__main__":
     d34s = get_delta(s, s32, mp.VCDT)
     print(f"d34S = {d34s:0.2f}, d34S pyrite = {df.d_fes2.iloc[-1]:.2f}")
 
-    # save_state(c, state_out)
+    save_state(c, state_out)
     # 9. PLOTTING
     # -----------------------------------------------------------------------------
     # plt_desc = plot_data_new.load_layout_from_file(df, mp.layout_file)

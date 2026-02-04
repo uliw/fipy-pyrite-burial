@@ -88,7 +88,7 @@ def diagenetic_reactions(mp, c, k, f):
     iron_reduction_h2s_lumped(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     fe2_adsoption_lumped(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     fe2_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    # fes_formation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)  #
+    fes_formation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)  #
     # fes_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # pyrite_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # pyrite_formation_s0(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
@@ -225,17 +225,17 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 3. SO4 Sink -> Rate = 0.5 * Base - LIQUID
     coeff_so4 = k.poc_so4 * c.poc * lim["inhib_o2"] * lim["so4_implicit"] * 0.5
 
-    # 4. H2S Source as coupled to sulfate reduction
+    # 4. Sulfate reduction
     add_implicit_coupling_new(
         "liquid_2_liquid",  # type
-        CROSS,
-        RATES,
-        LHS,
+        CROSS,  #  Off-diagonal coupling matrix
+        RATES,  #  Rate reporting dictionary
+        LHS,  # Diagonal matrix (implicit sinks)
         "h2s",  # species that is produced
-        "so4",  # source species
-        coeff_so4,
-        so4_rate,
-        mp,
+        "so4",  # species that is consumed
+        coeff_so4,  # reaction coefficient
+        so4_rate,  # coeff * concentration
+        mp,  # model parameters
     )
 
     # isotopes
@@ -246,10 +246,6 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         f_32 = alpha / (s_val + (alpha - 1) * s32_val + 1e-30)
         coeff_so4_32 = f_32 * so4_rate
 
-        # # sulfate 32
-        # add_implicit_sink(LHS, RATES, "so4_32", coeff_so4_32, coeff_so4_32 * c.so4_32)
-
-        # note this coupled recation only adds on h2s_32, so it does not affect so4_32!
         add_implicit_coupling_new(
             "liquid_2_liquid",  # type
             CROSS,
@@ -261,6 +257,17 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             coeff_so4_32 * c.so4_32,  # explicit rate for reporting
             mp,
         )
+
+        # # sulfate 32
+        # add_implicit_sink(LHS, RATES, "so4_32", coeff_so4_32, coeff_so4_32 * c.so4_32)
+        # add_implicit_coupling(
+        #     CROSS,
+        #     RATES,
+        #     "h2s_32",  # species that is produced
+        #     "so4_32",  # source species
+        #     coeff_so4_32,  # implicit coeff for sink
+        #     coeff_so4_32 * c.so4_32,  # explicit rate for reporting
+        # )
 
 
 def h2s_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
@@ -314,14 +321,14 @@ def h2s_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
         # S0_32 coupled to H2S_32
         add_implicit_coupling_new(
-            "liquid_2_liquid",
+            "liquid_2_solid",
             CROSS,
             RATES,
             LHS,
             "s0_32",  # species that is produced
             "h2s_32",  # source species
-            coeff_h2s_32 * mp.fac_s,  # implicit coeff for sink
-            coeff_h2s_32 * c.h2s_32 * mp.fac_s,  # explicit rate for reporting
+            coeff_h2s_32,  # implicit coeff for sink
+            coeff_h2s_32 * c.h2s_32,  # explicit rate for reporting
             mp,
         )
 
@@ -349,7 +356,7 @@ def iron_reduction_h2s_lumped(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     coeff_coupling_fe2 = k.fe3_h2s * c.h2s
 
     add_implicit_coupling_new(
-        "solid_2_solid",
+        "solid_2_liquid",
         CROSS,
         RATES,
         LHS,
@@ -528,10 +535,27 @@ def fes_formation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         coeff_diss / mp.fac_s,
         coeff_diss * fes_val / mp.fac_s,
     )
-    breakpoint()
     # At the end of fes_formation, fix rate reporting
+    # _c_h2s np.float64(1.0862995735298113e-38) float64
+    # _c_fes np.float64(7.060947227943774e-39) float64
+    # _d np.float64(-0.0) float64
+    # _l np.float64(0.0003639307504732167) float64
+    # _p np.float64(0.0020109244098000007) float64
+    # mp.phi 0.65 float
     net_fes_rate = (rate_precip_total - (coeff_diss * fes_val)) / (1.0 - mp.phi)
     RATES["fes"] = net_fes_rate  # Use setValue if RATES contains CellVariables
+    i = 40
+    _n = net_fes_rate[i]
+    _p_total = rate_precip_total[i]  #  # mol/m^3_bulk/s
+    _p_actual = l_fes_precip[i]
+    _d = ((coeff_diss * fes_val) / (1.0 - mp.phi))[i]  # dissolution
+    # correction factors
+    _c_fes = -r_fe2[i]
+    _c_h2s = -r_h2s[i]
+    _fe2 = fe2_liq_val[i]
+    _h2s = h2s_val[i]
+
+    breakpoint()
 
     # --- 7. Isotopes (32S) ---
     if hasattr(c, "h2s_32"):

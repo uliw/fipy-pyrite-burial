@@ -19,6 +19,7 @@ def get_layout(df):
 
     plt_desc = {
         "first_subplot": {
+            "grid": True,
             "fig_width": 6,  # inches
             "xaxis": [df.z, "Depth [m]"],
             "left": [
@@ -34,8 +35,8 @@ def get_layout(df):
             ],
             "yscale": "log",
             "xscale": "log",
-            "ylim": (1e-10, 1e3),
-            "xlim": (1e-3, None),
+            "ylim": (1e-6, 1e3),
+            "xlim": (1e-2, None),
             "left_ylabel": r"[mmol/l]",
             # "right": [
             #     # [df.c_poc, "OM [mmol]", {"color": "C4"}],
@@ -80,7 +81,7 @@ def get_layout(df):
                 [df.f_fe2_p, "f_fe2+p", {"color": "C9"}],
                 # # [df.D_bio, "D_bio", {"color": "C8"}],
             ],
-            "xlim": (1e-3, None),
+            "xlim": (1e-2, None),
             # "right": [df.D_irr, "D_irr", {"color": "C8"}],
             # "yscale": "symlog, linthresh=1e-14,linscale=0,1,base=10",
             "left_ylabel": "f [mol/m^3/s]",
@@ -101,7 +102,7 @@ def get_layout(df):
             # "options-left": "set_ylim(1e-10, 1e-6)",
             "options-left": "set_ylim(-50, 100)",
             "xscale": "log",
-            "xlim": (1e-3, None),
+            "xlim": (1e-2, None),
         },
     }
     return plt_desc

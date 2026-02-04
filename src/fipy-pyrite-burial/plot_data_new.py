@@ -186,15 +186,28 @@ def plot(
             ax_main.set_xlim(subplot_config["xlim"])
         if "ylim" in subplot_config:
             ax_main.set_ylim(subplot_config["ylim"])
+        if "grid" in subplot_config:
+            grid_config = subplot_config["grid"]
+            if isinstance(grid_config, dict):
+                ax_main.grid(**grid_config)
+            else:
+                ax_main.grid(grid_config)
 
         # Apply properties to right axes if specified (e.g., "right_yscale", "right2_ylim")
         seen_right_axes = set()
         for twin_ax, key, _, _ in right_axes:
             if twin_ax not in seen_right_axes:
-                for prop in ["yscale", "xscale", "xlim", "ylim"]:
+                for prop in ["yscale", "xscale", "xlim", "ylim", "grid"]:
                     key_prop = f"{key}_{prop}"
                     if key_prop in subplot_config:
-                        getattr(twin_ax, f"set_{prop}")(subplot_config[key_prop])
+                        val = subplot_config[key_prop]
+                        if prop == "grid":
+                            if isinstance(val, dict):
+                                twin_ax.grid(**val)
+                            else:
+                                twin_ax.grid(val)
+                        else:
+                            getattr(twin_ax, f"set_{prop}")(val)
                 seen_right_axes.add(twin_ax)
 
         # Handle legend display
