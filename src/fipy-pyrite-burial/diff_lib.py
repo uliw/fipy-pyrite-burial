@@ -555,12 +555,47 @@ def _get_executor():
     return _executor
 
 
-def save_data_async(mp, c, k, species_list, z, D_mol, diagenetic_reactions) -> None:
+def check_peclet_numbers(mesh, mp, D_mol, species_list, bc_map):
+    # Get cell sizes (dx)
+    # For a 1D mesh, mesh.dx is an array of cell lengths
+    dx = mesh.dx
+
+    print("--- Peclet Number Analysis ---")
+    for species in species_list:
+        props = bc_map[species]
+
+        # 1. Determine Velocity
+        vel = mp.w
+        if props["type"] == "dissolved":
+            vel = mp.w - mp.advection
+
+        # 2. Determine Diffusion
+        # For solids, D_mol is usually 0, so D is just D_bio
+        d_val = getattr(D_mol, species) + D_mol.D_bio
+
+        # 3. Calculate Pe for every cell
+        # We use a small epsilon to avoid division by zero
+        pe_cells = (np.abs(vel) * dx) / (d_val + 1e-20)
+
+        max_pe = np.max(pe_cells)
+        print(f"Species: {species:10} | Max Pe: {max_pe:.2f}")
+
+        if max_pe > 2:
+            print(f"  --> WARNING: Pe > 2. Numerical dispersion/oscillations likely.")
+    print("------------------------------")
+
+
+def save_data_async(
+    mp, c, k, species_list, z, D_mol, diagenetic_reactions, current_dt
+) -> None:
     """
     Schedule a background write of model results to CSV and return immediately.
     """
+    from reactions_new import equilibrate_fes_precipitation
+
     # 1. Capture current rates in the main thread (FiPy objects aren't thread-safe)
     f_final, RATES = diagenetic_reactions(mp, c, k, data_container())
+    RATES = equilibrate_fes_precipitation(c, k, mp, current_dt, RATES)
 
     # 2. Snapshot values (numpy arrays) to avoid race conditions during solver update
     def snap(obj):
@@ -799,7 +834,7 @@ def run_steady_state_solver_coupled(
                 f"Iteration {step}: Max Var Change {max_change:.2e}, Coupled Residual {res:.2e}"
             )
             df, fqfn = save_data_async(
-                mp, c, k, species_list_full, z, D_mol, diagenetic_reactions
+                mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, current_dt
             )
 
     # 3. FINALIZE
@@ -979,7 +1014,7 @@ def run_non_steady_state_solver_coupled(
 
                 # D. Apply Instantaneous Equilibrium (Operator Splitting)
                 # This modifies c.fe2, c.h2s, c.fes IN PLACE
-                # RATES = equilibrate_fes_precipitation(c, k, mp, current_dt, RATES)
+                RATES = equilibrate_fes_precipitation(c, k, mp, current_dt, RATES)
 
                 # If we get here without error, the linear solve worked.
                 step_converged = True
@@ -1021,7 +1056,14 @@ def run_non_steady_state_solver_coupled(
             )
 
             df, fqfn = save_data_async(
-                mp, c, k, species_list_full, z, D_mol, diagenetic_reactions
+                mp,
+                c,
+                k,
+                species_list_full,
+                z,
+                D_mol,
+                diagenetic_reactions,
+                current_dt,
             )
         # Check for Steady State
         if max_change < mp.tolerance:
@@ -1033,7 +1075,7 @@ def run_non_steady_state_solver_coupled(
     print(f"{status} in {step} steps. Wall time: {time.time() - start_wall:.2f}s")
 
     df, fqfn = save_data_async(
-        mp, c, k, species_list_full, z, D_mol, diagenetic_reactions
+        mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, current_dt
     )
     print(
         f"Solver finished in {step} steps. Wall time: {time.time() - start_wall:.2f}s"
@@ -1199,7 +1241,7 @@ def run_non_steady_state_solver_coupled_old(
                 f"Time: {years:.2e} [yr], Step: {step}: Max Change: {max_change:.2e}, Residual {res:.2e}"
             )
             df, fqfn = save_data_async(
-                mp, c, k, species_list_full, z, D_mol, diagenetic_reactions
+                mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, current_dt
             )
 
     # 3. Final Report

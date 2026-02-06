@@ -89,8 +89,8 @@ def diagenetic_reactions(mp, c, k, f):
     fe2_adsoption_lumped(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     fe2_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     fes_dissolution(c, k, limiters, LHS, RHS, RATES, CROSS, mp)  #
-    fes_formation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)  #
-    # equilibrate_fes_precipitation (c, k, limiters, LHS, RHS, RATES, CROSS, mp)  #
+    # fes_formation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)  #
+    # equilibrate_fes_precipitation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)  #
     # fes_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # pyrite_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # pyrite_formation_s0(c, k, limiters, LHS, RHS, RATES, CROSS, mp)

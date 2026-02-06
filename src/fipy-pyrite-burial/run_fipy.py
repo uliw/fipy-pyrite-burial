@@ -28,6 +28,7 @@ def run_model(p_dict: dict):
         compute_bio_irrigation_alpha,
         make_grid,
         read_state,
+        check_peclet_numbers,
     )
 
     from reactions_new import diagenetic_reactions
@@ -191,7 +192,7 @@ def run_model(p_dict: dict):
 
     # -- Bioturbation and Irrigation Profiles (Robust Sigmoid) --
     D_mol.D_irr = compute_bio_irrigation_alpha(z, mp.BI0, mp.BI_depth)
-    D_mol.D_bio = compute_sigmoidal_db(z, mp.DB0, mp.DB_depth, 0.1)
+    D_mol.D_bio = compute_sigmoidal_db(z, mp.DB0, mp.DB_depth, 0.1) * 0
     # lumped modeling of Fe2 liq and Fe2 adsorbed
     D_mol.fe2_total = 1 / (1 + k.fe2_p_eq) * D_mol.fe2
 
@@ -224,6 +225,8 @@ def run_model(p_dict: dict):
     if mp.state_data:
         print(f"Reading state from {mp.state_data}")
         read_state(c, mp.state_data)
+
+    check_peclet_numbers(mesh, mp, D_mol, species_list_partial, bc_map)
 
     # build equation system and solve
     if mp.steady_state:
@@ -291,7 +294,7 @@ if __name__ == "__main__":
         "DB_depth": 0,
         "DB0": 4e-12,
         "relax": 0.8,  # use 0.1 with with coupled solver, and 0.8 with regular solver
-        "max_steps": 200,  # max number of iterations
+        "max_steps": 20,  # max number of iterations
         "tolerance": 1e-6,  # convergence criterion
         "state_data": state_in,  # read state data
         # "plot_name": f"{experiment}.csv",
@@ -299,6 +302,7 @@ if __name__ == "__main__":
         # "dt_max": Q_("1 second").to("seconds").magnitude,  # time step in years
         "steady_state": False,  # use non-steady solver
         "max_spacing": 0.01,  # meters, None = no cap
+        "initial_spacing": 0.001,  # meters
     }
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
 
