@@ -68,10 +68,12 @@ def run_model(p_dict: dict):
             "BI_depth": 0.0,  # Irrigation depth (0 = off)
             "eps": 1e-8,  # limiters
             "relax": 0.1,  # use 0.1 for coupled solver, and 0.8 otherwise
-            "tolerance": 1e-9,  # convergence criterion
-            "dt_max": Q_("1 years").to("seconds").magnitude,  # time step in years
+            "tolerance": 1e-5,  # convergence criterion
+            "dt_tolerance": 0.1,  # when to increase dt
+            "dt_max": Q_("100 years").to("seconds").magnitude,  # time step in years
+            "dt_min": Q_("1 second").to("seconds").magnitude,  # time step in years
             "max_steps": 2000,  # max number of iterations
-            "total_time": 3e5,  # run time in years only used in non-steady state solver
+            "t_end": Q_("10 kyear").to("seconds").magnitude,  # max model time
             "VCDT": 0.044162589,  # VCDT reference ratio
             "initial_spacing": 0.001,  # meters
             "max_spacing": 0.01,  # meters, None = no cap
@@ -92,7 +94,7 @@ def run_model(p_dict: dict):
         # Fe3 + H2S -> FeS * S0 -> calculate_k_iron_reduction, Halevy
         # "fe3_h2s": calculate_k_iron_reduction(mp.bc_fe3, 0),  # ~1.6e-8
     }
-    _k1, k2 = get_reaction_constants(mp.phi)
+    _k1, k2 = get_reaction_constants(mp.phi, mp.pH)
     k.update(k2)
     k = data_container(k)
     mp.bc_so4_32 = get_l_mass(mp.bc_so4, mp.so4_d, mp.VCDT)
@@ -156,7 +158,7 @@ def run_model(p_dict: dict):
     mp.f_sorb = (1.0 - mp.phi) * k.fe2_p_eq / R_factor
 
     # [H+] concentration. Move to c.hplus if using variable pH
-    mp.hplus = 10 ** (-mp.pH) * 1e3  # units are mol/m^3!
+    # mp.hplus = 10 ** (-mp.pH) * 1e6  # units are mol/m^3!
 
     # ---- Initialize CellVariables and diffusion coefficients ---- #
     D_mol = data_container()
@@ -290,10 +292,10 @@ if __name__ == "__main__":
         "DB0": 4e-12,
         "relax": 0.8,  # use 0.1 with with coupled solver, and 0.8 with regular solver
         "max_steps": 200,  # max number of iterations
-        "tolerance": 1e-8,  # convergence criterion
+        "tolerance": 1e-6,  # convergence criterion
         "state_data": state_in,  # read state data
         # "plot_name": f"{experiment}.csv",
-        "dt_max": Q_("1 second").to("seconds").magnitude,  # time step in years
+        "dt_max": Q_("100 year").to("seconds").magnitude,  # time step in years
         # "dt_max": Q_("1 second").to("seconds").magnitude,  # time step in years
         "steady_state": False,  # use non-steady solver
         "max_spacing": 0.01,  # meters, None = no cap

@@ -19,23 +19,23 @@ def get_layout(df):
 
     plt_desc = {
         "first_subplot": {
-            "grid": True,
+            # "grid": True,
             "fig_width": 6,  # inches
             "xaxis": [df.z, "Depth [m]"],
             "left": [
-                [df.c_so4, "SO4 [mmol/l]", {"color": "C0"}],
-                [df.c_s0, "S0 [mmol/l]", {"color": "C2"}],
-                [df.c_h2s, "H2S [mmol/l]", {"color": "C1"}],
-                [df.c_o2, "O2 [mmol/l]", {"color": "C3"}],
-                [df.c_fe2, r"Fe$^{2+}$ [mmol]", {"color": "C8"}],
-                [df.c_fe2_total, r"Fe$^{2+}_{tot}$ [mmol]", {"color": "C9"}],
-                [df.c_fes2, r"FeS$_{2}$ [mmol]", {"color": "C7"}],
-                [df.c_fe3, r"Fe$_{3}^{+}$ [mmol]", {"color": "C5"}],
-                [df.c_fes, "FeS [mmol]", {"color": "C6"}],
+                [df.c_so4, "SO4", {"color": "C0"}],
+                [df.c_s0, "S0", {"color": "C2"}],
+                [df.c_h2s, "H2S", {"color": "C1"}],
+                [df.c_o2, "O2", {"color": "C3"}],
+                [df.c_fe2, r"Fe$^{2+}$", {"color": "C8"}],
+                [df.c_fe2_total, r"Fe$^{2+}_{tot}$", {"color": "C9"}],
+                [df.c_fes2, r"FeS$_{2}$", {"color": "C7"}],
+                [df.c_fe3, r"Fe$_{3}^{+}$", {"color": "C5"}],
+                [df.c_fes, "FeS", {"color": "C6"}],
             ],
             "yscale": "log",
             "xscale": "log",
-            "ylim": (1e-6, 1e3),
+            "ylim": (1e-6, 1e5),
             "xlim": (1e-2, None),
             "left_ylabel": r"[mmol/l]",
             # "right": [
