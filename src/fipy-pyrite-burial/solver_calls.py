@@ -407,12 +407,19 @@ def run_steady_state_solver_coupled(
 
         if step % mp.report_step == 0:
             if step > 0:
-            print(
-                f"Iteration {step}: Max Var Change {max_change:.2e}, Coupled Residual {res:.2e}"
-            )
-            df, fqfn = save_data_async(
-                mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, current_dt
-            )
+                print(
+                    f"Iteration {step}: Max Var Change {max_change:.2e}, Coupled Residual {res:.2e}"
+                )
+                df, fqfn = save_data_async(
+                    mp,
+                    c,
+                    k,
+                    species_list_full,
+                    z,
+                    D_mol,
+                    diagenetic_reactions,
+                    current_dt,
+                )
 
     # 3. FINALIZE
     if step >= mp.max_steps:

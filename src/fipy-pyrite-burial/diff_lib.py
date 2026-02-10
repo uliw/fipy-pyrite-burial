@@ -99,7 +99,7 @@ def get_delta(c, li, r):
 
     with np.errstate(divide="ignore", invalid="ignore"):
         h = c - li
-        d = np.where(li < 0.001, float("nan"), 1000 * (h / li - r) / r)
+        d = np.where(li < 1e-4, float("nan"), 1000 * (h / li - r) / r)
 
     return d
 
