@@ -19,12 +19,12 @@ def get_layout(df):
 
     plt_desc = {
         "first_subplot": {
-            "show_grid_options": {
-                "grid": df.z,
-                "step": 10,
-                "color": "black",
-                "alpha": 0.6,
-            },
+            # "show_grid_options": {
+            #     "grid": df.z,
+            #     "step": 10,
+            #     "color": "black",
+            #     "alpha": 0.6,
+            # },
             "fig_width": 6,  # inches
             "xaxis": [df.z, "Depth [m]"],
             "left": [

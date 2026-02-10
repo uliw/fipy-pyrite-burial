@@ -9,7 +9,6 @@ from watchdog.events import FileSystemEventHandler
 # Import project-specific modules
 import plot_data_new
 
-
 class PlotUpdateHandler(FileSystemEventHandler):
     """Handles file system events for the results CSV."""
 
@@ -22,16 +21,47 @@ class PlotUpdateHandler(FileSystemEventHandler):
         self.display_length = display_length
         self.measured_data = measured_data
         self.output_plot = output_plot
+        self.last_trigger_time = 0
+        self.debounce_seconds = 1.0
 
     def on_modified(self, event):
-        # Trigger plot update if either the CSV data or the layout file changes
-        if event.src_path.endswith(self.csv_file) or event.src_path.endswith(
-            self.layout_file
-        ):
-            self.trigger_plot()
+        self._handle_event(event)
+
+    def on_created(self, event):
+        self._handle_event(event)
+
+    def on_moved(self, event):
+        self._handle_event(event)
+
+    def _handle_event(self, event):
+        if event.is_directory:
+            return
+
+        # Target files
+        target_csv = pl.Path(self.csv_file).resolve()
+        target_layout = pl.Path(self.layout_file).resolve()
+        
+        # Source path of the event
+        src_path = pl.Path(event.src_path).resolve()
+        # For MoveEvent, we also check dest_path
+        dest_path = pl.Path(event.dest_path).resolve() if hasattr(event, 'dest_path') else None
+
+        is_match = (src_path == target_csv or src_path == target_layout or 
+                    (dest_path and (dest_path == target_csv or dest_path == target_layout)))
+
+        if is_match:
+            current_time = time.time()
+            dt = current_time - self.last_trigger_time
+            if dt > self.debounce_seconds:
+                print(f"[Monitor] DEBUG: Triggered by {event.event_type} on {src_path} (dt={dt:.3f}s)")
+                self.last_trigger_time = current_time
+                self.trigger_plot()
+            else:
+                # print(f"[Monitor] DEBUG: Debounced {event.event_type} on {src_path} (dt={dt:.3f}s)")
+                pass
 
     def trigger_plot(self):
-        print(f"\n[Monitor] Change detected in {self.csv_file}. Updating plots...")
+        print(f"[Monitor] Change detected. Updating plots...")
         try:
             # Short sleep to ensure the file is fully written/closed by the simulation
             time.sleep(0.5)

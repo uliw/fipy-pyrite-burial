@@ -210,22 +210,22 @@ def run_non_steady_state_solver_coupled(
 
         # Reporting
         if step % mp.report_step == 0:
-            print(
-                f"Time: {get_time_units(total_time):.2f~P}, "
-                f"dt: {get_time_units(current_dt):.2f~P}, "
-                f"Max Change: {max_change:.2e}"
-            )
-
-            df, fqfn = save_data_async(
-                mp,
-                c,
-                k,
-                species_list_full,
-                z,
-                D_mol,
-                diagenetic_reactions,
-                current_dt,
-            )
+            if step > 0:
+                print(
+                    f"Time: {get_time_units(total_time):.2f~P}, "
+                    f"dt: {get_time_units(current_dt):.2f~P}, "
+                    f"Max Change: {max_change:.2e}"
+                )
+                df, fqfn = save_data_async(
+                    mp,
+                    c,
+                    k,
+                    species_list_full,
+                    z,
+                    D_mol,
+                    diagenetic_reactions,
+                    current_dt,
+                )
         # Check for Steady State
         if max_change < mp.tolerance:
             print("Steady State Criteria Met.")
@@ -406,7 +406,7 @@ def run_steady_state_solver_coupled(
             max_change = max(max_change, change)
 
         if step % mp.report_step == 0:
-            # if step > 0:
+            if step > 0:
             print(
                 f"Iteration {step}: Max Var Change {max_change:.2e}, Coupled Residual {res:.2e}"
             )

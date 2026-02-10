@@ -306,7 +306,7 @@ if __name__ == "__main__":
         "DB_depth": 0,
         "DB0": 4e-12 * 0,
         "relax": 0.8,  # use 0.1 with with coupled solver, and 0.8 with regular solver
-        "max_steps": 200,  # max number of iterations
+        "max_steps": 1,  # max number of iterations
         "tolerance": 1e-12,  # convergence criterion
         "dt_tolerance": 1e-4,  # convergence criterion
         # "state_data": state_in,  # read state data
@@ -319,7 +319,7 @@ if __name__ == "__main__":
         "reaction_zone_spacing": 0.001,  # meters
         "max_spacing": 0.1,  # meters, None = no cap
         "reaction_zone": (1e-2, 2e-1),  # in meters
-        "report_step": 10,  # how often to update plot
+        "report_step": 1,  # how often to update plot
     }
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
 
