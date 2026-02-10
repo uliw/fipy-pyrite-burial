@@ -29,7 +29,10 @@ def run_model(p_dict: dict):
         read_state,
         check_peclet_numbers,
     )
-    from solver_calls import  run_non_steady_state_solver_coupled, run_steady_state_solver_coupled,
+    from solver_calls import (
+        run_non_steady_state_solver_coupled,
+        run_steady_state_solver_coupled,
+    )
 
     from reactions_new import diagenetic_reactions
     from reaction_constants import get_reaction_constants
@@ -76,10 +79,10 @@ def run_model(p_dict: dict):
             "max_steps": 2000,  # max number of iterations
             "t_end": Q_("10 kyear").to("seconds").magnitude,  # max model time
             "VCDT": 0.044162589,  # VCDT reference ratio
-            "initial_spacing": 0.001,  # meters
+            "initial_spacing": 0.01,  # meters
             "reaction_zone_spacing": 0.001,  # meters
-            reaction_zone: (5e-2, 2e-1),  # in meters
-            "max_spacing": 0.01,  # meters, None = no cap
+            "reaction_zone": (5e-2, 2e-1),  # in meters
+            "max_spacing": 0.1,  # meters, None = no cap
             "state_data": "state_data.npz",
         }
     )
@@ -107,7 +110,13 @@ def run_model(p_dict: dict):
     # 2. MESH GENERATION (Variable Grid)
     # -----------------------------------------------------------------------------
     # mesh, z = make_grid(mp.max_depth, mp.initial_spacing, mp.max_spacing)
-    mesh, z = make_grid2(mp.max_depth, mp.initial_spacing, mp.max_spacing)
+    mesh, z = make_grid2(
+        mp.max_depth,
+        mp.initial_spacing,
+        mp.reaction_zone_spacing,
+        mp.max_spacing,
+        mp.reaction_zone,
+    )
     mp.grid_points = len(z)
 
     # -----------------------------------------------------------------------------
@@ -306,8 +315,11 @@ if __name__ == "__main__":
         "dt_min": Q_("100 year").to("seconds").magnitude,  # time step in years
         "t_end": Q_("30 kyear").to("seconds").magnitude,
         "steady_state": False,  # use non-steady solver
-        "max_spacing": 0.01,  # meters, None = no cap
-        "initial_spacing": 0.001,  # meters
+        "initial_spacing": 0.01,  # meters
+        "reaction_zone_spacing": 0.001,  # meters
+        "max_spacing": 0.1,  # meters, None = no cap
+        "reaction_zone": (1e-2, 2e-1),  # in meters
+        "report_step": 10,  # how often to update plot
     }
     # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
 

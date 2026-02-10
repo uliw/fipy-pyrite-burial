@@ -1,3 +1,11 @@
+"""Build the equation matrix.
+
+and call the respective solvers.
+"""
+
+from diff_lib import get_time_units, data_container, save_data_async
+
+
 def run_non_steady_state_solver_coupled(
     mp,
     c,
@@ -189,7 +197,7 @@ def run_non_steady_state_solver_coupled(
 
         # F. Adapt Time Step based on convergence trend
         if step > 1:
-            if max_change <= last_max_change:
+            if max_change < last_max_change:
                 current_dt = min(current_dt * growth_factor, dt_max)
             else:
                 current_dt = max(current_dt * cut_factor, mp.dt_min)
@@ -201,7 +209,7 @@ def run_non_steady_state_solver_coupled(
         last_max_change = max_change
 
         # Reporting
-        if step % 200 == 0:
+        if step % mp.report_step == 0:
             print(
                 f"Time: {get_time_units(total_time):.2f~P}, "
                 f"dt: {get_time_units(current_dt):.2f~P}, "
@@ -397,7 +405,7 @@ def run_steady_state_solver_coupled(
             change = np.max(np.abs(var.value - last_sol[species_name]))
             max_change = max(max_change, change)
 
-        if step % 10 == 0:
+        if step % mp.report_step == 0:
             # if step > 0:
             print(
                 f"Iteration {step}: Max Var Change {max_change:.2e}, Coupled Residual {res:.2e}"

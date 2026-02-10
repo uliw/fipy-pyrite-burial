@@ -675,12 +675,12 @@ def make_grid2(
     initial_spacing: float,
     reaction_zone_spacing: float,
     max_spacing: float,
-    reaction_zone: tuple(float, float),
+    reaction_zone: tuple,
     r=1.05,
 ):
     """Build a variable distance mesh.
 
-    The mesh will decrease from inititial_spacing to reaction_zone_spacing, and then increases to max_spacing below the reaction zone. The reaction zone depth interval is given by the reaction_zone tuple e.g. (0.5, 1)
+    The mesh will decrease from initial_spacing to reaction_zone_spacing, and then increases to max_spacing below the reaction zone. The reaction zone depth interval is given by the reaction_zone tuple e.g. (0.5, 1)
 
     Args:
     -----
@@ -695,4 +695,50 @@ def make_grid2(
             mesh: A fipy.Grid1D object.
             z_centers: A numpy array of cell center coordinates.
     """
-    ...
+    from fipy import Grid1D
+    import numpy as np
+
+    rz_start, rz_end = reaction_zone
+    dx_list = []
+    current_z = 0
+
+    # 1. Refinement phase: from surface to reaction zone
+    current_dx = initial_spacing
+    while current_z + current_dx < rz_start:
+        dx_list.append(current_dx)
+        current_z += current_dx
+        current_dx = max(current_dx / r, reaction_zone_spacing)
+
+    if current_z < rz_start:
+        dx_list.append(rz_start - current_z)
+        current_z = rz_start
+
+    # 2. Reaction zone phase: uniform fine spacing
+    n_rz = int(np.ceil((rz_end - rz_start) / reaction_zone_spacing))
+    actual_rz_dx = (rz_end - rz_start) / n_rz
+    dx_list.extend([actual_rz_dx] * n_rz)
+    current_z = rz_end
+
+    # 3. Coarsening phase: from reaction zone to L
+    current_dx = actual_rz_dx * r
+    while current_z + current_dx < L and current_dx < max_spacing:
+        dx_list.append(current_dx)
+        current_z += current_dx
+        current_dx *= r
+
+    # 4. Uniform Section
+    if current_z < L:
+        remaining_L = L - current_z
+        n_uniform = int(np.ceil(remaining_L / max_spacing))
+        if n_uniform > 0:
+            actual_uniform_dx = remaining_L / n_uniform
+            dx_list.extend([actual_uniform_dx] * n_uniform)
+
+    dx_array = np.array(dx_list)
+    N = len(dx_array)
+    print(f"Grid generated with {N} points.")
+
+    mesh = Grid1D(dx=dx_array)
+    z_centers = mesh.cellCenters[0].value
+
+    return mesh, z_centers

@@ -193,6 +193,15 @@ def plot(
             else:
                 ax_main.grid(grid_config)
 
+        # Handle show_grid_options
+        if "show_grid_options" in subplot_config:
+            opts = subplot_config["show_grid_options"]
+            if isinstance(opts, dict):
+                g_kwargs = opts.copy()
+                grid_data = g_kwargs.pop("grid", df.z if "z" in df.columns else None)
+                if grid_data is not None:
+                    show_grid(ax_main, grid_data, **g_kwargs)
+
         # Apply properties to right axes if specified (e.g., "right_yscale", "right2_ylim")
         seen_right_axes = set()
         for twin_ax, key, _, _ in right_axes:
@@ -775,3 +784,46 @@ if __name__ == "__main__":
         measured_data_path=args.measured_data,
     )
     print(f"Plot generated: {outfile}")
+
+
+def show_grid(ax, grid, step=50, thickness="0.1 pt", color="lightgrey", alpha=0.3, **kwargs):
+    """Plot a vertical line each multiple of a mesh coordinate.
+
+    Add this to the plot referenced by ax
+
+    Line thickness and color, and transparency can be modified by the
+    above parameters.
+    """
+    import numpy as np
+
+    # Handle thickness -> linewidth conversion
+    if "linewidth" in kwargs:
+        lw = kwargs.pop("linewidth")
+    elif "lw" in kwargs:
+        lw = kwargs.pop("lw")
+    else:
+        lw = thickness
+        if isinstance(thickness, str):
+            if "pt" in thickness:
+                lw = float(thickness.replace("pt", "").strip())
+            else:
+                try:
+                    lw = float(thickness)
+                except ValueError:
+                    lw = 0.1
+
+    # Get defaults for color and alpha if not in kwargs
+    c = kwargs.pop("color", color)
+    a = kwargs.pop("alpha", alpha)
+
+    # Get z values from grid (could be array or fipy mesh)
+    if hasattr(grid, "cellCenters"):
+        z_vals = np.array(grid.cellCenters[0])
+    elif hasattr(grid, "value"):
+        z_vals = np.array(grid.value)
+    else:
+        z_vals = np.array(grid)
+
+    # Plot vertical lines at every 'step' index
+    for i in range(0, len(z_vals), step):
+        ax.axvline(z_vals[i], color=c, linewidth=lw, alpha=a, zorder=-1, **kwargs)
