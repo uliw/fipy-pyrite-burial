@@ -22,14 +22,14 @@ def run_model(p_dict: dict):
         compute_sigmoidal_db,
         get_l_mass,
         # get_delta,
-        run_non_steady_state_solver_coupled,
-        run_steady_state_solver_coupled,
         weight_percent_to_mol,
         compute_bio_irrigation_alpha,
         make_grid,
+        make_grid2,
         read_state,
         check_peclet_numbers,
     )
+    from solver_calls import  run_non_steady_state_solver_coupled, run_steady_state_solver_coupled,
 
     from reactions_new import diagenetic_reactions
     from reaction_constants import get_reaction_constants
@@ -63,9 +63,9 @@ def run_model(p_dict: dict):
             "bc_fe2": 0,  # wt% Fe2
             "bc_fe2_p": 0,  # wt% sorbed Fe2
             "bc_fe3": weight_percent_to_mol(0.5, 56, 2.6),  # wt% Fe
-            "DB0": 4e-12,  # Bioturbation coefficient
+            "DB0": 4e-12 * 0,  # Bioturbation coefficient
             "DB_depth": 0,  # Bioturbation depth in m
-            "BI0": 1e-6,  # should be < 1e-5
+            "BI0": 1e-6 * 0,  # should be < 1e-5
             "BI_depth": 0.0,  # Irrigation depth (0 = off)
             "eps": 1e-8,  # limiters
             "relax": 0.1,  # use 0.1 for coupled solver, and 0.8 otherwise
@@ -77,6 +77,8 @@ def run_model(p_dict: dict):
             "t_end": Q_("10 kyear").to("seconds").magnitude,  # max model time
             "VCDT": 0.044162589,  # VCDT reference ratio
             "initial_spacing": 0.001,  # meters
+            "reaction_zone_spacing": 0.001,  # meters
+            reaction_zone: (5e-2, 2e-1),  # in meters
             "max_spacing": 0.01,  # meters, None = no cap
             "state_data": "state_data.npz",
         }
@@ -104,7 +106,8 @@ def run_model(p_dict: dict):
     # -----------------------------------------------------------------------------
     # 2. MESH GENERATION (Variable Grid)
     # -----------------------------------------------------------------------------
-    mesh, z = make_grid(mp.max_depth, mp.initial_spacing, mp.max_spacing)
+    # mesh, z = make_grid(mp.max_depth, mp.initial_spacing, mp.max_spacing)
+    mesh, z = make_grid2(mp.max_depth, mp.initial_spacing, mp.max_spacing)
     mp.grid_points = len(z)
 
     # -----------------------------------------------------------------------------
@@ -192,7 +195,7 @@ def run_model(p_dict: dict):
 
     # -- Bioturbation and Irrigation Profiles (Robust Sigmoid) --
     D_mol.D_irr = compute_bio_irrigation_alpha(z, mp.BI0, mp.BI_depth)
-    D_mol.D_bio = compute_sigmoidal_db(z, mp.DB0, mp.DB_depth, 0.1) * 0
+    D_mol.D_bio = compute_sigmoidal_db(z, mp.DB0, mp.DB_depth, 0.1)
     # lumped modeling of Fe2 liq and Fe2 adsorbed
     D_mol.fe2_total = 1 / (1 + k.fe2_p_eq) * D_mol.fe2
 
@@ -286,20 +289,22 @@ if __name__ == "__main__":
 
     experiment = "msr_h2s_ox_fe3_sorb_fe2_ox_fes"
     state_in = "msr_h2s_ox_fe3_sorb_fe2_ox.npz"
-    state_out = f"{experiment}.npz"
+    state_out = f"statenpz"
 
     p_dict = {
         "bc_fe3": weight_percent_to_mol(0.0001, 56, 2.6),
         "bc_fe3": weight_percent_to_mol(1, 56, 2.6),
         "DB_depth": 0,
-        "DB0": 4e-12,
+        "DB0": 4e-12 * 0,
         "relax": 0.8,  # use 0.1 with with coupled solver, and 0.8 with regular solver
-        "max_steps": 20,  # max number of iterations
-        "tolerance": 1e-6,  # convergence criterion
-        "state_data": state_in,  # read state data
+        "max_steps": 200,  # max number of iterations
+        "tolerance": 1e-12,  # convergence criterion
+        "dt_tolerance": 1e-4,  # convergence criterion
+        # "state_data": state_in,  # read state data
         # "plot_name": f"{experiment}.csv",
         "dt_max": Q_("100 year").to("seconds").magnitude,  # time step in years
-        # "dt_max": Q_("1 second").to("seconds").magnitude,  # time step in years
+        "dt_min": Q_("100 year").to("seconds").magnitude,  # time step in years
+        "t_end": Q_("30 kyear").to("seconds").magnitude,
         "steady_state": False,  # use non-steady solver
         "max_spacing": 0.01,  # meters, None = no cap
         "initial_spacing": 0.001,  # meters
