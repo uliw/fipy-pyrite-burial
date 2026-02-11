@@ -4,9 +4,22 @@ import numpy as np
 from diff_lib import calculate_k_iron_reduction
 
 
+def equilibrium_reactions(mp, c, k, f, RATES, dt):
+    """Instantenous reactions that are calculated after the
+    transport matrix has been solved.
+    """
+
+    fe2_adsoption_lumped(c, k, mp)
+    equilibrate_fes_precipitation(c, k, mp, dt, RATES)
+
+
+    return f, RATES
+
+
 def diagenetic_reactions(mp, c, k, f):
     """
-    Main orchestrator for diagenetic reactions.
+    Main orchestrator for diagenetic reactions. That are inside
+    transport matrix.
     Calculates limiters, initializes matrices, and calls specific process functions.
 
     Porosity Handling (Divided Form):
@@ -86,18 +99,13 @@ def diagenetic_reactions(mp, c, k, f):
     sulfate_reduction(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     h2s_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     iron_reduction_h2s_lumped(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    fe2_adsoption_lumped(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+
     fe2_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     fes_dissolution(c, k, limiters, LHS, RHS, RATES, CROSS, mp)  #
-    # fes_formation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)  #
-    # equilibrate_fes_precipitation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)  #
-    # fes_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    fes_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # pyrite_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # pyrite_formation_s0(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # pyrite_formation_fes_h2s(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    # ---- old ----
-    # fe2_sorption(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    # iron_reduction_h2s(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
 
     # 4. FINALIZE
     # -----------
@@ -225,6 +233,7 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     add_implicit_sink(LHS, RATES, "poc", coeff_poc, poc_rate * mp.fac_s)
 
     # 3. SO4 Sink -> Rate = 0.5 * Base - LIQUID
+    # HS- ~ 0.5 H2S,
     coeff_so4 = k.poc_so4 * c.poc * lim["inhib_o2"] * lim["so4_implicit"] * 0.5
 
     # 4. Sulfate reduction
@@ -399,7 +408,7 @@ def iron_reduction_h2s_lumped(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         )
 
 
-def fe2_adsoption_lumped(c, k, lim, LHS, RHS, RATES, Cross, mp):
+def fe2_adsoption_lumped(c, k, mp):
     """
     Handle Iron Partitioning algebraically.
     Instead of calculating rates, we calculate fractions.
@@ -423,9 +432,8 @@ def fe2_adsoption_lumped(c, k, lim, LHS, RHS, RATES, Cross, mp):
     # 2. Inside this function, calculate fe2 and fe2_p from fe_total.
     # 3. Store them in 'c' so subsequent reactions use them.
 
-    if hasattr(c, "fe2_total"):
-        c.fe2.setValue(c.fe2_total * mp.f_diss)
-        c.fe2_p.setValue(c.fe2_total * mp.f_sorb)
+    c.fe2.setValue(c.fe2_total * mp.f_diss)
+    c.fe2_p.setValue(c.fe2_total * mp.f_sorb)
 
 
 def fe2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
@@ -841,60 +849,47 @@ def fes_formation_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
 def fes_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """reaction: 1 FeS + 2.25 O2 -> 1 Fe3 + 1 SO4"""
-    rate_base = k.fes_ox * c.fes * c.o2
-    rate_base_32 = k.fes_ox * c.fes_32 * c.o2
 
     # FeS Sink - SOLID
-    coeff_fes = k.fes_ox * c.o2 * mp.fac_s
-    add_implicit_sink(LHS, RATES, "fes", coeff_fes, rate_base * mp.fac_s)
-    add_implicit_sink(LHS, RATES, "fes_32", coeff_fes, rate_base_32 * mp.fac_s)
+    coeff_fes = k.fes_ox * c.o2
+
+    add_implicit_coupling_new(
+        "solid_2_solid",
+        CROSS,
+        RATES,
+        LHS,
+        "fe3",
+        "fes",
+        coeff_fes,
+        coeff_fes * c.fes,
+        mp,
+    )
 
     # O2 Sink (2.25x) - LIQUID
     # Depends on FeS (Solid).
     coeff_o2_fes = 2.25 * k.fes_ox * c.fes
-    # Wait, explicit sink for O2? O2 is liquid.
-    # Rate = 2.25 * k * O2 * FeS.
+    rate_base = k.fes_ox * c.fes * c.o2
     # Implicit Sink for O2: coeff = 2.25 * k * FeS.
     add_implicit_sink(LHS, RATES, "o2", coeff_o2_fes, rate_base * 2.25)
-
-    # Fe3 Source (1.0x) - SOLID
-    # Couple to FeS (Solid).
-    # Rate = k * FeS * O2.
-    # d((1-phi)Fe3)/dt = phi * (k * FeS * O2) -> NO!
-    # FeS is solid. Rate is usually k_solid * FeS * O2.
-    # If k is porewater based:
-    # Scale appropriately.
-    # If Fe3 and FeS are both solid, they share the same volume scalings.
-    # coeff = k * O2. (Assuming implicit coupling will add coeff * FeS).
-    # Let's check diff_lib.
-    # Target Solid: coeff * (1-phi) * FeS.
-    # We want d((1-phi)Fe3) = ... + (1-phi) * k * FeS * O2 ??
-    # Usually: dC/dt (solid) = Rate (solid).
-    # If Rate is k * FeS * O2.
-    # Coeff = k * O2.
-    # If we use mp.fac_sLogic?
-    # Let's assume consistent k units.
-    # Reactions involving solids are usually scaled by (1-phi) in the solver logic for "divided" equations?
-    # No, 'divided' means we modeled C, not (1-phi)C.
-    # But `diff_lib` multiplies by `scaling`.
-    # So `dC/dt = ... + k*C`.
-    # So `coeff = k * O2`.
-    # Wait, in the sink, we used `coeff_fes * mp.fac_s`.
-    # Why? `diagenetic_reactions` doc says "For Solid Species: R_divided = R_base * (phi/(1-phi))".
-    # This implies R_base is porewater rate.
-    # If we couple FeS (Solid) -> Fe3 (Solid), and both use porewater rate base?
-    # Then we need `mp.fac_s`.
-    add_implicit_coupling(
-        CROSS, RATES, "fe3", "fes", k.fes_ox * c.o2 * mp.fac_s, rate_base * mp.fac_s
-    )
 
     # SO4 Source (1.0x) - LIQUID
     # Couple to FeS.
     # Target Liquid. No mp.fac_s.
     add_implicit_coupling(CROSS, RATES, "so4", "fes", k.fes_ox * c.o2, rate_base)
-    add_implicit_coupling(
-        CROSS, RATES, "so4_32", "fes_32", k.fes_ox * c.o2, rate_base_32
-    )
+
+    if hasattr(c, "fes_32"):
+        rate_base_32 = k.fes_ox * c.fes_32 * c.o2
+        add_implicit_coupling_new(
+            "solid_2_liquid",
+            CROSS,
+            RATES,
+            LHS,
+            "so4_32",
+            "fes_32",
+            k.fes_ox * c.o2,
+            rate_base_32,
+            mp,
+        )
 
 
 def pyrite_formation_s0(c, k, lim, LHS, RHS, RATES, CROSS, mp):

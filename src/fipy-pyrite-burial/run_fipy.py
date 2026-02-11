@@ -193,7 +193,7 @@ def run_model(p_dict: dict):
     # ----- diffusion coefficients for liquid species ------ #
     D_mol.so4 = diff_coeff(T_profile, 4.88, 0.232, mp.phi)
     D_mol.so4_32 = D_mol.so4
-    D_mol.h2s = diff_coeff(T_profile, 10.4, 0.273, mp.phi)
+    D_mol.h2s = diff_coeff(T_profile, 43.3, 0.85, mp.phi)
     D_mol.fe2 = diff_coeff(T_profile, 27.7, 1, mp.phi)
     D_mol.h2s_32 = D_mol.h2s
     D_mol.o2 = (
@@ -306,9 +306,9 @@ if __name__ == "__main__":
         "DB_depth": 0,
         "DB0": 4e-12 * 0,
         "relax": 0.8,  # use 0.1 with with coupled solver, and 0.8 with regular solver
-        "max_steps": 200,  # max number of iterations
-        "tolerance": 1e-12,  # convergence criterion
-        "dt_tolerance": 1e-4,  # convergence criterion
+        "max_steps": 100,  # max number of iterations
+        "tolerance": 1e-9,  # convergence criterion
+        "dt_tolerance": 1e-4,  # convergence criterion for time stepping
         # "state_data": state_in,  # read state data
         # "plot_name": f"{experiment}.csv",
         "dt_max": Q_("1000 year").to("seconds").magnitude,  # time step in years

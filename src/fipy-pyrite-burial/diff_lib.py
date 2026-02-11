@@ -591,11 +591,11 @@ def save_data_async(
     """
     Schedule a background write of model results to CSV and return immediately.
     """
-    from reactions_new import equilibrate_fes_precipitation
+    from reactions_new import equilibrium_reactions
 
     # 1. Capture current rates in the main thread (FiPy objects aren't thread-safe)
     f_final, RATES = diagenetic_reactions(mp, c, k, data_container())
-    RATES = equilibrate_fes_precipitation(c, k, mp, current_dt, RATES)
+    f_final, RATES = equilibrium_reactions(mp, c, k, f_final, RATES, current_dt)
 
     # 2. Snapshot values (numpy arrays) to avoid race conditions during solver update
     def snap(obj):

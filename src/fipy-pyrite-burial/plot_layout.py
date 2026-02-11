@@ -33,7 +33,7 @@ def get_layout(df):
                 [df.c_h2s, "H2S", {"color": "C1"}],
                 [df.c_o2, "O2", {"color": "C3"}],
                 [df.c_fe2, r"Fe$^{2+}$", {"color": "C8"}],
-                [df.c_fe2_total, r"Fe$^{2+}_{tot}$", {"color": "C9"}],
+                [df.c_fe2_p, r"Fe$^{2+}_p$", {"color": "C9"}],
                 [df.c_fes2, r"FeS$_{2}$", {"color": "C7"}],
                 [df.c_fe3, r"Fe$_{3}^{+}$", {"color": "C5"}],
                 [df.c_fes, "FeS", {"color": "C6"}],

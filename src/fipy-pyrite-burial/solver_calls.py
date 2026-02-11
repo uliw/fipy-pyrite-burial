@@ -26,7 +26,8 @@ def run_non_steady_state_solver_coupled(
     from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
     from fipy.terms.transientTerm import TransientTerm
     from functools import reduce
-    from reactions_new import equilibrate_fes_precipitation
+    from reactions_new import equilibrium_reactions
+    import traceback
 
     start_wall = time.time()
 
@@ -167,7 +168,7 @@ def run_non_steady_state_solver_coupled(
 
                 # D. Apply Instantaneous Equilibrium (Operator Splitting)
                 # This modifies c.fe2, c.h2s, c.fes IN PLACE
-                RATES = equilibrate_fes_precipitation(c, k, mp, current_dt, RATES)
+                f_res, RATES = equilibrium_reactions(mp, c, k, f_res, RATES, current_dt)
 
                 # If we get here without error, the linear solve worked.
                 step_converged = True
@@ -177,6 +178,7 @@ def run_non_steady_state_solver_coupled(
                 print(
                     f"  Step failed at dt={current_dt:.1e}: {e}. Retrying with smaller dt."
                 )
+                traceback.print_exc()
                 current_dt *= cut_factor
                 if current_dt < 1e-5:
                     raise RuntimeError(
