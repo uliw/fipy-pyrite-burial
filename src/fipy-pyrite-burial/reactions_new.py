@@ -12,7 +12,6 @@ def equilibrium_reactions(mp, c, k, f, RATES, dt):
     fe2_adsoption_lumped(c, k, mp)
     equilibrate_fes_precipitation(c, k, mp, dt, RATES)
 
-
     return f, RATES
 
 
@@ -86,10 +85,10 @@ def diagenetic_reactions(mp, c, k, f):
     limiters["alpha_implicit"] = 1.0 / (c.so4 + K_alpha)
 
     # H2S Alpha Limiter (prevents numerical issues at trace concentrations)
-    limiters["h2s_alpha_explicit"] = c.h2s.value / (c.h2s.value + 0.05)
+    limiters["ts2_alpha_explicit"] = c.ts2.value / (c.ts2.value + 0.05)
 
     # update k-values
-    k.fe3_h2s = calculate_k_iron_reduction(c.fe3, c.h2s)
+    k.fe3_ts2 = calculate_k_iron_reduction(c.fe3, c.ts2)
 
     # 3. RUN PROCESSES
     # ----------------
@@ -97,15 +96,15 @@ def diagenetic_reactions(mp, c, k, f):
 
     aerobic_respiration(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     sulfate_reduction(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    h2s_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    iron_reduction_h2s_lumped(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    ts2_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    iron_reduction_ts2_lumped(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
 
     fe2_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     fes_dissolution(c, k, limiters, LHS, RHS, RATES, CROSS, mp)  #
     fes_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # pyrite_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     # pyrite_formation_s0(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    # pyrite_formation_fes_h2s(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    # pyrite_formation_fes_ts2(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
 
     # 4. FINALIZE
     # -----------
@@ -242,7 +241,7 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         CROSS,  #  Off-diagonal coupling matrix
         RATES,  #  Rate reporting dictionary
         LHS,  # Diagonal matrix (implicit sinks)
-        "h2s",  # species that is produced
+        "ts2",  # species that is produced
         "so4",  # species that is consumed
         coeff_so4,  # reaction coefficient
         so4_rate,  # coeff * concentration
@@ -262,7 +261,7 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             CROSS,
             RATES,
             LHS,
-            "h2s_32",  # species that is produced
+            "ts2_32",  # species that is produced
             "so4_32",  # source species
             coeff_so4_32,  # implicit coeff for sink
             coeff_so4_32 * c.so4_32,  # explicit rate for reporting
@@ -274,21 +273,21 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         # add_implicit_coupling(
         #     CROSS,
         #     RATES,
-        #     "h2s_32",  # species that is produced
+        #     "ts2_32",  # species that is produced
         #     "so4_32",  # source species
         #     coeff_so4_32,  # implicit coeff for sink
         #     coeff_so4_32 * c.so4_32,  # explicit rate for reporting
         # )
 
 
-def h2s_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+def ts2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """reaction: 1 H2S + 0.5 O2 -> 1 S0"""
     # H2S Sink - LIQUID
     # Ref: H2S
-    coeff_h2s = k.h2s_ox * c.o2
+    coeff_ts2 = k.ts2_ox * c.o2
 
     # O2 Sink (0.5x) - LIQUID
-    coeff_o2 = 0.5 * k.h2s_ox * c.h2s
+    coeff_o2 = 0.5 * k.ts2_ox * c.ts2
     add_implicit_sink(LHS, RATES, "o2", coeff_o2, coeff_o2 * c.o2)
 
     # S0 Source (1.0x) - SOLID, Couple to H2S
@@ -298,18 +297,18 @@ def h2s_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         RATES,
         LHS,
         "s0",  # species that is produced
-        "h2s",  # source species
-        coeff_h2s,  # implicit coeff for sink
-        coeff_h2s * c.h2s,  # explicit rate for reporting
+        "ts2",  # source species
+        coeff_ts2,  # implicit coeff for sink
+        coeff_ts2 * c.ts2,  # explicit rate for reporting
         mp,
     )
 
-    if hasattr(c, "h2s_32"):
+    if hasattr(c, "ts2_32"):
         """Calculate Fractionation Factors using Explicit Values (Linearization)
         Note: We use .value to get numpy arrays for the denominator to avoid
         creating complex non-linear FiPy terms that slow convergence.
-         FIX 1: Use coeff_h2s (Total Coeff) as the base
-        FIX 2: Do NOT divide by c.h2s_32, this is because
+         FIX 1: Use coeff_ts2 (Total Coeff) as the base
+        FIX 2: Do NOT divide by c.ts2_32, this is because
         f32 = f * a  * s32 / (s + (a-1) * s32)
         and f32 = coeff32 * s
         now we substitute these terms for f32 on both sides:
@@ -318,17 +317,17 @@ def h2s_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         solution: remove s32 on the right hand side
         f32 =  coeff_s * s * a * s32/ (s + (a-1))
         """
-        alpha = 1.0 + (mp.h2s_ox_alpha - 1.0) * lim["h2s_alpha_explicit"]
+        alpha = 1.0 + (mp.ts2_ox_alpha - 1.0) * lim["ts2_alpha_explicit"]
 
-        s_val = c.h2s + 1e-20
-        s32_val = c.h2s_32 + 1e-20
+        s_val = c.ts2 + 1e-20
+        s32_val = c.ts2_32 + 1e-20
         denom = s_val + (alpha - 1.0) * s32_val
 
         # Scaling factor for the coefficient
         # Logic: Coeff_32 = Coeff_Tot * (S_Tot * alpha / Denom)
-        # We use c.h2s (Variable) for S_Tot to keep the Jacobian accurate
-        scaling_factor = (c.h2s * alpha) / denom
-        coeff_h2s_32 = coeff_h2s * scaling_factor
+        # We use c.ts2 (Variable) for S_Tot to keep the Jacobian accurate
+        scaling_factor = (c.ts2 * alpha) / denom
+        coeff_ts2_32 = coeff_ts2 * scaling_factor
 
         # S0_32 coupled to H2S_32
         add_implicit_coupling_new(
@@ -337,34 +336,34 @@ def h2s_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             RATES,
             LHS,
             "s0_32",  # species that is produced
-            "h2s_32",  # source species
-            coeff_h2s_32,  # implicit coeff for sink
-            coeff_h2s_32 * c.h2s_32,  # explicit rate for reporting
+            "ts2_32",  # source species
+            coeff_ts2_32,  # implicit coeff for sink
+            coeff_ts2_32 * c.ts2_32,  # explicit rate for reporting
             mp,
         )
 
 
-def iron_reduction_h2s_lumped(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """Define iron reduction by h2s.
+def iron_reduction_ts2_lumped(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """Define iron reduction by ts2.
     1 Fe3 + 0.5 H2S -> 1 Fe2 + 0.5 S0
     Fe2+ is a liquid!
     """
-    k.fe3_h2s = calculate_k_iron_reduction(c.fe3, c.h2s)
+    k.fe3_ts2 = calculate_k_iron_reduction(c.fe3, c.ts2)
 
     # 1. Fe3 Sink - SOLID (Linear)
     # Rate = k * [H2S] * [Fe3]
-    coeff_fe3 = k.fe3_h2s * c.h2s
+    coeff_fe3 = k.fe3_ts2 * c.ts2
     add_implicit_sink(LHS, RATES, "fe3", coeff_fe3, coeff_fe3 * c.fe3)
 
     # 2. H2S Sink (0.5x) - LIQUID (Linear)
-    coeff_h2s = k.fe3_h2s * c.fe3 * 0.5
+    coeff_ts2 = k.fe3_ts2 * c.fe3 * 0.5
 
     # 3. Fe2+ Source (1.0x) - Liquid (Coupled to Fe3)
     # MUST BE LINEAR to match Fe3 Sink
     # Rate = k * [H2S] * [Fe3]
     # Coeff = k * [H2S]
 
-    coeff_coupling_fe2 = k.fe3_h2s * c.h2s
+    coeff_coupling_fe2 = k.fe3_ts2 * c.ts2
 
     add_implicit_coupling_new(
         "solid_2_liquid",
@@ -378,7 +377,7 @@ def iron_reduction_h2s_lumped(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         mp,
     )
 
-    # 4. Elemental sulfur - Solid (Coupled to H2S)
+    # 4. Elemental sulfur - Solid (Coupled to TS2)
     # Rate = 0.5 * k * [Fe3] * [H2S] * mp.fac_s
     # Matches H2S Sink stoichiometry and kinetics exactly
     add_implicit_coupling_new(
@@ -387,13 +386,13 @@ def iron_reduction_h2s_lumped(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         RATES,
         LHS,
         "s0",
-        "h2s",
-        coeff_h2s,
-        coeff_h2s * c.h2s,
+        "ts2",
+        coeff_ts2,
+        coeff_ts2 * c.ts2,
         mp,
     )
 
-    if hasattr(c, "h2s_32"):
+    if hasattr(c, "ts2_32"):
         # Elemental sulfur 32S - Solid
         add_implicit_coupling_new(
             "liquid_2_solid",
@@ -401,9 +400,9 @@ def iron_reduction_h2s_lumped(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             RATES,
             LHS,
             "s0_32",
-            "h2s_32",
-            coeff_h2s,
-            coeff_h2s * c.h2s_32,
+            "ts2_32",
+            coeff_ts2,
+            coeff_ts2 * c.ts2_32,
             mp,
         )
 
@@ -477,16 +476,16 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 1. Current State
     fe2_val = c.fe2_total.value
     fe2_liq_val = fe2_val * mp.f_diss  # Bulk moles in liquid
-    h2s_val = c.h2s.value
+    ts2_val = c.ts2.value
     fes_val = c.fes.value  # mol/L_solid
 
     # 2. Saturation
     omega_den = k.hplus * k.fes_sp + 1e-30
-    omega = (fe2_liq_val * h2s_val) / omega_den
+    omega = (fe2_liq_val * ts2_val) / omega_den
 
     # Derivatives (Slopes)
-    deriv_fe2 = (k.fes_isp * mp.f_diss * h2s_val) / omega_den
-    deriv_h2s = (k.fes_isp * mp.f_diss * fe2_val) / omega_den
+    deriv_fe2 = (k.fes_isp * mp.f_diss * ts2_val) / omega_den
+    deriv_ts2 = (k.fes_isp * mp.f_diss * fe2_val) / omega_den
 
     # ----- Dissolution Logic (Omega < 1) ------- #
     is_diss = (omega <= 1.0).astype(float)
@@ -514,16 +513,16 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     add_implicit_coupling(
         CROSS,
         RATES,
-        "h2s",
+        "ts2",
         "fes",
         coeff_diss / mp.fac_s,
         coeff_diss * fes_val / mp.fac_s,
     )
 
     # --- 7. Isotopes (32S) ---
-    if hasattr(c, "h2s_32"):
-        h2s_32_val = c.h2s_32.value
-        f32_h2s = h2s_32_val / (h2s_val + 1e-20)
+    if hasattr(c, "ts2_32"):
+        ts2_32_val = c.ts2_32.value
+        f32_ts2 = ts2_32_val / (ts2_val + 1e-20)
 
         # Dissolution 32S (Solid Sink)
         add_implicit_sink(LHS, RATES, "fes_32", coeff_diss, coeff_diss * c.fes_32.value)
@@ -532,7 +531,7 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         add_implicit_coupling(
             CROSS,
             RATES,
-            "h2s_32",
+            "ts2_32",
             "fes_32",
             coeff_diss / mp.fac_s,
             coeff_diss * c.fes_32.value / mp.fac_s,
@@ -547,20 +546,20 @@ def fes_formation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 1. Current State
     fe2_val = c.fe2_total.value
     fe2_liq_val = fe2_val * mp.f_diss  # Bulk moles in liquid
-    h2s_val = c.h2s.value
+    ts2_val = c.ts2.value
     fes_val = c.fes.value  # mol/L_solid
 
     # 2. Saturation
     omega_den = k.hplus * k.fes_sp + 1e-30
-    omega = (fe2_liq_val * h2s_val) / omega_den
+    omega = (fe2_liq_val * ts2_val) / omega_den
 
     # 3. Precipitation Logic (Omega > 1)
     is_precip = (omega > 1.0).astype(float)
     rate_precip_total = k.fes_isp * (omega - 1.0) * is_precip  # mol/L_bulk/s
 
     # Derivatives (Slopes)
-    deriv_fe2 = (k.fes_isp * mp.f_diss * h2s_val) / omega_den
-    deriv_h2s = (k.fes_isp * mp.f_diss * fe2_val) / omega_den
+    deriv_fe2 = (k.fes_isp * mp.f_diss * ts2_val) / omega_den
+    deriv_ts2 = (k.fes_isp * mp.f_diss * fe2_val) / omega_den
 
     # --- Fe2_total Equation (Bulk) ---
     l_fe2 = deriv_fe2
@@ -570,10 +569,10 @@ def fes_formation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     # --- H2S Equation (Porewater) ---
     # Conversion: Rate_pw = Rate_bulk / phi
-    l_h2s = deriv_h2s / mp.phi
-    r_h2s = (rate_precip_total / mp.phi) - (l_h2s * h2s_val)
-    add_implicit_sink(LHS, RATES, "h2s", l_h2s, rate_precip_total / mp.phi)
-    add_explicit_source(RHS, RATES, "h2s", -r_h2s)
+    l_ts2 = deriv_ts2 / mp.phi
+    r_ts2 = (rate_precip_total / mp.phi) - (l_ts2 * ts2_val)
+    add_implicit_sink(LHS, RATES, "ts2", l_ts2, rate_precip_total / mp.phi)
+    add_explicit_source(RHS, RATES, "ts2", -r_ts2)
 
     # --- FeS (Solid) Accumulation ---
     # Conversion: Rate_solid = Rate_bulk / (1 - phi)
@@ -614,13 +613,13 @@ def fes_formation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     add_implicit_coupling(
         CROSS,
         RATES,
-        "h2s",
+        "ts2",
         "fes",
         coeff_diss / mp.fac_s,
         coeff_diss * fes_val / mp.fac_s,
     )
     # At the end of fes_formation, fix rate reporting
-    # _c_h2s np.float64(1.0862995735298113e-38) float64
+    # _c_ts2 np.float64(1.0862995735298113e-38) float64
     # _c_fes np.float64(7.060947227943774e-39) float64
     # _d np.float64(-0.0) float64
     # _l np.float64(0.0003639307504732167) float64
@@ -635,27 +634,27 @@ def fes_formation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     _d = ((coeff_diss * fes_val) / (1.0 - mp.phi))[i]  # dissolution
     # correction factors
     _c_fes = -r_fe2[i]
-    _c_h2s = -r_h2s[i]
+    _c_ts2 = -r_ts2[i]
     _fe2 = fe2_liq_val[i]
-    _h2s = h2s_val[i]
+    _ts2 = ts2_val[i]
 
     # --- 7. Isotopes (32S) ---
-    if hasattr(c, "h2s_32"):
-        h2s_32_val = c.h2s_32.value
-        f32_h2s = h2s_32_val / (h2s_val + 1e-20)
+    if hasattr(c, "ts2_32"):
+        ts2_32_val = c.ts2_32.value
+        f32_ts2 = ts2_32_val / (ts2_val + 1e-20)
 
         # Precipitation 32S
-        # Use same porewater scaling as H2S total
-        l_h2s_32 = l_h2s
-        rate_32_precip = (rate_precip_total / mp.phi) * f32_h2s
-        r_h2s_32 = rate_32_precip - (l_h2s_32 * h2s_32_val)
+        # Use same porewater scaling as TS2 total
+        l_ts2_32 = l_ts2
+        rate_32_precip = (rate_precip_total / mp.phi) * f32_ts2
+        r_ts2_32 = rate_32_precip - (l_ts2_32 * ts2_32_val)
 
-        add_implicit_sink(LHS, RATES, "h2s_32", l_h2s_32, rate_32_precip)
-        add_explicit_source(RHS, RATES, "h2s_32", -r_h2s_32)
+        add_implicit_sink(LHS, RATES, "ts2_32", l_ts2_32, rate_32_precip)
+        add_explicit_source(RHS, RATES, "ts2_32", -r_ts2_32)
 
         # Accumulation in FeS_32 (Solid)
         # Scale: f32 * deriv_fe2 / (1-phi)
-        l_fes_32_precip = (deriv_fe2 / (1.0 - mp.phi)) * f32_h2s
+        l_fes_32_precip = (deriv_fe2 / (1.0 - mp.phi)) * f32_ts2
         add_implicit_coupling(
             CROSS,
             RATES,
@@ -672,7 +671,7 @@ def fes_formation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         add_implicit_coupling(
             CROSS,
             RATES,
-            "h2s_32",
+            "ts2_32",
             "fes_32",
             coeff_diss / mp.fac_s,
             coeff_diss * c.fes_32.value / mp.fac_s,
@@ -688,21 +687,21 @@ def fes_formation_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     mp.f_diss is the Fe2 fraction that is dissolved
 
     The precipitation reaction is
-    mp.fac_s * k.fes_isp * (c.fe2_liq * c.h2s/(c.hplus * k.fes_sp) -1)
+    mp.fac_s * k.fes_isp * (c.fe2_liq * c.ts2/(c.hplus * k.fes_sp) -1)
     and dissolution is
-    mp.fac_s * k.fes_isd * c.fes * (1 - c.fe2_liq * c.h2s/(c.hplus * k.fes_sp))
+    mp.fac_s * k.fes_isd * c.fes * (1 - c.fe2_liq * c.ts2/(c.hplus * k.fes_sp))
 
     Note that dissolution is much slower.
     """
     # 1. Get current values (numpy arrays for coefficients)
     fe2_val = c.fe2_total.value
     fe2_liq_val = fe2_val * mp.f_diss
-    h2s_val = c.h2s.value
+    ts2_val = c.ts2.value
 
     # 2. Calculate Saturation State (Omega)
     # Omega = [Fe2+][H2S] / ([H+] * Ksp)
     omega_den = k.hplus * k.fes_sp + 1e-30
-    omega = (fe2_liq_val * h2s_val) / omega_den
+    omega = (fe2_liq_val * ts2_val) / omega_den
 
     # 3. Switches
     is_precip = (omega > 1.0).astype(float)
@@ -731,13 +730,13 @@ def fes_formation_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     else:
         dt_sim = 1.0
 
-    # Maximum allowed rate (90% of liquid iron OR H2S per time step)
+    # Maximum allowed rate (90% of liquid iron OR TS2 per time step)
     # R * dt < 0.9 * C  =>  R < 0.9 * C / dt
     # Check both reactants to avoid depleting either
     max_rate_fe2 = (0.9 * fe2_liq_val) / (dt_sim + 1e-30)
-    max_rate_h2s = (0.9 * h2s_val) / (dt_sim + 1e-30)
+    max_rate_ts2 = (0.9 * ts2_val) / (dt_sim + 1e-30)
 
-    max_rate_allowed = np.minimum(max_rate_fe2, max_rate_h2s)
+    max_rate_allowed = np.minimum(max_rate_fe2, max_rate_ts2)
 
     # Calculate Limiting Factor alpha \in [0, 1]
     # Avoid division by zero
@@ -762,7 +761,7 @@ def fes_formation_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # Sink (Precipitation): -k * Omega = -(k * H2S / Omega_den) * fe2_liq
     # Since fe2_liq = fe2_total * f_diss:
     # coeff = (k * H2S / Omega_den) * f_diss
-    coeff_fe2_sink = common_precip * h2s_val * mp.f_diss
+    coeff_fe2_sink = common_precip * ts2_val * mp.f_diss
     add_implicit_sink(LHS, RATES, "fe2_total", coeff_fe2_sink, coeff_fe2_sink * fe2_val)
 
     # Source (Dissolution): +k_isd * (1-Omega) * FeS [Liquid Source = Solid Rate]
@@ -772,20 +771,20 @@ def fes_formation_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     # --- H2S (Liquid) ---
     # Sink (Precipitation): -k * Omega = -(k * fe2_liq / Omega_den) * H2S
-    coeff_h2s_sink = common_precip * fe2_liq_val
-    add_implicit_sink(LHS, RATES, "h2s", coeff_h2s_sink, coeff_h2s_sink * h2s_val)
+    coeff_ts2_sink = common_precip * fe2_liq_val
+    add_implicit_sink(LHS, RATES, "ts2", coeff_ts2_sink, coeff_ts2_sink * ts2_val)
 
     # Source (): +k
-    add_explicit_source(RHS, RATES, "h2s", k_isp_eff * is_precip)
+    add_explicit_source(RHS, RATES, "ts2", k_isp_eff * is_precip)
 
     # Source (Dissolution): +k_isd * (1-Omega) * FeS
     add_implicit_coupling(
-        CROSS, RATES, "h2s", "fes", fes_diss_coeff, fes_diss_coeff * c.fes.value
+        CROSS, RATES, "ts2", "fes", fes_diss_coeff, fes_diss_coeff * c.fes.value
     )
 
     # --- FeS (Solid) ---
     # Source (Precipitation): +k * Omega * fac_s = +(k * H2S * f_diss / Omega_den) * fe2_total * fac_s
-    coeff_fes_source = common_precip * h2s_val * mp.f_diss * mp.fac_s
+    coeff_fes_source = common_precip * ts2_val * mp.f_diss * mp.fac_s
     add_implicit_coupling(
         CROSS, RATES, "fes", "fe2_total", coeff_fes_source, coeff_fes_source * fe2_val
     )
@@ -798,24 +797,24 @@ def fes_formation_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     add_implicit_sink(LHS, RATES, "fes", coeff_fes_sink, coeff_fes_sink * c.fes.value)
 
     # 7. Isotopes (32S)
-    if hasattr(c, "h2s_32"):
+    if hasattr(c, "ts2_32"):
         # We assume no fractionation for FeS formation/dissolution (alpha = 1.0)
         # Precipitation Rate_32 = Rate_Base * (H2S_32 / H2S)
-        h2s_inv = 1.0 / (h2s_val + 1e-20)
+        ts2_inv = 1.0 / (ts2_val + 1e-20)
 
         # Sink for H2S_32 (Precipitation):
         # Rate = [k * Omega / H2S - k / H2S] * H2S_32
         # coeff = k * (fe2_liq / Omega_den - 1 / H2S)
-        coeff_h2s_32_precip = (
-            k_isp_eff * (fe2_liq_val / omega_den - h2s_inv) * is_precip
+        coeff_ts2_32_precip = (
+            k_isp_eff * (fe2_liq_val / omega_den - ts2_inv) * is_precip
         )
-        coeff_h2s_32_precip = np.maximum(coeff_h2s_32_precip, 0.0)
+        coeff_ts2_32_precip = np.maximum(coeff_ts2_32_precip, 0.0)
         add_implicit_sink(
             LHS,
             RATES,
-            "h2s_32",
-            coeff_h2s_32_precip,
-            coeff_h2s_32_precip * c.h2s_32.value,
+            "ts2_32",
+            coeff_ts2_32_precip,
+            coeff_ts2_32_precip * c.ts2_32.value,
         )
 
         # Source for FeS_32 (Precipitation, coupled to H2S_32):
@@ -823,9 +822,9 @@ def fes_formation_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             CROSS,
             RATES,
             "fes_32",
-            "h2s_32",
-            coeff_h2s_32_precip * mp.fac_s,
-            coeff_h2s_32_precip * c.h2s_32.value * mp.fac_s,
+            "ts2_32",
+            coeff_ts2_32_precip * mp.fac_s,
+            coeff_ts2_32_precip * c.ts2_32.value * mp.fac_s,
         )
 
         # --- DISSOLUTION ---
@@ -840,7 +839,7 @@ def fes_formation_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         add_implicit_coupling(
             CROSS,
             RATES,
-            "h2s_32",
+            "ts2_32",
             "fes_32",
             fes_diss_coeff,
             fes_diss_coeff * c.fes_32.value,
@@ -943,17 +942,17 @@ def pyrite_formation_s0(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     )
 
 
-def pyrite_formation_fes_h2s(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+def pyrite_formation_fes_ts2(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """reaction: 1 FeS + 1 H2S -> 1 FeS2"""
     # FeS Sink - SOLID
-    coeff_fes = k.fes_h2s * c.h2s * mp.fac_s
+    coeff_fes = k.fes_ts2 * c.ts2 * mp.fac_s
     add_implicit_sink(LHS, RATES, "fes", coeff_fes, coeff_fes * c.fes)
     add_implicit_sink(LHS, RATES, "fes_32", coeff_fes, coeff_fes * c.fes_32)
 
     # H2S Sink (1.0x) - LIQUID
-    coeff_h2s = k.fes_h2s * c.fes
-    add_implicit_sink(LHS, RATES, "h2s", coeff_h2s, coeff_h2s * c.h2s)
-    add_implicit_sink(LHS, RATES, "h2s_32", coeff_h2s, coeff_h2s * c.h2s_32)
+    coeff_ts2 = k.fes_ts2 * c.fes
+    add_implicit_sink(LHS, RATES, "ts2", coeff_ts2, coeff_ts2 * c.ts2)
+    add_implicit_sink(LHS, RATES, "ts2_32", coeff_ts2, coeff_ts2 * c.ts2_32)
 
     # FeS2 Source (1.0x) - SOLID
     # Couple to FeS.
@@ -963,8 +962,8 @@ def pyrite_formation_fes_h2s(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         RATES,
         "fes2",
         "fes",
-        k.fes_h2s * c.h2s * mp.fac_s,
-        k.fes_h2s * c.h2s * c.fes * mp.fac_s,
+        k.fes_ts2 * c.ts2 * mp.fac_s,
+        k.fes_ts2 * c.ts2 * c.fes * mp.fac_s,
     )
 
     # FeS2_32 Source
@@ -975,8 +974,8 @@ def pyrite_formation_fes_h2s(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         RATES,
         "fes2_32",
         "fes_32",
-        k.fes_h2s * c.h2s * mp.fac_s,
-        k.fes_h2s * c.h2s * c.fes_32 * mp.fac_s,
+        k.fes_ts2 * c.ts2 * mp.fac_s,
+        k.fes_ts2 * c.ts2 * c.fes_32 * mp.fac_s,
     )
     # Couple to H2S_32
     # Rate = k * FeS * H2S_32.
@@ -985,9 +984,9 @@ def pyrite_formation_fes_h2s(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         CROSS,
         RATES,
         "fes2_32",
-        "h2s_32",
-        mp.fac_s * k.fes_h2s * c.fes,
-        mp.fac_s * k.fes_h2s * c.fes * c.h2s_32,
+        "ts2_32",
+        mp.fac_s * k.fes_ts2 * c.fes,
+        mp.fac_s * k.fes_ts2 * c.fes * c.ts2_32,
     )
 
 
@@ -1049,7 +1048,7 @@ def equilibrate_fes_precipitation(c, k, mp, dt, RATES):
     # 1. Get concentrations (Create explicit copies if you need them to stay static,
     # or just be careful with update order)
     fe = c.fe2_total.value * mp.f_diss
-    hs = c.h2s.value  # Reference to live array
+    hs = c.ts2.value  # Reference to live array
 
     # 2. Define Effective Ksp
     K_target = k.fes_sp * k.hplus  # Assuming k.hplus is available
@@ -1076,7 +1075,7 @@ def equilibrate_fes_precipitation(c, k, mp, dt, RATES):
 
     # Update the diagnostic RATES dictionary
     # For H2S (Porewater units)
-    RATES["h2s"][mask] -= rate_report
+    RATES["ts2"][mask] -= rate_report
 
     # For Fe2_total (Bulk units)
     RATES["fe2_total"][mask] -= rate_report * mp.phi
@@ -1086,7 +1085,7 @@ def equilibrate_fes_precipitation(c, k, mp, dt, RATES):
     # ---------------------------------------------------------
     # CRITICAL FIX: Calculate Isotope Mass Transfer FIRST
     # ---------------------------------------------------------
-    if hasattr(c, "h2s_32"):
+    if hasattr(c, "ts2_32"):
         # We must use hs[mask] HERE, before we subtract x_precip from it.
         # This gives us the fraction of the PRE-PRECIPITATION pool.
 
@@ -1097,18 +1096,18 @@ def equilibrate_fes_precipitation(c, k, mp, dt, RATES):
         frac_precip = x_precip / (hs[mask] + 1e-30)
 
         # Calculate the mass of 32S to move
-        loss_32 = c.h2s_32.value[mask] * frac_precip  # * alpha
+        loss_32 = c.ts2_32.value[mask] * frac_precip  # * alpha
 
         # Update Isotope State Variables
-        c.h2s_32.value[mask] -= loss_32
+        c.ts2_32.value[mask] -= loss_32
         c.fes_32.value[mask] += loss_32 * mp.fac_s
 
     # ---------------------------------------------------------
     # 5. Update Bulk State Variables (AFTER Isotope Calc)
     # ---------------------------------------------------------
 
-    # Update H2S (Porewater) - This modifies 'hs' via reference!
-    c.h2s.value[mask] -= x_precip
+    # Update TS2 (Porewater) - This modifies 'hs' via reference!
+    c.ts2.value[mask] -= x_precip
 
     # Update Fe2_total (Bulk)
     c.fe2_total.value[mask] -= x_precip * mp.phi
@@ -1133,7 +1132,7 @@ def equilibrate_fes_precipitation_old(c, k, mp):
     fe = (
         c.fe2_total.value * mp.f_diss
     )  # Assuming fe2_total is bulk, getting dissolved part
-    hs = c.h2s.value
+    hs = c.ts2.value
 
     # 2. Define Effective Ksp (Saturation target)
     # If your Ksp is defined as [Fe][H2S]/[H+] = K, then Target = K * [H+]
@@ -1169,7 +1168,7 @@ def equilibrate_fes_precipitation_old(c, k, mp):
     # or better: remove 'x' from the porewater portion.
 
     # Update H2S (Porewater)
-    c.h2s.value[mask] -= x_precip
+    c.ts2.value[mask] -= x_precip
 
     # Update Fe2_total (Bulk)
     # We removed 'x' moles/L_porewater.
@@ -1182,14 +1181,14 @@ def equilibrate_fes_precipitation_old(c, k, mp):
     c.fes.value[mask] += x_precip * mp.fac_s
 
     # 6. Optional: Isotope Tracking (32S)
-    if hasattr(c, "h2s_32"):
+    if hasattr(c, "ts2_32"):
         # The fraction of S that precipitated is x / S_total
         # Remove that same fraction from 32S
         frac_precip = x_precip / (hs[mask] + 1e-30)
 
-        loss_32 = c.h2s_32.value[mask] * frac_precip
+        loss_32 = c.ts2_32.value[mask] * frac_precip
 
-        c.h2s_32.value[mask] -= loss_32
+        c.ts2_32.value[mask] -= loss_32
         c.fes_32.value[mask] += loss_32 * mp.fac_s
 
 

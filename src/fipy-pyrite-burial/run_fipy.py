@@ -57,11 +57,11 @@ def run_model(p_dict: dict):
             "pH": 7.5,  # porewater pH, Velde et al.
             "so4_d": 21,  # seawater delta
             "msr_alpha": 1.07,  # MSR enrichment factor in mUr
-            "h2s_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
+            "ts2_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
             "bc_o2": 0.20,  # mmmol/l
             "bc_om": weight_percent_to_mol(4, 12, 2.6),  # wt% C
             "bc_so4": 28.0,  # mmol/l
-            "bc_h2s": 0.0,  # mmol/l
+            "bc_ts2": 0.0,  # mmol/l # Total S2-
             "bc_s0": 0.0,  # mmol/l
             "bc_fe2": 0,  # wt% Fe2
             "bc_fe2_p": 0,  # wt% sorbed Fe2
@@ -96,7 +96,7 @@ def run_model(p_dict: dict):
         "fe2_p_eq": 696,  # partitioning of Fe2+ sorbed vs F2+ liquid , Velde at al.
         "fes2_ox": 1e-10,  # FeS2 + O2 -> SO4, Halevy et al
         "fes_s0": 5e-8,  # FeS + S0 -> FeS2, TBD ???
-        "fes_h2s": 5e-8,  # FeS + H2S -> FeS2, at 10C -> notes.org
+        "fes_t2s": 5e-8,  # FeS + H2S -> FeS2, at 10C -> notes.org
         # Fe3 + H2S -> FeS * S0 -> calculate_k_iron_reduction, Halevy
         # "fe3_h2s": calculate_k_iron_reduction(mp.bc_fe3, 0),  # ~1.6e-8
     }
@@ -104,7 +104,7 @@ def run_model(p_dict: dict):
     k.update(k2)
     k = data_container(k)
     mp.bc_so4_32 = get_l_mass(mp.bc_so4, mp.so4_d, mp.VCDT)
-    mp.bc_h2s_32 = get_l_mass(mp.bc_h2s, 0.0, mp.VCDT)  # Assume 0 delta for bc_h2s
+    mp.bc_ts2_32 = get_l_mass(mp.bc_ts2, 0.0, mp.VCDT)  # Assume 0 delta for bc_h2s
 
     # -----------------------------------------------------------------------------
     # 2. MESH GENERATION (Variable Grid)
@@ -123,7 +123,7 @@ def run_model(p_dict: dict):
     # 3. VARIABLES & DIFFUSION PROFILES
     # -----------------------------------------------------------------------------
     # Species that are part of the transport system
-    species_partial = [
+    species_list_partial = [
         "so4",
         "so4_32",
         "ts2",  # Total S2-
@@ -152,7 +152,7 @@ def run_model(p_dict: dict):
     ]
 
     # these are not part of the T & R equation system
-    species_list_full = species_list_partial.update(report_species)
+    species_list_full = species_list_partial + report_species
 
     # ---- calculate some helper coefficients ----- #
     # Note: All of these assume that porosity does not change with time!
@@ -178,6 +178,7 @@ def run_model(p_dict: dict):
 
     # calculate H2S/HS- speciation
     pKa1 = 7.0
+    Ka1 = 10 ** (-pKa1)
     H = 10 ** (-mp.pH)
     mp.h2s_frac = H / (H + Ka1)
     mp.hs_frac = Ka1 / (H + Ka1)
@@ -223,8 +224,8 @@ def run_model(p_dict: dict):
     bc_map = {
         "so4": {"top": mp.bc_so4, "type": "dissolved"},
         "so4_32": {"top": mp.bc_so4_32, "type": "dissolved"},
-        "h2s": {"top": mp.bc_h2s, "type": "dissolved"},
-        "h2s_32": {"top": mp.bc_h2s_32, "type": "dissolved"},
+        "ts2": {"top": mp.bc_ts2, "type": "dissolved"},
+        "ts2_32": {"top": mp.bc_ts2, "type": "dissolved"},
         "poc": {"top": mp.bc_om, "type": "particulate"},
         "o2": {"top": mp.bc_o2, "type": "dissolved"},
         "s0": {"top": mp.bc_s0, "type": "particulate"},
@@ -351,10 +352,10 @@ if __name__ == "__main__":
     df, fqfn = save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions)
 
     phi = mp.phi  # FIXME: do we need to scale this?
-    s = phi * (df.c_so4.iloc[-1] + df.c_h2s.iloc[-1]) + (1 - phi) * (
+    s = phi * (df.c_so4.iloc[-1] + df.c_ts2.iloc[-1]) + (1 - phi) * (
         df.c_s0.iloc[-1] + df.c_fes.iloc[-1] + 2 * df.c_fes2.iloc[-1]
     )
-    s32 = phi * (df.c_so4_32.iloc[-1] + df.c_h2s_32.iloc[-1]) + (1 - phi) * (
+    s32 = phi * (df.c_so4_32.iloc[-1] + df.c_ts2_32.iloc[-1]) + (1 - phi) * (
         df.c_s0_32.iloc[-1] + df.c_fes_32.iloc[-1] + df.c_fes2_32.iloc[-1]
     )
 
