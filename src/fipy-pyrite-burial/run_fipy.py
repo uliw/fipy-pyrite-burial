@@ -122,15 +122,14 @@ def run_model(p_dict: dict):
     # -----------------------------------------------------------------------------
     # 3. VARIABLES & DIFFUSION PROFILES
     # -----------------------------------------------------------------------------
-    species_list_full = [
+    # Species that are part of the transport system
+    species_partial = [
         "so4",
         "so4_32",
-        "h2s",
-        "h2s_32",
+        "ts2",  # Total S2-
+        "ts2_32",  # Total S2- 32S
         "o2",
         "poc",
-        "fe2",
-        "fe2_p",
         "fe2_total",
         "fe3",
         "fes",
@@ -139,14 +138,21 @@ def run_model(p_dict: dict):
         "s0_32",
         "fes2",
         "fes2_32",
+    ]
+
+    # Species that we use for reporting only
+    report_species = [
+        "fe2",
+        "fe2_p",
         "hplus",
+        "hs",  # HS-
+        "hs_32",  # HS- 32S
+        "h2s",
+        "h2s_32",
     ]
 
     # these are not part of the T & R equation system
-    species_list_partial = species_list_full.copy()
-    species_list_partial.remove("fe2")
-    species_list_partial.remove("fe2_p")
-    species_list_partial.remove("hplus")
+    species_list_full = species_list_partial.update(report_species)
 
     # ---- calculate some helper coefficients ----- #
     # Note: All of these assume that porosity does not change with time!
@@ -170,8 +176,11 @@ def run_model(p_dict: dict):
     mp.f_diss = mp.phi / R_factor
     mp.f_sorb = (1.0 - mp.phi) * k.fe2_p_eq / R_factor
 
-    # [H+] concentration. Move to c.hplus if using variable pH
-    # mp.hplus = 10 ** (-mp.pH) * 1e6  # units are mol/m^3!
+    # calculate H2S/HS- speciation
+    pKa1 = 7.0
+    H = 10 ** (-mp.pH)
+    mp.h2s_frac = H / (H + Ka1)
+    mp.hs_frac = Ka1 / (H + Ka1)
 
     # ---- Initialize CellVariables and diffusion coefficients ---- #
     D_mol = data_container()
@@ -193,9 +202,9 @@ def run_model(p_dict: dict):
     # ----- diffusion coefficients for liquid species ------ #
     D_mol.so4 = diff_coeff(T_profile, 4.88, 0.232, mp.phi)
     D_mol.so4_32 = D_mol.so4
-    D_mol.h2s = diff_coeff(T_profile, 43.3, 0.85, mp.phi)
+    D_mol.ts2 = diff_coeff(T_profile, 43.3, 0.85, mp.phi)
+    D_mol.ts2_32 = D_mol.ts2
     D_mol.fe2 = diff_coeff(T_profile, 27.7, 1, mp.phi)
-    D_mol.h2s_32 = D_mol.h2s
     D_mol.o2 = (
         (0.2604 + 0.006363 * ((T_profile + 273.15) / 1))
         * 1e-9
