@@ -23,7 +23,7 @@ def get_reaction_constants(mp, pH):
     velde: dict = {
         "hplus": [10 ** (-pH), "mol/l", "mol/m^3"],
         # Oxidation reactions after Velde at eal 2016
-        "ts2_ox": [1e7 * phi, "cm^3/(umol*year)", "m^3/(mol*second)"],
+        "hs_ox": [1e7 * phi, "cm^3/(umol*year)", "m^3/(mol*second)"],
         "fe3_h2s": [
             494 * phi,
             "cm^3/(umol*year)",

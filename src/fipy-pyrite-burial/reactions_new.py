@@ -96,7 +96,7 @@ def diagenetic_reactions(mp, c, k, f):
 
     aerobic_respiration(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     sulfate_reduction(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    ts2_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    hs_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
     iron_reduction_ts2_lumped(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
 
     fe2_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
@@ -221,7 +221,7 @@ def aerobic_respiration(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Calculate sulfate reduction.
 
-    Reaction: 2 POC + 1 SO4 -> 1 H2S Ref: POC (k.poc_so4)
+    Reaction: 2 POC + 1 SO4 -> 1 TS2- Ref: POC (k.poc_so4)
     """
     # 1. Base Rate
     poc_rate = k.poc_so4 * c.poc * c.so4 * lim["so4_implicit"] * lim["inhib_o2"]
@@ -268,26 +268,18 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             mp,
         )
 
-        # # sulfate 32
-        # add_implicit_sink(LHS, RATES, "so4_32", coeff_so4_32, coeff_so4_32 * c.so4_32)
-        # add_implicit_coupling(
-        #     CROSS,
-        #     RATES,
-        #     "ts2_32",  # species that is produced
-        #     "so4_32",  # source species
-        #     coeff_so4_32,  # implicit coeff for sink
-        #     coeff_so4_32 * c.so4_32,  # explicit rate for reporting
-        # )
 
-
-def ts2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """reaction: 1 H2S + 0.5 O2 -> 1 S0"""
+def hs_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """reaction: 1 HS- + 0.5 O2 -> 1 S0
+    Note the model tracks total reduced sulfur ts2, to get HS-
+    use:  [HS-] = ts2 * mp.hs_frac
+    """
     # H2S Sink - LIQUID
     # Ref: H2S
-    coeff_ts2 = k.ts2_ox * c.o2
+    coeff_ts2 = k.hs_ox * c.o2 * mp.hs_frac
 
     # O2 Sink (0.5x) - LIQUID
-    coeff_o2 = 0.5 * k.ts2_ox * c.ts2
+    coeff_o2 = 0.5 * k.hs_ox * c.ts2 * mp.hs_frac
     add_implicit_sink(LHS, RATES, "o2", coeff_o2, coeff_o2 * c.o2)
 
     # S0 Source (1.0x) - SOLID, Couple to H2S
@@ -317,8 +309,10 @@ def ts2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         solution: remove s32 on the right hand side
         f32 =  coeff_s * s * a * s32/ (s + (a-1))
         """
-        alpha = 1.0 + (mp.ts2_ox_alpha - 1.0) * lim["ts2_alpha_explicit"]
+        alpha = 1.0 + (mp.hs_ox_alpha - 1.0) * lim["ts2_alpha_explicit"]
 
+        # the isotope ratio is the same for HS- and ts2, so no need
+        # to add mp.hs_frac
         s_val = c.ts2 + 1e-20
         s32_val = c.ts2_32 + 1e-20
         denom = s_val + (alpha - 1.0) * s32_val
@@ -326,7 +320,7 @@ def ts2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         # Scaling factor for the coefficient
         # Logic: Coeff_32 = Coeff_Tot * (S_Tot * alpha / Denom)
         # We use c.ts2 (Variable) for S_Tot to keep the Jacobian accurate
-        scaling_factor = (c.ts2 * alpha) / denom
+        scaling_factor = c.ts2 * alpha / denom
         coeff_ts2_32 = coeff_ts2 * scaling_factor
 
         # S0_32 coupled to H2S_32

@@ -57,7 +57,7 @@ def run_model(p_dict: dict):
             "pH": 7.5,  # porewater pH, Velde et al.
             "so4_d": 21,  # seawater delta
             "msr_alpha": 1.07,  # MSR enrichment factor in mUr
-            "ts2_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
+            "hs_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
             "bc_o2": 0.20,  # mmmol/l
             "bc_om": weight_percent_to_mol(4, 12, 2.6),  # wt% C
             "bc_so4": 28.0,  # mmol/l
