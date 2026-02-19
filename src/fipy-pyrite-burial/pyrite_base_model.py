@@ -31,6 +31,7 @@ def pyrite_model(p_dict: dict):
     )
     from solver_calls import (
         run_non_steady_state_solver_coupled,
+        run_non_steady_state_solver_coupled_bdf,
         run_steady_state_solver_coupled,
     )
 
@@ -42,6 +43,8 @@ def pyrite_model(p_dict: dict):
 
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
+
+    print("Entering pyrite_model...", flush=True)
 
     mp = data_container(
         {
@@ -251,7 +254,7 @@ def pyrite_model(p_dict: dict):
     check_peclet_numbers(mesh, mp, D_mol, species_list_partial, bc_map)
 
     # build equation system and solve
-    if mp.steady_state:
+    if mp.solver == "steady":
         converged, step, total_time = run_steady_state_solver_coupled(
             mp,
             c,
@@ -264,7 +267,22 @@ def pyrite_model(p_dict: dict):
             bc_map,
             z,
         )
-    else:
+    if mp.solver == "bdf":
+        step, max_change = run_non_steady_state_solver_coupled_bdf(
+            mp,
+            c,
+            species_list_full,
+            species_list_partial,
+            k,
+            diagenetic_reactions,
+            mesh,
+            D_mol,
+            bc_map,
+            z,
+        )
+        converged = "Yes" if step < mp.max_steps else "No"
+        total_time = 0.0
+    elif mp.solver == "non_steady":
         step, max_change = run_non_steady_state_solver_coupled(
             mp,
             c,
@@ -279,6 +297,11 @@ def pyrite_model(p_dict: dict):
         )
         converged = "Yes" if step < mp.max_steps else "No"
         total_time = 0.0
+    else:
+        raise ValueError(
+            f"{mp.steady_state} must be of 'steady', 'non_steady', or 'bdf'"
+        )
+
     return (
         mp,
         c,

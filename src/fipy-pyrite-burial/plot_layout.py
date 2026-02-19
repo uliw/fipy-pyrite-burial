@@ -30,10 +30,14 @@ def get_layout(df):
             "left": [
                 [df.c_so4, "SO4", {"color": "C0"}],
                 [df.c_s0, "S0", {"color": "C2"}],
-                [df.c_ts2, r"$\sum S^{2-}$", {"color": "C1"}],
+                [df.c_ts2, "TS$^{2-}$", {"color": "C1"}],
                 [df.c_o2, "O2", {"color": "C3"}],
                 [df.c_fe2, r"Fe$^{2+}$", {"color": "C8"}],
-                # [df.c_fe2_p, r"Fe$^{2+}_p$", {"color": "C9"}],
+                [
+                    df.c_fe2_total + df.c_fe3 + df.c_fes + df.c_fes2,
+                    r"Total Iron$",
+                    {"color": "C9"},
+                ],
                 [df.c_fes2, r"FeS$_{2}$", {"color": "C7"}],
                 [df.c_fe3, r"Fe$_{3}^{+}$", {"color": "C5"}],
                 [df.c_fes, "FeS", {"color": "C6"}],

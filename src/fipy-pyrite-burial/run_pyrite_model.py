@@ -14,25 +14,28 @@ from pyrite_base_model import pyrite_model
 ureg = pint.UnitRegistry()
 Q_ = ureg.Quantity
 
+print("Starting run_pyrite_model.py...", flush=True)
+
 experiment = "msr_h2s_ox_fe3_sorb_fe2_ox_fes"
-state_in = "msr_h2s_ox_fe3_sorb_fe2_ox.npz"
-state_out = f"statenpz"
+state_in = "statenpz.npz"
+state_out = "statenpz.npz"
+state_in = None
+state_out = None
 
 p_dict = {
     "bc_fe3": weight_percent_to_mol(0.0001, 56, 2.6),
     "bc_fe3": weight_percent_to_mol(1, 56, 2.6),
     "DB_depth": 0,
     "DB0": 4e-12 * 0,
-    "relax": 0.8,  # use 0.1 with with coupled solver, and 0.8 with regular solver
-    "max_steps": 100,  # max number of iterations
-    "tolerance": 1e-9,  # convergence criterion
-    "dt_tolerance": 1e-4,  # convergence criterion for time stepping
-    # "state_data": state_in,  # read state data
+    "max_steps": 200,  # max number of iterations
+    "tolerance": 1e-5,  # convergence criterion
+    "dt_tolerance": 1e-6,  # convergence criterion for time stepping
+    "state_data": state_in,  # read state data
     # "plot_name": f"{experiment}.csv",
     "dt_max": Q_("1000 year").to("seconds").magnitude,  # time step in years
-    "dt_min": Q_("100 year").to("seconds").magnitude,  # time step in years
-    "t_end": Q_("100 kyear").to("seconds").magnitude,
-    "steady_state": False,  # use non-steady solver
+    "dt_min": Q_("1 year").to("seconds").magnitude,  # time step in years
+    "t_end": Q_("1000 year").to("seconds").magnitude,
+    "solver": "non_steady",  # use non-steady solver, non_steady or steady
     "initial_spacing": 0.01,  # meters
     "reaction_zone_spacing": 0.001,  # meters
     "max_spacing": 0.1,  # meters, None = no cap
@@ -69,4 +72,5 @@ s32 = phi * (df.c_so4_32.iloc[-1] + df.c_ts2_32.iloc[-1]) + (1 - phi) * (
 d34s = get_delta(s, s32, mp.VCDT)
 print(f"d34S = {d34s:0.2f}, d34S pyrite = {df.d_fes2.iloc[-1]:.2f}")
 
-save_state(c, state_out)
+if state_out:
+    save_state(c, state_out)

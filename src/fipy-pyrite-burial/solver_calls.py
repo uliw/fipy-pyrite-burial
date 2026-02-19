@@ -20,7 +20,10 @@ def run_non_steady_state_solver_coupled(
 ):
     import time
     import numpy as np
-    from fipy import LinearLUSolver, CellVariable
+
+    # from fipy import *
+    from fipy import CellVariable
+    from fipy import LinearLUSolver
     from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
     from fipy.terms.diffusionTerm import DiffusionTerm
     from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
@@ -29,6 +32,13 @@ def run_non_steady_state_solver_coupled(
     from reactions_new import equilibrium_reactions
     import traceback
 
+    from petsc4py import PETSc
+
+    # from fipy.solvers import PETScSolver
+
+    # solver = PETScSolver(ksp_type="preonly", pc_type="lu", tolerance=mp.tolerance)
+
+    solver = LinearLUSolver(tolerance=mp.tolerance)
     start_wall = time.time()
 
     # --- OPTIMIZATION 1: Adaptive Time Stepping Setup ---
@@ -42,8 +52,6 @@ def run_non_steady_state_solver_coupled(
     print(
         f"Starting Pseudo-Transient Solver (Adaptive dt) {get_time_units(current_dt):.2f~P}"
     )
-
-    solver = LinearLUSolver(tolerance=mp.tolerance)
 
     # 1. PRE-BUILD THE EQUATIONS (Your code was good here)
     # --------------------------
@@ -137,8 +145,23 @@ def run_non_steady_state_solver_coupled(
         while not step_converged:
             try:
                 # B. Update Reaction Rates
+                # Initialize equilibrium rates container
+                RATES_eq = {s: np.zeros_like(c.so4.value) for s in species_list_partial}
+
+                # Apply Instantaneous Equilibrium (Operator Splitting) - NOW BEFORE SOLVER
+                # This modifies c.fe2, c.h2s, c.fes IN PLACE
+                # We pass None for 'f' as it's not used in equilibrium_reactions
+                _, RATES_eq = equilibrium_reactions(
+                    mp, c, k, None, RATES_eq, current_dt
+                )
+
                 # Note: We pass the CURRENT guess 'c' to reaction function
                 f_res, RATES = diagenetic_reactions(mp, c, k, f=data_container())
+
+                # Merge RATES_eq into RATES for reporting
+                for s in RATES:
+                    if s in RATES_eq:
+                        RATES[s] += RATES_eq[s]
 
                 # Update Matrix Coefficients (Fast, using cached objects)
                 for s_obj in species_struct:
@@ -166,9 +189,8 @@ def run_non_steady_state_solver_coupled(
                 # Note: 'dt' is now dynamic
                 res = coupled_eq.sweep(dt=current_dt, solver=solver)
 
-                # D. Apply Instantaneous Equilibrium (Operator Splitting)
-                # This modifies c.fe2, c.h2s, c.fes IN PLACE
-                f_res, RATES = equilibrium_reactions(mp, c, k, f_res, RATES, current_dt)
+                # D. Apply Instantaneous Equilibrium (Operator Splitting) -- MOVED ABOVE
+                # This matches user request to have equilibrium proceed transport/matrix solve
 
                 # If we get here without error, the linear solve worked.
                 step_converged = True
@@ -357,6 +379,7 @@ def run_steady_state_solver_coupled(
 
     # 2. PICARD ITERATION LOOP
     # ------------------------
+    dt_large = 1e10 # Large time step for steady state equilibrium checks
     max_change = 1e10
     step = 0
 
@@ -420,7 +443,7 @@ def run_steady_state_solver_coupled(
                     z,
                     D_mol,
                     diagenetic_reactions,
-                    current_dt,
+                    dt_large,
                 )
 
     # 3. FINALIZE
@@ -438,3 +461,240 @@ def run_steady_state_solver_coupled(
     print(f"Coupled Solver Wall Time: {total_time:.2f} seconds")
 
     return converged, step, total_time
+
+
+def run_non_steady_state_solver_coupled_bdf(
+    mp,
+    c,
+    species_list_full,
+    species_list_partial,
+    k,
+    diagenetic_reactions,
+    mesh,
+    D_mol,
+    bc_map,
+    z,
+):
+    """
+    Solve the non-steady state coupled system using Scipy's BDF solver.
+
+    This treats the system as a large ODE system: dC/dt = F(C, t).
+    F(C) includes diffusion, advection, and reactions.
+    """
+    from scipy.integrate import solve_ivp
+    from fipy import CellVariable
+    from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
+    from fipy.terms.diffusionTerm import DiffusionTerm
+    from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
+    from functools import reduce
+    from reactions_new import equilibrium_reactions
+    import numpy as np
+
+    print("Starting BDF Solver (scipy.integrate.solve_ivp)...")
+
+    # 1. SETUP EQUATIONS (Spatial Terms Only)
+    # ---------------------------------------
+    # We construct the spatial part of the operator: F(C) = Diffusion - Advection + Reaction
+    # Note: Fipy's equation notation usually implies LHS == RHS.
+    # To get dC/dt = F(C), we construct 'eq' such that F(C) is the residual of 'eq'.
+    # Standard: TransientTerm == Diff + React - Conv
+    # Rearranged: dC/dt = Diff + React - Conv
+    # So we sum these terms.
+
+    lhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list_partial}
+    rhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list_partial}
+    cross_vars = {s: {} for s in species_list_partial}
+
+    # Analyze Topology once to setup cross-term variables
+    f_init, RATES = diagenetic_reactions(mp, c, k, f=data_container())
+    for s in species_list_partial:
+        res = getattr(f_init, s)
+        if len(res) > 3:
+            for source_name, _ in res[3]:
+                if source_name not in cross_vars[s]:
+                    cross_vars[s][source_name] = CellVariable(mesh=mesh, value=0.0)
+
+    # Optimization: Cache objects
+    species_struct = []
+    spatial_eqs = []
+
+    for species_name in species_list_partial:
+        var = getattr(c, species_name)
+        props = bc_map[species_name]
+
+        # Cache
+        species_struct.append(
+            {
+                "name": species_name,
+                "var": var,
+                "lhs": lhs_vars[species_name],
+                "rhs": rhs_vars[species_name],
+                "cross": cross_vars[species_name],
+            }
+        )
+
+        # -- Transport --
+        D_total = np.maximum(getattr(D_mol, species_name) + D_mol.D_bio, 1e-20)
+        vel = mp.w - mp.advection if props["type"] == "dissolved" else mp.w
+
+        u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
+        conv_term = PowerLawConvectionTerm(coeff=u_var, var=var)
+        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total), var=var)
+
+        # -- Reactions --
+        # Implicit Source Term (LHS diagonal)
+        lhs_term = ImplicitSourceTerm(coeff=lhs_vars[species_name], var=var)
+        rhs_term = rhs_vars[species_name]
+
+        # Cross Terms
+        cross_terms = 0.0
+        for src_name, cv in cross_vars[species_name].items():
+            src_var = getattr(c, src_name)
+            cross_terms += ImplicitSourceTerm(coeff=cv, var=src_var)
+
+        # -- Irrigation --
+        irr_term = 0.0
+        if props["type"] == "dissolved":
+            irr_term = ImplicitSourceTerm(
+                coeff=CellVariable(mesh=mesh, value=-D_mol.D_irr), var=var
+            ) + CellVariable(mesh=mesh, value=D_mol.D_irr * props["top"])
+
+        # Assembly: dC/dt = Diff + Sources - Conv
+        # We sum them up. Fipy `residual` evaluates (LHS - RHS) usually.
+        # But here we are just adding terms to an expression object.
+        # Warning: PowerLawConvectionTerm is typically LHS.
+        # Term signs in Fipy:
+        # Eq: Transient == Diffusion + Source - Convection
+        # If we treat them as expressions:
+        # RHS_Expression = diff_term + lhs_term + rhs_term + cross_terms + irr_term - conv_term
+        # Note: 'lhs_term' here is actually a Source (Reaction Rate coefficient).
+        # Typically Rate = k * C. ImplicitSourceTerm(coeff=k, var=C) evaluates to k*C.
+
+        eq_expr = diff_term + lhs_term + rhs_term + cross_terms + irr_term - conv_term
+        spatial_eqs.append(eq_expr)
+
+    # Combine into one coupled system
+    coupled_eq_spatial = reduce(lambda a, b: a & b, spatial_eqs)
+
+    # 2. DEFINE ODE FUNCTION
+    # ----------------------
+    c_vars = [s["var"] for s in species_struct]
+
+    last_y = [None]
+
+    def update_state(y):
+        """Update Fipy variables and reaction coefficients from solver state y."""
+        # Simple cache: check if y has changed significantly
+        if last_y[0] is not None and np.allclose(y, last_y[0], atol=1e-15, rtol=1e-15):
+            return
+        last_y[0] = y.copy()
+
+        # 1. Update Fipy Variables
+        offset = 0
+        for v in c_vars:
+            n = v.mesh.numberOfCells
+            v.value[:] = y[offset : offset + n]
+            offset += n
+
+        # 2. Update Reaction Coefficients
+        f_res, _ = diagenetic_reactions(mp, c, k, f=data_container())
+
+        # Update Matrix Coefficients (LHS/RHS of the reaction terms)
+        for s_obj in species_struct:
+            name = s_obj["name"]
+            res_tuple = getattr(f_res, name)
+
+            # Update Diagonal
+            lhs_val = res_tuple[0]
+            if hasattr(lhs_val, "value"):
+                lhs_val = lhs_val.value
+            s_obj["lhs"].setValue(lhs_val)  # coeff
+
+            rhs_val = res_tuple[1]
+            if hasattr(rhs_val, "value"):
+                rhs_val = rhs_val.value
+            s_obj["rhs"].setValue(rhs_val)  # rhs
+
+            # Update Cross-Terms
+            if len(res_tuple) > 3:
+                # Reset accumulators
+                batch_coeffs = {src: 0.0 for src in s_obj["cross"]}
+                for source_name, coeff in res_tuple[3]:
+                    if source_name in batch_coeffs:
+                        val = getattr(coeff, "value", coeff)
+                        batch_coeffs[source_name] += val
+
+                for src, val in batch_coeffs.items():
+                    s_obj["cross"][src].setValue(val)
+
+    from diff_lib import get_time_units
+
+    last_reported_t = [0.0]
+
+    def f(t, y):
+        update_state(y)
+
+        # throttle reporting to once every ~1% of simulation time or every 5 seconds wall time
+        if t - last_reported_t[0] > mp.t_end * 0.01 or t == mp.t_end:
+            cdt = t - last_reported_t[-1]
+            print(
+                f"Progress {t / mp.t_end * 100:6.2f}%, "
+                f"t = {get_time_units(t):.2f~P}, "
+                f"dt = {get_time_units(cdt):.2f~}"
+            )
+            last_reported_t[0] = t
+
+        # 3. Calculate Residual
+        rhs = coupled_eq_spatial.justResidualVector()
+        return rhs
+
+    def jac(t, y):
+        update_state(y)
+
+        # Build the matrix using internal API
+        # _prepareLinearSystem returns a Solver object that contains the matrix
+        solver = coupled_eq_spatial._prepareLinearSystem(
+            var=None, solver=None, boundaryConditions=(), dt=None
+        )
+        m_fipy = solver.matrix
+
+        # Scipy's BDF solver requires a numpy-compatible matrix (dense or scipy.sparse)
+        # FiPy's .numpyArray property provides this regardless of the backend (Scipy/PETSc)
+        if hasattr(m_fipy, "numpyArray"):
+            return m_fipy.numpyArray
+        return m_fipy
+
+    # 3. SOLVE
+    # --------
+    # Initial Condition
+    y0 = np.concatenate([v.value.ravel() for v in c_vars])
+
+    sol = solve_ivp(
+        f,
+        (0, mp.t_end),
+        y0,
+        method="BDF",
+        jac=jac,
+        rtol=mp.tolerance,
+        atol=1e-12,
+        first_step=mp.dt_min,  # Help it start
+        max_step=mp.dt_max,
+    )
+
+    # 4. UPDATE FINAL STATE
+    # ---------------------
+    final_y = sol.y[:, -1]
+    offset = 0
+    for v in c_vars:
+        n = v.mesh.numberOfCells
+        v.value[:] = final_y[offset : offset + n]
+        offset += n
+
+    # Report
+    print(f"BDF Solver finished: {sol.message}. Success: {sol.success}")
+    print(f"  Total function evaluations (nfev): {sol.nfev}")
+    print(f"  Total Jacobian evaluations (njev): {sol.njev}")
+    print(f"  Total LU decompositions (nlu): {sol.nlu}")
+
+    # We return step_count, max_change (dummy)
+    return sol.nfev, 0.0
