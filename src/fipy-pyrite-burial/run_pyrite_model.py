@@ -32,10 +32,11 @@ p_dict = {
     "dt_tolerance": 1e-6,  # convergence criterion for time stepping
     "state_data": state_in,  # read state data
     # "plot_name": f"{experiment}.csv",
-    "dt_max": Q_("1000 year").to("seconds").magnitude,  # time step in years
-    "dt_min": Q_("1 year").to("seconds").magnitude,  # time step in years
-    "t_end": Q_("1000 year").to("seconds").magnitude,
-    "solver": "non_steady",  # use non-steady solver, non_steady or steady
+    "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
+    "dt_min": Q_("1 day").to("seconds").magnitude,  # time step in years
+    "t_end": Q_("10 year").to("seconds").magnitude,
+    # "solver": "non_steady",  # use non-steady solver, non_steady or steady
+    "solver": "bdf",  # use non-steady solver, non_steady or steady
     "initial_spacing": 0.01,  # meters
     "reaction_zone_spacing": 0.001,  # meters
     "max_spacing": 0.1,  # meters, None = no cap

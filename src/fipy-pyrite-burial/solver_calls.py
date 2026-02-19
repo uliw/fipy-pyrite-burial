@@ -23,7 +23,8 @@ def run_non_steady_state_solver_coupled(
 
     # from fipy import *
     from fipy import CellVariable
-    from fipy import LinearLUSolver
+
+    # from fipy import LinearLUSolver
     from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
     from fipy.terms.diffusionTerm import DiffusionTerm
     from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
@@ -32,13 +33,12 @@ def run_non_steady_state_solver_coupled(
     from reactions_new import equilibrium_reactions
     import traceback
 
-    from petsc4py import PETSc
+    # from fipy.solvers.petsc import LinearLUSolver as PETScLUSolver
+    from fipy.solvers.petsc import LinearGMRESSolver as PETScLUSolver
 
-    # from fipy.solvers import PETScSolver
+    # solver = PETScLUSolver(tolerance=mp.tolerance, iterations=1)
+    solver = PETScLUSolver(precon="hypre", tolerance=mp.tolerance)
 
-    # solver = PETScSolver(ksp_type="preonly", pc_type="lu", tolerance=mp.tolerance)
-
-    solver = LinearLUSolver(tolerance=mp.tolerance)
     start_wall = time.time()
 
     # --- OPTIMIZATION 1: Adaptive Time Stepping Setup ---
@@ -379,7 +379,7 @@ def run_steady_state_solver_coupled(
 
     # 2. PICARD ITERATION LOOP
     # ------------------------
-    dt_large = 1e10 # Large time step for steady state equilibrium checks
+    dt_large = 1e10  # Large time step for steady state equilibrium checks
     max_change = 1e10
     step = 0
 
@@ -633,17 +633,6 @@ def run_non_steady_state_solver_coupled_bdf(
 
     def f(t, y):
         update_state(y)
-
-        # throttle reporting to once every ~1% of simulation time or every 5 seconds wall time
-        if t - last_reported_t[0] > mp.t_end * 0.01 or t == mp.t_end:
-            cdt = t - last_reported_t[-1]
-            print(
-                f"Progress {t / mp.t_end * 100:6.2f}%, "
-                f"t = {get_time_units(t):.2f~P}, "
-                f"dt = {get_time_units(cdt):.2f~}"
-            )
-            last_reported_t[0] = t
-
         # 3. Calculate Residual
         rhs = coupled_eq_spatial.justResidualVector()
         return rhs
@@ -666,24 +655,56 @@ def run_non_steady_state_solver_coupled_bdf(
 
     # 3. SOLVE
     # --------
+    from scipy.integrate import BDF
     # Initial Condition
     y0 = np.concatenate([v.value.ravel() for v in c_vars])
 
-    sol = solve_ivp(
+    solver = BDF(
         f,
-        (0, mp.t_end),
+        0,
         y0,
-        method="BDF",
+        mp.t_end,
         jac=jac,
         rtol=mp.tolerance,
         atol=1e-12,
-        first_step=mp.dt_min,  # Help it start
+        first_step=mp.dt_min,
         max_step=mp.dt_max,
     )
 
+    print(f"  Starting manual stepping loop...")
+    
+    last_reported_t = 0.0
+    step_count = 0
+
+    while solver.status == "running":
+        solver.step()
+        step_count += 1
+        t = solver.t
+        dt = solver.step_size
+
+        # throttle reporting to once every ~1% of simulation time or every 5 seconds wall time
+        if t - last_reported_t > mp.t_end * 0.01 or t >= mp.t_end:
+            print(
+                f"Progress {t / mp.t_end * 100:6.2f}%, "
+                f"t = {get_time_units(t):.2f~P}, "
+                f"dt_solver = {get_time_units(dt):.2f~P}"
+            )
+            update_state(solver.y) # Ensure variables are synced for saving
+            save_data_async(
+                mp,
+                c,
+                k,
+                species_list_full,
+                z,
+                D_mol,
+                diagenetic_reactions,
+                dt,
+            )
+            last_reported_t = t
+
     # 4. UPDATE FINAL STATE
     # ---------------------
-    final_y = sol.y[:, -1]
+    final_y = solver.y
     offset = 0
     for v in c_vars:
         n = v.mesh.numberOfCells
@@ -691,10 +712,9 @@ def run_non_steady_state_solver_coupled_bdf(
         offset += n
 
     # Report
-    print(f"BDF Solver finished: {sol.message}. Success: {sol.success}")
-    print(f"  Total function evaluations (nfev): {sol.nfev}")
-    print(f"  Total Jacobian evaluations (njev): {sol.njev}")
-    print(f"  Total LU decompositions (nlu): {sol.nlu}")
+    print(f"BDF Solver finished: solver.status={solver.status}.")
+    print(f"  Total function evaluations (nfev): {solver.nfev}")
+    print(f"  Total Jacobian evaluations (njev): {solver.njev}")
+    print(f"  Total LU decompositions (nlu): {solver.nlu}")
 
-    # We return step_count, max_change (dummy)
-    return sol.nfev, 0.0
+    return solver.nfev, 0.0
