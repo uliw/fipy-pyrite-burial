@@ -10,7 +10,7 @@ def equilibrium_reactions(mp, c, k, f, RATES, dt):
     """
 
     fe2_adsoption_lumped(c, k, mp)
-    equilibrate_fes_precipitation(c, k, mp, dt, RATES)
+    # equilibrate_fes_precipitation(c, k, mp, dt, RATES)
 
     return f, RATES
 
@@ -353,7 +353,7 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     - [HS-] = Total S2- * mp.hs_frac
     """
     # we now use the approach by Velde et al 2016
-    # k.fe3_hs = calculate_k_iron_reduction(c.fe3, c.ts2 * mp.hs_frac)
+    k.fe3_hs = calculate_k_iron_reduction(c.fe3, c.ts2 * mp.hs_frac)
 
     # 1. Fe3 Sink - SOLID (Linear)
     # Rate = k * [H2S] * [Fe3]

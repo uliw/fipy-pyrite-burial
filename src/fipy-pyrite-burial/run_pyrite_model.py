@@ -19,24 +19,23 @@ print("Starting run_pyrite_model.py...", flush=True)
 experiment = "msr_h2s_ox_fe3_sorb_fe2_ox_fes"
 state_in = "statenpz.npz"
 state_out = "statenpz.npz"
-state_in = None
-state_out = None
 
 p_dict = {
     "bc_fe3": weight_percent_to_mol(0.0001, 56, 2.6),
     "bc_fe3": weight_percent_to_mol(1, 56, 2.6),
     "DB_depth": 0,
     "DB0": 4e-12 * 0,
-    "max_steps": 200,  # max number of iterations
-    "tolerance": 1e-5,  # convergence criterion
+    "max_steps": 2000,  # max number of iterations
+    "tolerance": 1e-9,  # convergence criterion
     "dt_tolerance": 1e-6,  # convergence criterion for time stepping
     "state_data": state_in,  # read state data
     # "plot_name": f"{experiment}.csv",
-    "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
-    "dt_min": Q_("1 day").to("seconds").magnitude,  # time step in years
-    "t_end": Q_("10 year").to("seconds").magnitude,
-    # "solver": "non_steady",  # use non-steady solver, non_steady or steady
-    "solver": "bdf",  # use non-steady solver, non_steady or steady
+    "dt_max": Q_("100 year").to("seconds").magnitude,  # time step in years
+    "dt_min": Q_("1 year").to("seconds").magnitude,  # time step in years
+    "t_end": Q_("10 kyr").to("seconds").magnitude,
+    "solver": "non_steady",  # use non-steady solver, non_steady or steady
+    # "solver": "bdf",  # use non-steady solver, non_steady or steady
+    "solver_backend": "scipy",
     "initial_spacing": 0.01,  # meters
     "reaction_zone_spacing": 0.001,  # meters
     "max_spacing": 0.1,  # meters, None = no cap

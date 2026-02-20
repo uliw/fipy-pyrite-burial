@@ -77,6 +77,7 @@ def pyrite_model(p_dict: dict):
             "relax": 0.1,  # use 0.1 for coupled solver, and 0.8 otherwise
             "tolerance": 1e-5,  # convergence criterion
             "dt_tolerance": 0.1,  # when to increase dt
+            "solver_backend": "petsc", 
             "dt_max": Q_("100 years").to("seconds").magnitude,  # time step in years
             "dt_min": Q_("1 second").to("seconds").magnitude,  # time step in years
             "max_steps": 2000,  # max number of iterations

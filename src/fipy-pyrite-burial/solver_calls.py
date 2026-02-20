@@ -24,7 +24,6 @@ def run_non_steady_state_solver_coupled(
     # from fipy import *
     from fipy import CellVariable
 
-    # from fipy import LinearLUSolver
     from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
     from fipy.terms.diffusionTerm import DiffusionTerm
     from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
@@ -33,11 +32,14 @@ def run_non_steady_state_solver_coupled(
     from reactions_new import equilibrium_reactions
     import traceback
 
-    # from fipy.solvers.petsc import LinearLUSolver as PETScLUSolver
-    from fipy.solvers.petsc import LinearGMRESSolver as PETScLUSolver
+    if mp.solver_backend == "petsc":
+        from fipy.solvers.petsc import LinearGMRESSolver as PETScLUSolver
 
-    # solver = PETScLUSolver(tolerance=mp.tolerance, iterations=1)
-    solver = PETScLUSolver(precon="hypre", tolerance=mp.tolerance)
+        solver = PETScLUSolver(precon="hypre", tolerance=mp.tolerance)
+    else:
+        from fipy import LinearLUSolver
+
+        solver = LinearLUSolver(tolerance=mp.tolerance)
 
     start_wall = time.time()
 
@@ -130,133 +132,145 @@ def run_non_steady_state_solver_coupled(
     total_time = 0.0
     last_max_change = 1e10  # Initial large value
 
-    while total_time < mp.t_end and step < mp.max_steps:  # Or check convergence
-        step += 1
+    try:
+        while total_time < mp.t_end and step < mp.max_steps:  # Or check convergence
+            step += 1
 
-        # A. Update Old Values (Advance Time)
-        for s_obj in species_struct:
-            s_obj["var"].updateOld()
+            # A. Update Old Values (Advance Time)
+            for s_obj in species_struct:
+                s_obj["var"].updateOld()
 
-        # Snapshot for checking if this step succeeds
-        last_sol_backup = {s["name"]: s["var"].value.copy() for s in species_struct}
+            # Snapshot for checking if this step succeeds
+            last_sol_backup = {s["name"]: s["var"].value.copy() for s in species_struct}
 
-        # --- Adaptive Loop: Retry step if solver fails ---
-        step_converged = False
-        while not step_converged:
-            try:
-                # B. Update Reaction Rates
-                # Initialize equilibrium rates container
-                RATES_eq = {s: np.zeros_like(c.so4.value) for s in species_list_partial}
+            # --- Adaptive Loop: Retry step if solver fails ---
+            step_converged = False
+            while not step_converged:
+                try:
+                    # B. Update Reaction Rates
+                    # Initialize equilibrium rates container
+                    RATES_eq = {
+                        s: np.zeros_like(c.so4.value) for s in species_list_partial
+                    }
 
-                # Apply Instantaneous Equilibrium (Operator Splitting) - NOW BEFORE SOLVER
-                # This modifies c.fe2, c.h2s, c.fes IN PLACE
-                # We pass None for 'f' as it's not used in equilibrium_reactions
-                _, RATES_eq = equilibrium_reactions(
-                    mp, c, k, None, RATES_eq, current_dt
-                )
-
-                # Note: We pass the CURRENT guess 'c' to reaction function
-                f_res, RATES = diagenetic_reactions(mp, c, k, f=data_container())
-
-                # Merge RATES_eq into RATES for reporting
-                for s in RATES:
-                    if s in RATES_eq:
-                        RATES[s] += RATES_eq[s]
-
-                # Update Matrix Coefficients (Fast, using cached objects)
-                for s_obj in species_struct:
-                    name = s_obj["name"]
-                    res_tuple = getattr(f_res, name)
-
-                    # Update Diagonal
-                    s_obj["lhs"].setValue(getattr(res_tuple[0], "value", res_tuple[0]))
-                    s_obj["rhs"].setValue(getattr(res_tuple[1], "value", res_tuple[1]))
-
-                    # Update Cross-Terms
-                    if len(res_tuple) > 3:
-                        # Reset batch accumulator
-                        batch_coeffs = {src: 0.0 for src in s_obj["cross"]}
-                        for source_name, coeff in res_tuple[3]:
-                            if source_name in batch_coeffs:
-                                val = getattr(coeff, "value", coeff)
-                                batch_coeffs[source_name] += val
-
-                        # Push to FiPy variables
-                        for src, val in batch_coeffs.items():
-                            s_obj["cross"][src].setValue(val)
-
-                # C. Sweep the Coupled System
-                # Note: 'dt' is now dynamic
-                res = coupled_eq.sweep(dt=current_dt, solver=solver)
-
-                # D. Apply Instantaneous Equilibrium (Operator Splitting) -- MOVED ABOVE
-                # This matches user request to have equilibrium proceed transport/matrix solve
-
-                # If we get here without error, the linear solve worked.
-                step_converged = True
-
-            except Exception as e:
-                # If solver diverged or crashed
-                print(
-                    f"  Step failed at dt={current_dt:.1e}: {e}. Retrying with smaller dt."
-                )
-                traceback.print_exc()
-                current_dt *= cut_factor
-                if current_dt < 1e-5:
-                    raise RuntimeError(
-                        "Time step became too small. Model stiff/diverged."
+                    # Apply Instantaneous Equilibrium (Operator Splitting) - NOW BEFORE SOLVER
+                    # This modifies c.fe2, c.h2s, c.fes IN PLACE
+                    # We pass None for 'f' as it's not used in equilibrium_reactions
+                    _, RATES_eq = equilibrium_reactions(
+                        mp, c, k, None, RATES_eq, current_dt
                     )
 
-                # Restore previous values to try again
-                for s_obj in species_struct:
-                    s_obj["var"].value[:] = last_sol_backup[s_obj["name"]]
+                    # Note: We pass the CURRENT guess 'c' to reaction function
+                    f_res, RATES = diagenetic_reactions(mp, c, k, f=data_container())
 
-        # E. Calculate Change (Steady State Check)
-        max_change = 0.0
-        for s_obj in species_struct:
-            diff = np.max(np.abs(s_obj["var"].value - last_sol_backup[s_obj["name"]]))
-            max_change = max(max_change, diff)
+                    # Merge RATES_eq into RATES for reporting
+                    for s in RATES:
+                        if s in RATES_eq:
+                            RATES[s] += RATES_eq[s]
 
-        total_time += current_dt
+                    # Update Matrix Coefficients (Fast, using cached objects)
+                    for s_obj in species_struct:
+                        name = s_obj["name"]
+                        res_tuple = getattr(f_res, name)
 
-        # F. Adapt Time Step based on convergence trend
-        if step > 1:
-            if max_change < last_max_change:
-                current_dt = min(current_dt * growth_factor, dt_max)
+                        # Update Diagonal
+                        s_obj["lhs"].setValue(
+                            getattr(res_tuple[0], "value", res_tuple[0])
+                        )
+                        s_obj["rhs"].setValue(
+                            getattr(res_tuple[1], "value", res_tuple[1])
+                        )
+
+                        # Update Cross-Terms
+                        if len(res_tuple) > 3:
+                            # Reset batch accumulator
+                            batch_coeffs = {src: 0.0 for src in s_obj["cross"]}
+                            for source_name, coeff in res_tuple[3]:
+                                if source_name in batch_coeffs:
+                                    val = getattr(coeff, "value", coeff)
+                                    batch_coeffs[source_name] += val
+
+                            # Push to FiPy variables
+                            for src, val in batch_coeffs.items():
+                                s_obj["cross"][src].setValue(val)
+
+                    # C. Sweep the Coupled System
+                    # Note: 'dt' is now dynamic
+                    res = coupled_eq.sweep(dt=current_dt, solver=solver)
+
+                    # D. Apply Instantaneous Equilibrium (Operator Splitting) -- MOVED ABOVE
+                    # This matches user request to have equilibrium proceed transport/matrix solve
+
+                    # If we get here without error, the linear solve worked.
+                    step_converged = True
+
+                except Exception as e:
+                    # If solver diverged or crashed
+                    print(
+                        f"  Step failed at dt={current_dt:.1e}: {e}. Retrying with smaller dt."
+                    )
+                    traceback.print_exc()
+                    current_dt *= cut_factor
+                    if current_dt < 1e-5:
+                        raise RuntimeError(
+                            "Time step became too small. Model stiff/diverged."
+                        )
+
+                    # Restore previous values to try again
+                    for s_obj in species_struct:
+                        s_obj["var"].value[:] = last_sol_backup[s_obj["name"]]
+
+            # E. Calculate Change (Steady State Check)
+            max_change = 0.0
+            for s_obj in species_struct:
+                diff = np.max(
+                    np.abs(s_obj["var"].value - last_sol_backup[s_obj["name"]])
+                )
+                max_change = max(max_change, diff)
+
+            total_time += current_dt
+
+            # F. Adapt Time Step based on convergence trend
+            if step > 1:
+                if max_change < last_max_change:
+                    current_dt = min(current_dt * growth_factor, dt_max)
+                else:
+                    current_dt = max(current_dt * cut_factor, mp.dt_min)
             else:
-                current_dt = max(current_dt * cut_factor, mp.dt_min)
-        else:
-            # For the first step, use the old threshold logic
-            if max_change < mp.dt_tolerance:
-                current_dt = min(current_dt * growth_factor, dt_max)
+                # For the first step, use the old threshold logic
+                if max_change < mp.dt_tolerance:
+                    current_dt = min(current_dt * growth_factor, dt_max)
 
-        last_max_change = max_change
+            last_max_change = max_change
 
-        # Reporting
-        if step % mp.report_step == 0:
-            if step > 0:
-                print(
-                    f"Time: {get_time_units(total_time):.2f~P}, "
-                    f"dt: {get_time_units(current_dt):.2f~P}, "
-                    f"Max Change: {max_change:.2e}"
-                )
-                df, fqfn = save_data_async(
-                    mp,
-                    c,
-                    k,
-                    species_list_full,
-                    z,
-                    D_mol,
-                    diagenetic_reactions,
-                    current_dt,
-                )
-        # Check for Steady State
-        if max_change < mp.tolerance:
-            print("Steady State Criteria Met.")
-            break
+            # Reporting
+            if step % mp.report_step == 0:
+                if step > 0:
+                    print(
+                        f"Time: {get_time_units(total_time):.2f~P}, "
+                        f"dt: {get_time_units(current_dt):.2f~P}, "
+                        f"Max Change: {max_change:.2e}"
+                    )
+                    df, fqfn = save_data_async(
+                        mp,
+                        c,
+                        k,
+                        species_list_full,
+                        z,
+                        D_mol,
+                        diagenetic_reactions,
+                        current_dt,
+                    )
+            # Check for Steady State
+            if max_change < mp.tolerance:
+                print(f"Steady State Criteria Met. max_change = {max_change:.2e}")
+                status = "Converged" if step < mp.max_steps else "Failed"
+                break
+
+    except KeyboardInterrupt:
+        status = "Interupted"
 
     # 3. Final Report
-    status = "Converged" if step < mp.max_steps else "Failed"
     print(f"{status} in {step} steps. Wall time: {time.time() - start_wall:.2f}s")
 
     df, fqfn = save_data_async(
@@ -656,6 +670,7 @@ def run_non_steady_state_solver_coupled_bdf(
     # 3. SOLVE
     # --------
     from scipy.integrate import BDF
+
     # Initial Condition
     y0 = np.concatenate([v.value.ravel() for v in c_vars])
 
@@ -672,7 +687,7 @@ def run_non_steady_state_solver_coupled_bdf(
     )
 
     print(f"  Starting manual stepping loop...")
-    
+
     last_reported_t = 0.0
     step_count = 0
 
@@ -689,7 +704,7 @@ def run_non_steady_state_solver_coupled_bdf(
                 f"t = {get_time_units(t):.2f~P}, "
                 f"dt_solver = {get_time_units(dt):.2f~P}"
             )
-            update_state(solver.y) # Ensure variables are synced for saving
+            update_state(solver.y)  # Ensure variables are synced for saving
             save_data_async(
                 mp,
                 c,
