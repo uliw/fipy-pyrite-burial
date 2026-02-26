@@ -19,6 +19,24 @@ def get_reaction_constants(phi, pH):
     Q_ = ureg.Quantity
 
     velde: dict = {
+        "poc_o2": [5e-10, "m^3/(mol*second)", "m^3/(mol*second)"],  # POC + O2 -> CO2
+        "poc_so4": [1e-12, "m^3/(mol*second)", "m^3/(mol*second)"],  # POC + SO4 -> CO2
+        "fe2_p_eq": [696, "dimensionless", "dimensionless"],  # sorbed vs Fe2+ Fe2+ liq.
+        "fes2_ox": [
+            1e-10,
+            "m^3/(mol*second)",
+            "m^3/(mol*second)",
+        ],  # FeS2 + O2 -> SO4, Halevy et al
+        "fes_s0": [
+            5e-8,
+            "m^3/(mol*second)",
+            "m^3/(mol*second)",
+        ],  # FeS + S0 -> FeS2, TBD ???
+        "fes_t2s": [
+            5e-8,
+            "m^3/(mol*second)",
+            "m^3/(mol*second)",
+        ],  # FeS + H2S -> FeS2, at 10C -> notes.org
         "hplus": [10 ** (-pH), "mol/l", "mol/m^3"],
         # Oxidation reactions after Velde at eal 2016
         "hs_ox": [1e7 * phi, "cm^3/(umol*year)", "m^3/(mol*second)"],
@@ -30,6 +48,7 @@ def get_reaction_constants(phi, pH):
         "fes_ox": [1e7 * (1 - phi), "cm^3/(umol*year)", "m^3/(mol*second)"],
         "fe2_ox": [1e7 * phi, "cm^3/(umol*year)", "m^3/(mol*second)"],
         "fe2p_ox": [1e7 * (1 - phi), "cm^3/(umol*year)", "m^3/(mol*second)"],
+        "s0_ox": [4e7 * phi, "cm^3/(umol*year)", "m^3/(mol*second)"],
         # Iron sulfide reactions after Velde at eal 2016
         "fes_isp": [
             (1 - phi) * 1e4,

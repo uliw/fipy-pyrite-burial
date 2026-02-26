@@ -1,15 +1,34 @@
 """Define a specific modeling scenario."""
 
+from petsc4py import PETSc
+
+if not hasattr(PETSc.KSP.ConvergedReason, "CONVERGED_ATOL_NORMAL"):
+    PETSc.KSP.ConvergedReason.CONVERGED_ATOL_NORMAL = (
+        PETSc.KSP.ConvergedReason.CONVERGED_ATOL_NORMAL_EQUATIONS
+    )
+if not hasattr(PETSc.KSP.ConvergedReason, "CONVERGED_RTOL_NORMAL"):
+    PETSc.KSP.ConvergedReason.CONVERGED_RTOL_NORMAL = (
+        PETSc.KSP.ConvergedReason.CONVERGED_RTOL_NORMAL_EQUATIONS
+    )
+
+import fipy.tools.comms.dummyComm
+
+if not hasattr(fipy.tools.comms.dummyComm.DummyComm, "petsc4py_comm"):
+    fipy.tools.comms.dummyComm.DummyComm.petsc4py_comm = property(
+        fget=lambda x: PETSc.COMM_SELF
+    )
+
 import pint
 from diff_lib import (
     save_data,
     get_delta,
     weight_percent_to_mol,
     save_state,
-    read_state,
+    # read_state,
 )
 
 from pyrite_base_model import pyrite_model
+from reactions_new import *
 
 ureg = pint.UnitRegistry()
 Q_ = ureg.Quantity
@@ -17,17 +36,19 @@ Q_ = ureg.Quantity
 print("Starting run_pyrite_model.py...", flush=True)
 
 experiment = "msr_h2s_ox_fe3_sorb_fe2_ox_fes"
-state_in = "statenpz.npz"
+# state_in = "statenpz.npz"
+state_in = None
 state_out = "statenpz.npz"
+# state_out = None
 
 p_dict = {
     "bc_fe3": weight_percent_to_mol(0.0001, 56, 2.6),
     "bc_fe3": weight_percent_to_mol(1, 56, 2.6),
     "DB_depth": 0,
     "DB0": 4e-12 * 0,
-    "max_steps": 2000,  # max number of iterations
-    "tolerance": 1e-9,  # convergence criterion
-    "dt_tolerance": 1e-6,  # convergence criterion for time stepping
+    "max_steps": 100000,  # max number of iterations
+    "tolerance": 1e-12,  # convergence criterion
+    "dt_tolerance": 1e-16,  # convergence criterion for time stepping
     "state_data": state_in,  # read state data
     # "plot_name": f"{experiment}.csv",
     "dt_max": Q_("100 year").to("seconds").magnitude,  # time step in years
@@ -35,13 +56,30 @@ p_dict = {
     "t_end": Q_("10 kyr").to("seconds").magnitude,
     "solver": "non_steady",  # use non-steady solver, non_steady or steady
     # "solver": "bdf",  # use non-steady solver, non_steady or steady
-    "solver_backend": "scipy",
+    "solver_backend": "default",  # see solver_calls for options
     "initial_spacing": 0.01,  # meters
     "reaction_zone_spacing": 0.001,  # meters
     "max_spacing": 0.1,  # meters, None = no cap
     "reaction_zone": (1e-2, 2e-1),  # in meters
     "report_step": 10,  # how often to update plot
 }
+
+# add reactions as needed
+p_dict["diagenetic_reactions"] = [
+    aerobic_respiration,
+    sulfate_reduction,
+    hs_oxidation,
+    elemental_sulfur_oxidation,
+    sulfide_mediated_iron_reduction,
+    fes_formation_fully_implicit_2,
+    fe2_oxidation,
+    fes_oxidation,
+]
+
+p_dict["instantenous_reactions"] = [
+    fe2_sorption_clip,
+]
+
 
 (
     mp,

@@ -1,7 +1,19 @@
 """Define the reactions."""
 
+from __future__ import annotations
+
 import numpy as np
+import fipy as fp
+from typing import Callable, Dict, Mapping, Tuple
+
 from diff_lib import calculate_k_iron_reduction
+
+# ------------------------------------------------------------
+# Short aliases – they make the signatures easier to read
+# ------------------------------------------------------------
+Var = fp.CellVariable  # a FiPy field (concentration, solid mass …)
+Rate = float | np.ndarray  # either a scalar or a full‑mesh array
+Coeff = float | np.ndarray  # same as Rate
 
 
 def equilibrium_reactions(mp, c, k, f, RATES, dt):
@@ -9,8 +21,8 @@ def equilibrium_reactions(mp, c, k, f, RATES, dt):
     transport matrix has been solved.
     """
 
-    fe2_adsoption_lumped(c, k, mp)
-    # equilibrate_fes_precipitation(c, k, mp, dt, RATES)
+    for r in mp.instantenous_reactions:
+        r(c, k, mp, dt, RATES)
 
     return f, RATES
 
@@ -94,16 +106,8 @@ def diagenetic_reactions(mp, c, k, f):
     # ----------------
     # Each function updates LHS, RHS, and RATES in place
 
-    aerobic_respiration(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    sulfate_reduction(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    hs_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    sulfide_mediated_iron_reduction(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    # fe2_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    # fes_dissolution(c, k, limiters, LHS, RHS, RATES, CROSS, mp)  #
-    # fes_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    # pyrite_formation_s0(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    # pyrite_formation_fes_ts2(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
-    # pyrite_oxidation(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+    for r in mp.diagenetic_reactions:
+        r(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
 
     # 4. FINALIZE
     # -----------
@@ -336,6 +340,51 @@ def hs_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         )
 
 
+def elemental_sulfur_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """
+    Reaction: 1 S0 + 2 O2 -> 1 SO4
+    Phases: S0 (Solid), O2 (Liquid), SO4 (Liquid)
+    """
+    # Phase conversion: Solid Rate -> Liquid Rate
+    fac_l = (1.0 - mp.phi) / mp.phi
+
+    # S0 sink (Solid)
+    # Rate = k * [O2] * [S0]
+    coeff_s0 = k.s0_ox * c.o2
+
+    # O2 Sink (2.0x) - LIQUID
+    # Must include fac_l because the reaction is driven by a solid concentration
+    coeff_o2 = 2.0 * k.s0_ox * c.s0 * fac_l
+    add_implicit_sink(LHS, RATES, "o2", coeff_o2, coeff_o2 * c.o2)
+
+    # SO4 Source (1.0x) - LIQUID, Coupled to S0 (SOLID)
+    add_implicit_coupling_new(
+        "solid_2_liquid",
+        CROSS,
+        RATES,
+        LHS,
+        "so4",  # species that is produced
+        "s0",  # source species
+        coeff_s0,  # implicit coeff for sink
+        coeff_s0 * c.s0,  # explicit rate for reporting
+        mp,
+    )
+
+    if hasattr(c, "s0_32"):
+        # S0_32 Source (1.0x) - LIQUID, Coupled to S0_32 (SOLID)
+        add_implicit_coupling_new(
+            "solid_2_liquid",
+            CROSS,
+            RATES,
+            LHS,
+            "so4_32",
+            "s0_32",  # source species
+            coeff_s0,  # implicit coeff for sink (same as bulk!)
+            coeff_s0 * c.s0_32,  # explicit rate for reporting
+            mp,
+        )
+
+
 def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Fe3 iron reduction via HS-.
 
@@ -353,7 +402,7 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     - [HS-] = Total S2- * mp.hs_frac
     """
     # we now use the approach by Velde et al 2016
-    k.fe3_hs = calculate_k_iron_reduction(c.fe3, c.ts2 * mp.hs_frac)
+    # k.fe3_hs = calculate_k_iron_reduction(c.fe3, c.ts2 * mp.hs_frac)
 
     # 1. Fe3 Sink - SOLID (Linear)
     # Rate = k * [H2S] * [Fe3]
@@ -404,15 +453,14 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         )
 
 
-def fe2_adsoption_lumped(c, k, mp):
-    """
-    Handle Iron Partitioning algebraically.
+def fe2_sorption_clip(c, k, mp, dt, RATES):
+    """Handle Iron Partitioning algebraically.
+
     Instead of calculating rates, we calculate fractions.
 
     System State: 'fe_total' is the primary variable.
     fe2 (liquid) and fe2_p (solid) are derived helper views.
     """
-
     # -----------------------------------------------------------
     # RECONSTRUCT SPECIES FOR OTHER REACTIONS
     # -----------------------------------------------------------
@@ -427,7 +475,6 @@ def fe2_adsoption_lumped(c, k, mp):
     # 1. Solve for 'fe_total' in the main solver.
     # 2. Inside this function, calculate fe2 and fe2_p from fe_total.
     # 3. Store them in 'c' so subsequent reactions use them.
-
     c.fe2.setValue(c.fe2_total * mp.f_diss)
     c.fe2_p.setValue(c.fe2_total * mp.f_sorb)
 
@@ -536,8 +583,7 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
 
 def fes_formation_only(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """FeS precipitation and dissolution.
-
+    """FeS precipitation
     This requires timesteps of 1 minute or less.
     """
     # 1. Current State
@@ -1306,3 +1352,644 @@ def equilibrate_fes_precipitation_old(c, k, mp):
 
 
 #  print(f"  [Equilibration] Adjusted {np.sum(mask)} cells. Max precip: {np.max(x_precip):.2e}")
+
+
+def fes_formation_gpt(
+    c: Mapping[str, Var],  # concentration dictionary (fe2_total, ts2, fes, …)
+    k: Mapping[str, float],  # kinetic constants (fes_isp, fes_isd, fes_sp, hplus, …)
+    lim: Mapping[str, float],  # limiting‑factor scalars (e.g. "fes_explicit")
+    LHS: Dict[str, fp.ImplicitSourceTerm],
+    RHS: Dict[
+        str, fp.ExplicitSourceTerm
+    ],  # you already have a similar dict for explicit terms
+    RATES: Dict[str, float],
+    CROSS: Dict[str, list[Tuple[str, Coeff]]],
+    mp: Mapping[str, float],  # model parameters (fac_s, f_diss, dt_max, …)
+) -> None:
+    """
+    Assemble the FiPy terms for the Fe‑S precipitation / dissolution system.
+
+    The function follows the *implicit‑fast‑chemistry* strategy:
+    * precipitation (Ω>1) → implicit sink on Fe²⁺ and H₂S, implicit source on FeS
+    * dissolution (Ω≤1) → implicit source on Fe²⁺ and H₂S, implicit sink on FeS
+    * a tiny explicit term (`add_explicit_source`) is kept for the *slow* part of
+      the precipitation rate (the ``k_isp_eff`` factor after the limiter).
+
+    All matrix entries are added via the two helper functions above, so the
+    surrounding code does not have to be changed.
+    """
+    # -----------------------------------------------------------------
+    # 0️⃣  Grab the FiPy variables (they are stored in the ``c`` dict)
+    # -----------------------------------------------------------------
+    fe2: Var = c["fe2_total"]
+    hs: Var = c["ts2"]
+    fes: Var = c["fes"]
+
+    # -----------------------------------------------------------------
+    # 1️⃣  Current values (as plain NumPy arrays) – needed for the *non‑linear*
+    #      coefficients that go into the Jacobian.
+    # -----------------------------------------------------------------
+    fe2_val = fe2.value
+    fe2_liq = fe2_val * mp["f_diss"]  # dissolved fraction only
+    hs_val = hs.value
+    fes_val = fes.value
+
+    # -----------------------------------------------------------------
+    # 2️⃣  Saturation state Ω = [Fe2][H2S] / ( [H⁺]·K_sp )
+    # -----------------------------------------------------------------
+    omega_den = k["hplus"] * k["fes_sp"] + 1e-30
+    omega = (fe2_liq * hs_val) / omega_den
+
+    # Boolean masks (as float) – they allow us to write *one* expression that works
+    # for the whole mesh.
+    is_precip = (omega > 1.0).astype(float)  # 1 where Ω>1, else 0
+    is_diss = 1.0 - is_precip  # complementary mask
+
+    # -----------------------------------------------------------------
+    # 3️⃣  Precipitation (fast) – implicit part
+    # -----------------------------------------------------------------
+    # Raw (linearised) rate: k_isp * Ω
+    # We later limit it so that we never consume >90 % of a reactant in one dt.
+    raw_rate = k["fes_isp"] * (omega - 1.0) * is_precip
+    raw_rate = np.maximum(raw_rate, 0.0)
+
+    # -----------------------------------------------------------------
+    # 4️⃣  Limiter – keep the reaction from draining a reactant too fast
+    # -----------------------------------------------------------------
+    dt_sim = mp.get("dt_max", 1.0)  # fallback for steady‑state runs
+    max_rate_fe2 = (0.9 * fe2_liq) / (dt_sim + 1e-30)
+    max_rate_hs = (0.9 * hs_val) / (dt_sim + 1e-30)
+    max_allowed = np.minimum(max_rate_fe2, max_rate_hs)
+
+    limiter = np.minimum(1.0, max_allowed / (raw_rate + 1e-30))
+    k_isp_eff = k["fes_isp"] * limiter  # *effective* kinetic constant after limiting
+
+    # -----------------------------------------------------------------
+    # 5️⃣  Coefficients that appear in the Jacobian
+    # -----------------------------------------------------------------
+    # Precipitation term that multiplies the *dissolved* concentrations:
+    #   -k_eff * H2S / ω_den   for Fe2
+    #   -k_eff * Fe2_liq / ω_den   for H2S
+    common_precip = k_isp_eff * is_precip / omega_den
+
+    coeff_fe2_sink = common_precip * hs_val * mp["f_diss"]  # ∂R/∂Fe2
+    coeff_hs_sink = common_precip * fe2_liq  # ∂R/∂H2S
+    coeff_fes_src = (
+        common_precip * hs_val * mp["f_diss"] * mp["fac_s"]
+    )  # ∂R/∂FeS (source)
+
+    # -----------------------------------------------------------------
+    # 6️⃣  Dissolution (slow) – implicit part
+    # -----------------------------------------------------------------
+    # Ω_diss = min(Ω, 1)  → (1‑Ω_diss) is the driving force
+    omega_diss = np.minimum(omega, 1.0)
+    fes_diss_coeff = k["fes_isd"] * (1.0 - omega_diss) * is_diss * lim["fes_explicit"]
+    # This coefficient multiplies the solid concentration (FeS) and appears as:
+    #   +k_isd*(1‑Ω)   for Fe2   (source)
+    #   +k_isd*(1‑Ω)   for H2S   (source)
+    #   -k_isd*(1‑Ω)   for FeS   (sink)
+
+    # -----------------------------------------------------------------
+    # 7️⃣  Assemble the implicit terms via the helpers
+    # -----------------------------------------------------------------
+    # ---- Fe2 (liquid) ------------------------------------------------
+    add_implicit_sink(
+        LHS, RATES, "fe2_total", coeff_fe2_sink, coeff_fe2_sink * fe2_val
+    )  # precipitation sink
+    add_implicit_coupling(
+        CROSS, RATES, "fe2_total", "fes", fes_diss_coeff, fes_diss_coeff * fes_val
+    )  # dissolution source
+
+    # ---- H2S ---------------------------------------------------------
+    add_implicit_sink(
+        LHS, RATES, "ts2", coeff_hs_sink, coeff_hs_sink * hs_val
+    )  # precipitation sink
+    # Explicit part of the *fast* precipitation (the “k_isp_eff * is_precip”
+    # factor that is not linearised) – kept as an explicit source so that the
+    # overall rate stays exactly k_isp*(Ω‑1) after the limiter.
+    add_explicit_source(RHS, RATES, "ts2", k_isp_eff * is_precip)
+
+    add_implicit_coupling(
+        CROSS, RATES, "ts2", "fes", fes_diss_coeff, fes_diss_coeff * fes_val
+    )  # dissolution source
+
+    # ---- FeS (solid) -------------------------------------------------
+    # Precipitation source (coupled to Fe2)
+    add_implicit_coupling(
+        CROSS, RATES, "fes", "fe2_total", coeff_fes_src, coeff_fes_src * fe2_val
+    )
+
+    # Explicit correction for the fast precipitation (the “‑k_isp_eff*is_precip*fac_s” term)
+    add_explicit_source(RHS, RATES, "fes", -k_isp_eff * is_precip * mp["fac_s"])
+
+    # Dissolution sink on the solid
+    coeff_fes_sink = fes_diss_coeff * mp["fac_s"]
+    add_implicit_sink(LHS, RATES, "fes", coeff_fes_sink, coeff_fes_sink * fes_val)
+
+    # -----------------------------------------------------------------
+    # 8️⃣  OPTIONAL: isotope handling (32S) – unchanged apart from the
+    #            helper calls (they still work with the new LHS dict)
+    # -----------------------------------------------------------------
+    if "ts2_32" in c:
+        ts2_32: Var = c["ts2_32"]
+        fes_32: Var = c["fes_32"]
+
+        ts2_inv = 1.0 / (hs_val + 1e-20)
+
+        coeff_ts2_32_precip = k_isp_eff * (fe2_liq / omega_den - ts2_inv) * is_precip
+        coeff_ts2_32_precip = np.maximum(coeff_ts2_32_precip, 0.0)
+
+        # sink on H2S_32
+        add_implicit_sink(
+            LHS,
+            RATES,
+            "ts2_32",
+            coeff_ts2_32_precip,
+            coeff_ts2_32_precip * ts2_32.value,
+        )
+
+        # source on FeS_32 (coupled)
+        add_implicit_coupling(
+            CROSS,
+            RATES,
+            "fes_32",
+            "ts2_32",
+            coeff_ts2_32_precip * mp["fac_s"],
+            coeff_ts2_32_precip * ts2_32.value * mp["fac_s"],
+        )
+
+        # dissolution sink on FeS_32
+        add_implicit_sink(
+            LHS, RATES, "fes_32", coeff_fes_sink, coeff_fes_sink * fes_32.value
+        )
+
+        # source on H2S_32 (coupled)
+        add_implicit_coupling(
+            CROSS,
+            RATES,
+            "ts2_32",
+            "fes_32",
+            fes_diss_coeff,
+            fes_diss_coeff * fes_32.value,
+        )
+
+
+def fes_formation_implicit(
+    c: Mapping[str, Var],  # concentration dictionary (fe2_total, ts2, fes, …)
+    k: Mapping[str, float],  # kinetic constants (fes_isp, fes_isd, fes_sp, hplus, …)
+    lim: Mapping[str, float],  # limiting‑factor scalars (e.g. "fes_explicit")
+    LHS: Dict[str, fp.ImplicitSourceTerm],  # matrix‐side terms (sink / coupling)
+    RHS: Dict[str, fp.ExplicitSourceTerm],  # explicit source terms
+    RATES: Dict[str, float],  # diagnostics (accumulated raw rates)
+    CROSS: Dict[str, List[Tuple[str, Coeff]]],  # bookkeeping for couplings
+    mp: Mapping[str, float],  # model parameters (fac_s, f_diss, dt_max, …)
+) -> None:
+    """
+    Build the FiPy terms for the Fe‑S system using a **fully implicit** precipitation
+    reaction (Fe²⁺ + H₂S ⇌ FeS(s)).
+
+    *Precipitation* (Ω > 1) → implicit sink on Fe²⁺ and H₂S, implicit source on FeS.
+    *Dissolution* (Ω ≤ 1) → implicit source on Fe²⁺ and H₂S, implicit sink on FeS.
+
+    The fast precipitation is **entirely inside the Jacobian**, so no artificial
+    90 % limiter is needed for stability.  A small explicit source
+    (`add_explicit_source`) is kept only for the *non‑linear residual* that
+    guarantees the exact rate `k_isp·(Ω‑1)` after the limiter is applied.
+    """
+    # -----------------------------------------------------------------
+    # 0️⃣  Grab the FiPy variables
+    # -----------------------------------------------------------------
+    fe2: Var = c["fe2_total"]  # dissolved + sorbed Fe²⁺ (total pool)
+    hs: Var = c["ts2"]  # dissolved H₂S
+    fes: Var = c["fes"]  # solid FeS mass pool
+
+    # -----------------------------------------------------------------
+    # 1️⃣  Current (old‑step) values – needed for the non‑linear coefficients
+    # -----------------------------------------------------------------
+    fe2_val = fe2.value
+    fe2_liq = fe2_val * mp["f_diss"]  # only the truly dissolved fraction
+    hs_val = hs.value
+    fes_val = fes.value
+
+    # -----------------------------------------------------------------
+    # 2️⃣  Saturation state Ω = [Fe²⁺][H₂S] / ([H⁺]·K_sp)
+    # -----------------------------------------------------------------
+    omega_den = k["hplus"] * k["fes_sp"] + 1e-30
+    omega = (fe2_liq * hs_val) / omega_den
+
+    # Masks (float arrays) – enable vectorised operations on the whole mesh
+    is_precip = (omega > 1.0).astype(float)  # 1 where Ω>1, else 0
+    is_diss = 1.0 - is_precip  # complementary mask
+
+    # -----------------------------------------------------------------
+    # 3️⃣  **Fully implicit** precipitation term
+    # -----------------------------------------------------------------
+    # The *non‑linear* residual that will be added to the RHS later:
+    raw_precip_residual = k["fes_isp"] * (omega - 1.0) * is_precip
+    raw_precip_residual = np.maximum(raw_precip_residual, 0.0)
+
+    # Linearised Jacobian coefficients (∂R/∂[Fe2] , ∂R/∂[HS] , ∂R/∂[FeS])
+    #   R_prec = k_isp (Ω‑1)  →  ∂R/∂[Fe2] = k_isp * H2S / ω_den
+    #   (the factor f_diss appears because only the dissolved Fe²⁺ participates)
+    coeff_fe2 = -k["fes_isp"] * hs_val / omega_den * mp["f_diss"] * is_precip
+    coeff_hs = -k["fes_isp"] * fe2_liq / omega_den * is_precip
+    coeff_fes = (
+        k["fes_isp"] * hs_val * mp["f_diss"] * mp["fac_s"] / omega_den * is_precip
+    )
+
+    # -------------------------------------------------------------
+    # 4️⃣  Add the implicit precipitation pieces via the helpers
+    # -------------------------------------------------------------
+    # Fe²⁺ sink
+    add_implicit_sink(LHS, RATES, "fe2_total", coeff_fe2, coeff_fe2 * fe2_val)
+
+    # H₂S sink
+    add_implicit_sink(LHS, RATES, "ts2", coeff_hs, coeff_hs * hs_val)
+
+    # FeS source (coupled to Fe²⁺)
+    add_implicit_coupling(
+        CROSS, RATES, "fes", "fe2_total", coeff_fes, coeff_fes * fe2_val
+    )
+
+    # -------------------------------------------------------------
+    # 5️⃣  Explicit residual for the precipitation (non‑linear part)
+    # -------------------------------------------------------------
+    # This term forces the *exact* rate k_isp·(Ω‑1) after the linear solve.
+    add_explicit_source(RHS, RATES, "fe2_total", raw_precip_residual)
+    add_explicit_source(RHS, RATES, "ts2", raw_precip_residual)
+    add_explicit_source(RHS, RATES, "fes", -raw_precip_residual * mp["fac_s"])
+
+    # -----------------------------------------------------------------
+    # 6️⃣  Dissolution (slow) – still treated implicitly
+    # -----------------------------------------------------------------
+    # Driving force = 1‑Ω_diss  (Ω_diss = min(Ω,1))
+    omega_diss = np.minimum(omega, 1.0)
+    fes_diss_coeff = (
+        k["fes_isd"] * (1.0 - omega_diss) * is_diss * lim["fes_explicit"]
+    )  # multiplies the solid concentration
+
+    # Fe²⁺ source from dissolution
+    add_implicit_coupling(
+        CROSS, RATES, "fe2_total", "fes", fes_diss_coeff, fes_diss_coeff * fes_val
+    )
+
+    # H₂S source from dissolution
+    add_implicit_coupling(
+        CROSS, RATES, "ts2", "fes", fes_diss_coeff, fes_diss_coeff * fes_val
+    )
+
+    # FeS sink from dissolution (scaled by the solid‑phase factor)
+    coeff_fes_sink = fes_diss_coeff * mp["fac_s"]
+    add_implicit_sink(LHS, RATES, "fes", coeff_fes_sink, coeff_fes_sink * fes_val)
+
+    # -----------------------------------------------------------------
+    # 7️⃣  OPTIONAL: 32S isotopes – unchanged apart from the helper calls
+    # -----------------------------------------------------------------
+    if "ts2_32" in c:
+        ts2_32: Var = c["ts2_32"]
+        fes_32: Var = c["fes_32"]
+
+        # Inverse H₂S concentration (used in the isotopic formulation)
+        ts2_inv = 1.0 / (hs_val + 1e-20)
+
+        # Isotopic precipitation coefficient (same mask as the main reaction)
+        coeff_ts2_32_precip = k["fes_isp"] * (fe2_liq / omega_den - ts2_inv) * is_precip
+        coeff_ts2_32_precip = np.maximum(coeff_ts2_32_precip, 0.0)
+
+        # Sink on H₂S_32 (implicit)
+        add_implicit_sink(
+            LHS,
+            RATES,
+            "ts2_32",
+            coeff_ts2_32_precip,
+            coeff_ts2_32_precip * ts2_32.value,
+        )
+
+        # Source on FeS_32 (coupled to H₂S_32)
+        add_implicit_coupling(
+            CROSS,
+            RATES,
+            "fes_32",
+            "ts2_32",
+            coeff_ts2_32_precip * mp["fac_s"],
+            coeff_ts2_32_precip * ts2_32.value * mp["fac_s"],
+        )
+
+        # Dissolution sink on FeS_32 (same coefficient as the bulk solid)
+        add_implicit_sink(
+            LHS,
+            RATES,
+            "fes_32",
+            coeff_fes_sink,
+            coeff_fes_sink * fes_32.value,
+        )
+
+        # Source on H₂S_32 (coupled to FeS_32 dissolution)
+        add_implicit_coupling(
+            CROSS,
+            RATES,
+            "ts2_32",
+            "fes_32",
+            fes_diss_coeff,
+            fes_diss_coeff * fes_32.value,
+        )
+
+
+def fes_formation_fully_implicit(
+    c: Mapping[str, fp.CellVariable],
+    k: Mapping[str, float],
+    lim: Mapping[str, float],
+    LHS: Dict[str, fp.ImplicitSourceTerm],
+    RHS: Dict[str, fp.ExplicitSourceTerm],
+    RATES: Dict[str, float],
+    CROSS: Dict[str, List[Tuple[str, float]]],
+    mp: Mapping[str, float],
+) -> None:
+    """
+    Fast FeS precipitation is treated *entirely* implicitly.
+    The explicit residual is omitted because it is the source of the
+    ``9e+36`` blow‑up.
+    """
+    fe2 = c["fe2_total"]
+    hs = c["ts2"]
+    fes = c["fes"]
+
+    # ----- 0. old‑step values (used only for the Jacobian) -----
+    fe2_old = fe2.value * mp["f_diss"]
+    hs_old = hs.value
+    fes_old = fes.value
+
+    # ----- 1. saturation index Ω -----
+    omega_den = k["hplus"] * k["fes_sp"] + 1e-30
+    omega = (fe2_old * hs_old) / omega_den
+
+    precip_mask = (omega > 1.0).astype(float)  # 1 where Ω>1, else 0
+    diss_mask = 1.0 - precip_mask
+
+    # ----- 2. Implicit precipitation coefficients (Jacobian) -----
+    #   R = k_isp * (Ω‑1)   →   ∂R/∂Fe2 = k_isp * hs / ω_den
+    coeff_fe2 = -k["fes_isp"] * hs_old / omega_den * mp["f_diss"] * precip_mask
+    coeff_hs = -k["fes_isp"] * fe2_old / omega_den * precip_mask
+    coeff_fes = k["fes_isp"] * mp["fac_s"] * precip_mask  # source on solid
+
+    # ----- 3. Add the implicit terms via the helper utilities -----
+    add_implicit_sink(
+        LHS, RATES, "fe2_total", coeff_fe2, coeff_fe2 * fe2.value
+    )  # sink on Fe2
+    add_implicit_sink(LHS, RATES, "ts2", coeff_hs, coeff_hs * hs.value)  # sink on H2S
+    add_implicit_coupling(
+        CROSS, RATES, "fes", "fe2_total", coeff_fes, coeff_fes * fe2.value
+    )  # solid source
+
+    # ----- 4. Slow dissolution (still implicit) -----
+    omega_diss = np.minimum(omega, 1.0)
+    fes_diss_coeff = k["fes_isd"] * (1.0 - omega_diss) * diss_mask * lim["fes_explicit"]
+
+    add_implicit_coupling(
+        CROSS, RATES, "fe2_total", "fes", fes_diss_coeff, fes_diss_coeff * fes.value
+    )
+    add_implicit_coupling(
+        CROSS, RATES, "ts2", "fes", fes_diss_coeff, fes_diss_coeff * fes.value
+    )
+    coeff_fes_sink = fes_diss_coeff * mp["fac_s"]
+    add_implicit_sink(LHS, RATES, "fes", coeff_fes_sink, coeff_fes_sink * fes.value)
+
+    # ----- 5️⃣  (Optional) isotopic terms – unchanged, but make sure they are on the same mesh -----
+    if "ts2_32" in c:
+        ts2_32 = c["ts2_32"]
+        fes_32 = c["fes_32"]
+        ts2_inv = 1.0 / (hs_old + 1e-20)
+
+        coeff_ts2_32_precip = (
+            k["fes_isp"] * (fe2_old / omega_den - ts2_inv) * precip_mask
+        )
+        coeff_ts2_32_precip = np.maximum(coeff_ts2_32_precip, 0.0)
+
+        add_implicit_sink(
+            LHS,
+            RATES,
+            "ts2_32",
+            coeff_ts2_32_precip,
+            coeff_ts2_32_precip * ts2_32.value,
+        )
+        add_implicit_coupling(
+            CROSS,
+            RATES,
+            "fes_32",
+            "ts2_32",
+            coeff_ts2_32_precip * mp["fac_s"],
+            coeff_ts2_32_precip * ts2_32.value * mp["fac_s"],
+        )
+        add_implicit_sink(
+            LHS,
+            RATES,
+            "fes_32",
+            coeff_fes_sink,
+            coeff_fes_sink * fes_32.value,
+        )
+        add_implicit_coupling(
+            CROSS,
+            RATES,
+            "ts2_32",
+            "fes_32",
+            fes_diss_coeff,
+            fes_diss_coeff * fes_32.value,
+        )
+
+
+def fes_formation_fully_implicit_2(
+    c: Mapping[str, fp.CellVariable],
+    k: Mapping[str, float],
+    lim: Mapping[str, float],
+    LHS: Dict[str, fp.ImplicitSourceTerm],
+    RHS: Dict[str, fp.ExplicitSourceTerm],
+    RATES: Dict[str, float],
+    CROSS: Dict[str, List[Tuple[str, float]]],
+    mp: Mapping[str, float],
+) -> None:
+    """
+    Assemble the FiPy matrices for the Fe‑S system with **all fast
+    precipitation terms treated implicitly**.
+
+    The implementation follows the same public API that the rest of the
+    code expects:
+
+    * ``add_implicit_sink``   – adds a linear sink (‑coeff·var) to a species.
+    * ``add_implicit_coupling`` – adds a linear source that couples one
+      variable to another.
+
+    The *only* change is that the precipitation reaction
+    ``Fe²⁺ + H₂S ⇌ FeS`` is written as a *single* ``ImplicitSourceTerm``
+    that contains the full non‑linear expression
+    ``R = k_isp·(Ω‑1)`` where
+
+        Ω = (Fe²⁺·f_diss·H₂S) / (H⁺·K_sp)
+
+    Because the term is fully implicit the Newton solver sees the
+    correct Jacobian; no artificial “90 % limiter” or old‑step linearisation
+    is required, and the large one‑year time step (dt≈3.15e7 s) remains stable.
+
+    Parameters
+    ----------
+    c, k, lim, mp
+        Dictionaries that hold the FiPy variables, kinetic constants,
+        user‑defined limiting factors and model parameters (porosity,
+        dissolution fraction, etc.).  The keys used here are exactly the
+        same as in the original routine.
+    LHS, RHS, RATES, CROSS
+        Containers that collect the implicit/explicit source terms,
+        diagnostic rate totals and the coupling information required
+        later when the global FiPy equation is built.
+    """
+    # -----------------------------------------------------------------
+    # 0️⃣  Grab the FiPy cell‑variables
+    # -----------------------------------------------------------------
+    fe2: fp.CellVariable = c["fe2_total"]
+    hs: fp.CellVariable = c["ts2"]
+    fes: fp.CellVariable = c["fes"]
+
+    # -----------------------------------------------------------------
+    # 1️⃣  Build the *non‑linear* precipitation rate
+    # -----------------------------------------------------------------
+    # Saturation index Ω (vector‑valued, depends on the unknowns)
+    omega_den = k["hplus"] * k["fes_sp"] + 1e-30
+    omega = (fe2 * mp["f_diss"] * hs) / omega_den  # FiPy expression
+
+    # Full (backward‑Euler) rate:  R = k_isp·(Ω‑1)
+    rate_precip = k["fes_isp"] * (omega - 1.0)  # FiPy CellVariable
+
+    # -----------------------------------------------------------------
+    # 2️⃣  Implicit source terms for the three species
+    # -----------------------------------------------------------------
+    #   Fe²⁺  :  -R·f_diss   (sink)
+    #   H₂S   :  -R          (sink)
+    #   FeS   :  +R·fac_s    (source)
+    #
+    #  We create three independent ImplicitSourceTerm objects and store
+    #  them in the ``LHS`` dictionary.  If a term already exists for the
+    #  species we simply add the new coefficient to the existing one
+    #  (FiPy allows ``term.coeff += …``).
+    #
+    #  NOTE:  The helper functions are *not* used for these three lines
+    #         because they expect a *linear* coefficient.  The rest of
+    #         the routine (slow dissolution, isotopes) continues to use
+    #         the original helpers unchanged.
+
+    # ---- Fe²⁺ -------------------------------------------------------
+    term_fe2 = fp.ImplicitSourceTerm(var=fe2, coeff=-rate_precip * mp["f_diss"])
+    if "fe2_total" in LHS:
+        LHS["fe2_total"].coeff += term_fe2.coeff
+    else:
+        LHS["fe2_total"] = term_fe2
+
+    # ---- H₂S --------------------------------------------------------
+    term_hs = fp.ImplicitSourceTerm(var=hs, coeff=-rate_precip)
+    if "ts2" in LHS:
+        LHS["ts2"].coeff += term_hs.coeff
+    else:
+        LHS["ts2"] = term_hs
+
+    # ---- FeS (solid) -------------------------------------------------
+    term_fes = fp.ImplicitSourceTerm(var=fes, coeff=rate_precip * mp["fac_s"])
+    if "fes" in LHS:
+        LHS["fes"].coeff += term_fes.coeff
+    else:
+        LHS["fes"] = term_fes
+
+    # -----------------------------------------------------------------
+    # 3️⃣  Book‑keeping of the (non‑linear) precipitation rate
+    # -----------------------------------------------------------------
+    # ``RATES`` is only for diagnostics – we store the *cell‑averaged* value.
+    avg_rate = float(rate_precip.mean())
+    RATES["fe2_total"] = RATES.get("fe2_total", 0.0) + avg_rate
+    RATES["ts2"] = RATES.get("ts2", 0.0) + avg_rate
+    RATES["fes"] = RATES.get("fes", 0.0) + avg_rate
+
+    # -----------------------------------------------------------------
+    # 4️⃣  Slow dissolution (still linear, therefore we keep the helpers)
+    # -----------------------------------------------------------------
+    #   Ω_diss = min(Ω, 1)   →  (1‑Ω_diss) is the driving force
+    omega_diss = fp.minimum(omega, 1.0)  # FiPy expression
+    diss_mask = 1.0 - fp.where(omega > 1.0, 1.0, 0.0)  # same as 1‑precip_mask
+
+    fes_diss_coeff = (
+        k["fes_isd"] * (1.0 - omega_diss) * diss_mask * lim["fes_explicit"]
+    )  # this is a *linear* coefficient that multiplies the solid
+
+    # Fe²⁺ source from dissolution
+    add_implicit_coupling(
+        CROSS,
+        RATES,
+        target_species="fe2_total",
+        source_species="fes",
+        coeff=fes_diss_coeff,
+        rate=fes_diss_coeff * fes.value,
+    )
+
+    # H₂S source from dissolution
+    add_implicit_coupling(
+        CROSS,
+        RATES,
+        target_species="ts2",
+        source_species="fes",
+        coeff=fes_diss_coeff,
+        rate=fes_diss_coeff * fes.value,
+    )
+
+    # FeS sink from dissolution (multiply by the solid‑phase factor)
+    coeff_fes_sink = fes_diss_coeff * mp["fac_s"]
+    add_implicit_sink(LHS, RATES, "fes", coeff_fes_sink, coeff_fes_sink * fes.value)
+
+    # -----------------------------------------------------------------
+    # 5️⃣  Optional isotope bookkeeping (unchanged – still uses helpers)
+    # -----------------------------------------------------------------
+    if "ts2_32" in c:
+        ts2_32: fp.CellVariable = c["ts2_32"]
+        fes_32: fp.CellVariable = c["fes_32"]
+
+        # 5a – precipitation (non‑linear part) for 32S
+        ts2_inv = 1.0 / (hs.value + 1e-20)
+
+        coeff_ts2_32_precip = (
+            k["fes_isp"]
+            * (fe2 * mp["f_diss"] / omega_den - ts2_inv)
+            * fp.where(omega > 1.0, 1.0, 0.0)
+        )
+        coeff_ts2_32_precip = fp.maximum(coeff_ts2_32_precip, 0.0)
+
+        add_implicit_sink(
+            LHS,
+            RATES,
+            "ts2_32",
+            coeff_ts2_32_precip,
+            coeff_ts2_32_precip * ts2_32.value,
+        )
+
+        # 5b – coupling of 32S to the solid
+        add_implicit_coupling(
+            CROSS,
+            RATES,
+            target_species="fes_32",
+            source_species="ts2_32",
+            coeff=coeff_ts2_32_precip * mp["fac_s"],
+            rate=coeff_ts2_32_precip * ts2_32.value * mp["fac_s"],
+        )
+
+        # 5c – dissolution sink on the solid (same coeff as for the main solid)
+        add_implicit_sink(
+            LHS,
+            RATES,
+            "fes_32",
+            coeff_fes_sink,
+            coeff_fes_sink * fes_32.value,
+        )
+
+        # 5d – dissolution source on H₂S_32 (coupled to solid)
+        add_implicit_coupling(
+            CROSS,
+            RATES,
+            target_species="ts2_32",
+            source_species="fes_32",
+            coeff=fes_diss_coeff,
+            rate=fes_diss_coeff * fes_32.value,
+        )

@@ -2,6 +2,7 @@
 Configuration for plotting diagenetic modeling results.
 
 This module defines the layout and aesthetic properties of the plots.
+
 """
 
 

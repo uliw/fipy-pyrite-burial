@@ -31,7 +31,7 @@ def pyrite_model(p_dict: dict):
     )
     from solver_calls import (
         run_non_steady_state_solver_coupled,
-        run_non_steady_state_solver_coupled_bdf,
+        run_non_steady_state_solver_coupled_new,
         run_steady_state_solver_coupled,
     )
 
@@ -61,6 +61,7 @@ def pyrite_model(p_dict: dict):
             "so4_d": 21,  # seawater delta
             "msr_alpha": 1.07,  # MSR enrichment factor in mUr
             "hs_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
+            "s0_ox_alpha": 1,  # sulfide oxidation enrichment factor in mUr
             "bc_o2": 0.20,  # mmmol/l
             "bc_om": weight_percent_to_mol(4, 12, 2.6),  # wt% C
             "bc_so4": 28.0,  # mmol/l
@@ -77,7 +78,7 @@ def pyrite_model(p_dict: dict):
             "relax": 0.1,  # use 0.1 for coupled solver, and 0.8 otherwise
             "tolerance": 1e-5,  # convergence criterion
             "dt_tolerance": 0.1,  # when to increase dt
-            "solver_backend": "petsc", 
+            "solver_backend": "default",
             "dt_max": Q_("100 years").to("seconds").magnitude,  # time step in years
             "dt_min": Q_("1 second").to("seconds").magnitude,  # time step in years
             "max_steps": 2000,  # max number of iterations
@@ -92,20 +93,7 @@ def pyrite_model(p_dict: dict):
     )
 
     mp.update(p_dict)
-
-    # Reaction Constants (k)
-    k = {
-        "poc_o2": 5e-10,  # POC + O2 -> CO2
-        "poc_so4": 1e-12,  # POC + SO4 -> H2S # within range of Halevy 7e-12
-        "fe2_p_eq": 696,  # partitioning of Fe2+ sorbed vs F2+ liquid , Velde at al.
-        "fes2_ox": 1e-10,  # FeS2 + O2 -> SO4, Halevy et al
-        "fes_s0": 5e-8,  # FeS + S0 -> FeS2, TBD ???
-        "fes_t2s": 5e-8,  # FeS + H2S -> FeS2, at 10C -> notes.org
-        # Fe3 + H2S -> FeS * S0 -> calculate_k_iron_reduction, Halevy
-        # "fe3_h2s": calculate_k_iron_reduction(mp.bc_fe3, 0),  # ~1.6e-8
-    }
-    _k1, k2 = get_reaction_constants(mp.phi, mp.pH)
-    k.update(k2)
+    _k1, k = get_reaction_constants(mp.phi, mp.pH)
     k = data_container(k)
     mp.bc_so4_32 = get_l_mass(mp.bc_so4, mp.so4_d, mp.VCDT)
     mp.bc_ts2_32 = get_l_mass(mp.bc_ts2, 0.0, mp.VCDT)  # Assume 0 delta for bc_h2s
