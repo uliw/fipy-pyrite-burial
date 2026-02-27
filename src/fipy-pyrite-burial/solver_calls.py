@@ -1,94 +1,78 @@
-"""Build the equation matrix.
+from __future__ import annotations
 
-and call the respective solvers.
-"""
+import time
+import traceback
+from functools import reduce
+from typing import Any, Callable, Dict, List, Tuple
 
-from petsc4py import PETSc
+import numpy as np
+from fipy import CellVariable, LinearLUSolver
+from fipy.terms.diffusionTerm import DiffusionTerm
+from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
+from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
+from fipy.terms.transientTerm import TransientTerm
 
-if not hasattr(PETSc.KSP.ConvergedReason, "CONVERGED_ATOL_NORMAL"):
-    PETSc.KSP.ConvergedReason.CONVERGED_ATOL_NORMAL = (
-        PETSc.KSP.ConvergedReason.CONVERGED_ATOL_NORMAL_EQUATIONS
-    )
-if not hasattr(PETSc.KSP.ConvergedReason, "CONVERGED_RTOL_NORMAL"):
-    PETSc.KSP.ConvergedReason.CONVERGED_RTOL_NORMAL = (
-        PETSc.KSP.ConvergedReason.CONVERGED_RTOL_NORMAL_EQUATIONS
-    )
-
-from diff_lib import get_time_units, data_container, save_data_async
+# Functions that live elsewhere in the project – we only need the signatures.
+# They are imported lazily inside the helpers that actually use them.
+#   get_time_units, save_data_async, data_container, equilibrium_reactions
+#   (and the user‑provided `diagenetic_reactions`) are assumed to be available.
 
 
-def run_non_steady_state_solver_coupled(
-    mp,
-    c,
-    species_list_full,
-    species_list_partial,
-    k,
-    diagenetic_reactions,
-    mesh,
-    D_mol,
-    bc_map,
-    z,
-):
-    import time
-    import numpy as np
-
-    from fipy import CellVariable
-    from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
-    from fipy.terms.diffusionTerm import DiffusionTerm
-    from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
-    from fipy.terms.transientTerm import TransientTerm
-    from functools import reduce
-    from reactions_new import equilibrium_reactions
-    import traceback
-
+# ──────────────────────────────────────────────────────────────────────────────
+# Helper utilities
+# ──────────────────────────────────────────────────────────────────────────────
+def select_solver(mp: Any) -> Any:
+    """Return a FiPy solver instance according to ``mp.solver_backend``."""
     if mp.solver_backend == "LinearGMRESSolver":
-        from fipy.solvers.petsc import LinearGMRESSolver as PETScLUSolver
+        from fipy.solvers.petsc import LinearGMRESSolver as PETScGMRESSolver
 
-        solver = PETScLUSolver(precon="hypre", tolerance=mp.tolerance)
-    elif mp.solver_backend == "PETScLUSolver":
+        return PETScGMRESSolver(precon="hypre", tolerance=mp.tolerance)
+    if mp.solver_backend == "PETScLUSolver":
         from fipy.solvers.petsc import PETScLUSolver
 
-        solver = PETScLUSolver(tolerance=mp.tolerance)
-    elif mp.solver_backend == "LinearLUSolver":
-        from fipy import LinearLUSolver
-
-        solver = LinearLUSolver(tolerance=mp.tolerance)
-    elif mp.solver_backend == "PETScNewtonSolver":
+        return PETScLUSolver(tolerance=mp.tolerance)
+    if mp.solver_backend == "LinearLUSolver":
+        return LinearLUSolver(tolerance=mp.tolerance)
+    if mp.solver_backend == "PETScNewtonSolver":
         from fipy.solvers.petsc import PETScNewtonSolver
 
-        solver = PETScNewtonSolver(
+        return PETScNewtonSolver(
             precon="hypre", tolerance=mp.tolerance, max_it=30, damping=0.5
         )
-    else:
-        from fipy import DefaultSolver
+    # Fallback – FiPy’s default linear solver
+    from fipy import DefaultSolver
 
-        solver = DefaultSolver(tolerance=mp.tolerance)
+    return DefaultSolver(tolerance=mp.tolerance)
 
-    start_wall = time.time()
 
-    # --- OPTIMIZATION 1: Adaptive Time Stepping Setup ---
-    current_dt = getattr(
-        mp, "dt_min", 1e-5 * 365 * 24 * 3600
-    )  # Start small (e.g., minutes/hours)
-    dt_max = mp.dt_max  # Cap at your large step
-    growth_factor = 1.2  # Grow by 20% on success
-    cut_factor = 0.5  # Cut in half on failure
+def build_variables(
+    mesh: Any,
+    species_list_partial: List[str],
+    diagenetic_reactions: Callable,
+    mp: Any,
+    c: Any,
+    D_mol: Any,
+    k: data_container,
+) -> Tuple[
+    Dict[str, CellVariable],
+    Dict[str, CellVariable],
+    Dict[str, Dict[str, CellVariable]],
+]:
+    """
+    Create the LHS, RHS and cross‑species FiPy variables for the *partial* species.
 
-    print(
-        f"Starting Pseudo-Transient Solver (Adaptive dt) {get_time_units(current_dt):.2f~P}"
-    )
+    Returns
+    -------
+    lhs_vars, rhs_vars, cross_vars
+    """
+    from diff_lib import data_container
 
-    # 1. PRE-BUILD THE EQUATIONS (Your code was good here)
-    # --------------------------
     lhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list_partial}
     rhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list_partial}
     cross_vars = {s: {} for s in species_list_partial}
 
-    # ... [Your Topology Analysis Code is good, keeping it as is] ...
-    # (Assume cross_vars is populated here)
-    f_init, RATES = diagenetic_reactions(
-        mp, c, k, f=data_container()
-    )  # dummy call for topology
+    # Populate ``cross_vars`` – we need a dummy call to obtain the topology.
+    f_init, _ = diagenetic_reactions(mp, c, k, f=data_container())
     for s in species_list_partial:
         res = getattr(f_init, s)
         if len(res) > 3:
@@ -96,896 +80,421 @@ def run_non_steady_state_solver_coupled(
                 if source_name not in cross_vars[s]:
                     cross_vars[s][source_name] = CellVariable(mesh=mesh, value=0.0)
 
-    eqs = []
+    return lhs_vars, rhs_vars, cross_vars
 
-    # --- OPTIMIZATION 2: Cache Variables to avoid getattr in loop ---
-    # We store tuples of (Variable, LHS_Coeff_Var, RHS_Var, Cross_Dict)
-    species_struct = []
 
-    for species_name in species_list_partial:
-        var = getattr(c, species_name)
-        props = bc_map[species_name]
+def attach_source_variables(
+    variables: Dict[str, fp.CellVariable],
+    LHS: Dict[str, Union[float, List[fp.ImplicitSourceTerm]]],
+    CROSS: Dict[str, List[Tuple[str, float]]],
+) -> None:
+    """
+    Walk through LHS and CROSS and set ``term.var`` to the actual
+    ``CellVariable`` objects.  Called once per time step, just before the
+    global FiPy equations are assembled.
+    """
+    # First, fix the terms that were already stored in LHS (precipitation, etc.)
+    for sp, term_list in LHS.items():
+        if isinstance(term_list, list):
+            for term in term_list:
+                if term.var is None:  # only the placeholders
+                    term.var = variables[sp]
 
-        # Cache these objects for the loop
+    # Then handle the coupling entries that are still in CROSS.
+    for target, pairs in CROSS.items():
+        target_var = variables[target]
+        for source_name, coeff in pairs:
+            source_var = variables[source_name]
+            term = fp.ImplicitSourceTerm(var=target_var, coeff=coeff * source_var)
+            LHS.setdefault(target, []).append(term)
+
+
+def build_equations(
+    mesh: Any,
+    species_list_partial: List[str],
+    bc_map: Dict[str, Dict[str, Any]],
+    c: Any,
+    D_mol: Any,
+    mp: Any,
+    lhs_vars: Dict[str, CellVariable],
+    rhs_vars: Dict[str, CellVariable],
+    cross_vars: Dict[str, Dict[str, CellVariable]],
+) -> Tuple[Any, List[Dict[str, Any]]]:
+    """
+    Assemble transport + reaction terms for each partial species and return the
+    coupled FiPy equation together with a cached description of each species.
+    """
+    species_struct: List[Dict[str, Any]] = []
+    eqs: List[Any] = []
+
+    for name in species_list_partial:
+        var = getattr(c, name)
+        props = bc_map[name]
+
         species_struct.append(
             {
-                "name": species_name,
+                "name": name,
                 "var": var,
-                "lhs": lhs_vars[species_name],
-                "rhs": rhs_vars[species_name],
-                "cross": cross_vars[species_name],
+                "lhs": lhs_vars[name],
+                "rhs": rhs_vars[name],
+                "cross": cross_vars[name],
             }
         )
 
-        # -- Transport Construction (Same as your code) --
-        D_total = np.maximum(getattr(D_mol, species_name) + D_mol.D_bio, 1e-20)
+        # ---- Transport -------------------------------------------------------
+        D_total = np.maximum(getattr(D_mol, name) + D_mol.D_bio, 1e-20)
         vel = mp.w - mp.advection if props["type"] == "dissolved" else mp.w
-
-        # u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
         u_var = CellVariable(mesh=mesh, value=vel, rank=1)
+
         conv_term = PowerLawConvectionTerm(coeff=u_var, var=var)
         diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total), var=var)
 
-        # -- Reaction Terms --
-        lhs_term = ImplicitSourceTerm(coeff=lhs_vars[species_name], var=var)
-        rhs_term = rhs_vars[species_name]
+        # ---- Reaction --------------------------------------------------------
+        lhs_term = ImplicitSourceTerm(coeff=lhs_vars[name], var=var)
+        rhs_term = rhs_vars[name]
 
-        cross_terms = 0.0
-        for src_name, cv in cross_vars[species_name].items():
+        cross_term = 0.0
+        for src_name, cv in cross_vars[name].items():
             src_var = getattr(c, src_name)
-            cross_terms += ImplicitSourceTerm(coeff=cv, var=src_var)
+            cross_term += ImplicitSourceTerm(coeff=cv, var=src_var)
 
-        # -- Irrigation --
+        # ---- Irrigation (only for dissolved) ---------------------------------
         irr_term = 0.0
         if props["type"] == "dissolved":
             irr_term = ImplicitSourceTerm(
                 coeff=CellVariable(mesh=mesh, value=-D_mol.D_irr), var=var
             ) + CellVariable(mesh=mesh, value=D_mol.D_irr * props["top"])
 
-        eq = (
-            TransientTerm(var=var) + conv_term
-            == diff_term + lhs_term + rhs_term + cross_terms + irr_term
+        # ---- Full equation ----------------------------------------------------
+        eq = (TransientTerm(var=var) + conv_term) == (
+            diff_term + lhs_term + rhs_term + cross_term + irr_term
         )
         eqs.append(eq)
 
-    # Couple them
     coupled_eq = reduce(lambda a, b: a & b, eqs)
+    return coupled_eq, species_struct
 
-    # 2. TIME STEPPING LOOP
+
+def update_reaction_rates(
+    mp: Any,
+    c: Any,
+    k: Any,
+    diagenetic_reactions: Callable,
+    species_struct: List[Dict[str, Any]],
+    species_list_partial: List[str],
+    current_dt: float,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Compute equilibrium and diagenetic reaction rates, merge them and write the
+    new matrix coefficients into the cached FiPy variables.
+    """
+    from diff_lib import data_container
+    from reactions_new import (
+        equilibrium_reactions,
+    )  # local import to avoid circular deps
+
+    # ---- Equilibrium (operator‑splitting) ------------------------------------
+    _, rates_eq = equilibrium_reactions(mp, c, k, None, {}, current_dt)
+
+    # ---- Diagenetic reactions ------------------------------------------------
+    f_res, rates = diagenetic_reactions(mp, c, k, f=data_container())
+
+    # Merge equilibrium rates into diagenetic ones (for reporting only)
+    for sp in rates:
+        if sp in rates_eq:
+            rates[sp] += rates_eq[sp]
+
+    # ---- Update LHS / RHS / cross coefficients -------------------------------
+    for struct in species_struct:
+        name = struct["name"]
+        res_tuple = getattr(f_res, name)
+
+        # Diagonal (LHS) and source (RHS)
+        struct["lhs"].setValue(getattr(res_tuple[0], "value", res_tuple[0]))
+        struct["rhs"].setValue(getattr(res_tuple[1], "value", res_tuple[1]))
+
+        # Cross‑terms, if any
+        if len(res_tuple) > 3:
+            batch = {src: 0.0 for src in struct["cross"]}
+            for src_name, coeff in res_tuple[3]:
+                if src_name in batch:
+                    batch[src_name] += getattr(coeff, "value", coeff)
+
+            for src, val in batch.items():
+                struct["cross"][src].setValue(val)
+
+    return f_res, rates
+
+
+def adaptive_step(
+    coupled_eq: Any,
+    solver: Any,
+    current_dt: float,
+    species_struct: List[Dict[str, Any]],
+    mp: Any,
+    c: Any,
+    k: Any,
+    diagenetic_reactions: Callable,
+    species_list_partial: List[str],
+) -> Tuple[bool, float, Dict[str, np.ndarray]]:
+    """
+    Perform one pseudo‑transient step.  If the linear solve fails, the time step
+    is reduced and the step is retried.  The function returns a tuple::
+
+        (step_converged, new_dt, backup_values)
+
+    where ``backup_values`` is a mapping ``species_name → old_value`` used by
+    the caller for convergence diagnostics.
+    """
+    # Save the current solution (so we can roll back on failure)
+    backup = {s["name"]: s["var"].value.copy() for s in species_struct}
+    cut_factor = 0.5
+
+    while True:
+        try:
+            # Update reaction rates *before* solving
+            update_reaction_rates(
+                mp,
+                c,
+                k,
+                diagenetic_reactions,
+                species_struct,
+                species_list_partial,
+                current_dt,
+            )
+
+            # Attach the real FiPy variables to every placeholder term
+            variables = {s["name"]: s["var"] for s in species_struct}
+            attach_source_variables(variables, lhs_vars, cross_vars)
+
+            # Sweep the coupled system
+            coupled_eq.sweep(dt=current_dt, solver=solver)
+            return True, current_dt, backup
+        except Exception as exc:  # noqa: BLE001 (we want to catch FiPy failures)
+            print(
+                f"  Step failed at dt={current_dt:.1e}: {exc}. "
+                f"Retrying with dt*{cut_factor:.2f}"
+            )
+            traceback.print_exc()
+            current_dt *= cut_factor
+            if current_dt < 1e-5:
+                raise RuntimeError(
+                    "Time step became too small – model appears stiff."
+                ) from exc
+
+            # Restore previous values before retrying
+            for s in species_struct:
+                s["var"].value[:] = backup[s["name"]]
+
+
+def report_progress(
+    step: int,
+    mp: Any,
+    total_time: float,
+    current_dt: float,
+    max_change: float,
+    c: Any,
+    k: Any,
+    species_list_full: List[str],
+    z: Any,
+    D_mol: Any,
+    diagenetic_reactions: Callable,
+) -> None:
+    """Print a status line and trigger asynchronous saving if required."""
+    if step % mp.report_step == 0:
+        print(
+            f"Time: {get_time_units(total_time):.2f~P}, "
+            f"dt: {get_time_units(current_dt):.2f~P}, "
+            f"Max Change: {max_change:.2e}"
+        )
+        # The original code saved the data asynchronously; we keep that call.
+        save_data_async(
+            mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, current_dt
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Public function – thin wrapper that orchestrates the helpers
+# ──────────────────────────────────────────────────────────────────────────────
+def run_non_steady_state_solver_coupled(
+    mp: Any,
+    c: Any,
+    species_list_full: List[str],
+    species_list_partial: List[str],
+    k: Any,
+    diagenetic_reactions: Callable,
+    mesh: Any,
+    D_mol: Any,
+    bc_map: Dict[str, Dict[str, Any]],
+    z: Any,
+) -> Tuple[int, float]:
+    """
+    Solve the coupled transport‑reaction system using an adaptive pseudo‑transient
+    scheme.
+
+    Parameters
+    ----------
+    mp
+        Model‑parameter container (holds ``solver_backend``, tolerances, etc.).
+    c
+        Container with FiPy ``CellVariable`` fields for each species.
+    species_list_full
+        List of *all* species (used only for final data output).
+    species_list_partial
+        Sub‑set of species that appear in the transport‑reaction system.
+    k
+        Kinetic‑parameter container passed to the reaction functions.
+    diagenetic_reactions
+        Callable ``(mp, c, k, f) → (f_res, rates)``.
+    mesh
+        FiPy mesh on which the variables live.
+    D_mol
+        Diffusivity container (has attributes for each species plus ``D_bio`` &
+        ``D_irr``).
+    bc_map
+        Boundary‑condition map keyed by species name.
+    z
+        Depth coordinate array (only used for output).
+
+    Returns
+    -------
+    steps_done : int
+        Number of pseudo‑transient steps performed.
+    final_max_change : float
+        Largest absolute change in any variable during the last successful step.
+    """
+    from diff_lib import get_time_units, save_data_async
+
+    start_wall = time.time()
+    # --------------------------------------------------------------------- #
+    # 1️⃣ Solver selection
+    # --------------------------------------------------------------------- #
+    solver = select_solver(mp)
+
+    # --------------------------------------------------------------------- #
+    # 2️⃣ Build FiPy variables (LHS/RHS/cross) and equations
+    # --------------------------------------------------------------------- #
+    lhs_vars, rhs_vars, cross_vars = build_variables(
+        mesh, species_list_partial, diagenetic_reactions, mp, c, D_mol, k
+    )
+    coupled_eq, species_struct = build_equations(
+        mesh,
+        species_list_partial,
+        bc_map,
+        c,
+        D_mol,
+        mp,
+        lhs_vars,
+        rhs_vars,
+        cross_vars,
+    )
+
+    # --------------------------------------------------------------------- #
+    # 3️⃣ Adaptive time‑stepping loop
+    # --------------------------------------------------------------------- #
+    dt_min = getattr(mp, "dt_min", 1e-5 * 365 * 24 * 3600)  # default: ≈ minutes
+    current_dt = dt_min
+    dt_max = mp.dt_max
+    growth_factor = 1.2
+    cut_factor = 0.5
+
+    print(
+        f"Starting Pseudo‑Transient Solver (Adaptive dt) "
+        f"{get_time_units(current_dt):.2f~P}"
+    )
+
     step = 0
     total_time = 0.0
-    last_max_change = 1e10  # Initial large value
+    last_max_change = np.inf
     status = "max steps or time reached"
 
     try:
-        while total_time < mp.t_end and step < mp.max_steps:  # Or check convergence
+        while total_time < mp.t_end and step < mp.max_steps:
             step += 1
 
-            # A. Update Old Values (Advance Time)
-            for s_obj in species_struct:
-                s_obj["var"].updateOld()
+            # Advance FiPy variables to the new time level
+            for s in species_struct:
+                s["var"].updateOld()
 
-            # Snapshot for checking if this step succeeds
-            last_sol_backup = {s["name"]: s["var"].value.copy() for s in species_struct}
+            # Keep a copy of the solution before we attempt the step
+            backup = {s["name"]: s["var"].value.copy() for s in species_struct}
 
-            # --- Adaptive Loop: Retry step if solver fails ---
-            step_converged = False
-            while not step_converged:
-                try:
-                    # B. Update Reaction Rates
-                    # Initialize equilibrium rates container
-                    RATES_eq = {
-                        s: np.zeros_like(c.so4.value) for s in species_list_partial
-                    }
+            # -------------------------------------------------------------- #
+            # Adaptive step – may shrink dt and retry internally
+            # -------------------------------------------------------------- #
+            step_ok, current_dt, _ = adaptive_step(
+                coupled_eq,
+                solver,
+                current_dt,
+                species_struct,
+                mp,
+                c,
+                k,
+                diagenetic_reactions,
+                species_list_partial,
+            )
+            if not step_ok:
+                raise RuntimeError("Adaptive step could not converge.")  # safety
 
-                    # Apply Instantaneous Equilibrium (Operator Splitting) - NOW BEFORE SOLVER
-                    # This modifies c.fe2, c.h2s, c.fes IN PLACE
-                    # We pass None for 'f' as it's not used in equilibrium_reactions
-                    _, RATES_eq = equilibrium_reactions(
-                        mp, c, k, None, RATES_eq, current_dt
-                    )
-
-                    # Note: We pass the CURRENT guess 'c' to reaction function
-                    f_res, RATES = diagenetic_reactions(mp, c, k, f=data_container())
-
-                    # Merge RATES_eq into RATES for reporting
-                    for s in RATES:
-                        if s in RATES_eq:
-                            RATES[s] += RATES_eq[s]
-
-                    # Update Matrix Coefficients (Fast, using cached objects)
-                    for s_obj in species_struct:
-                        name = s_obj["name"]
-                        res_tuple = getattr(f_res, name)
-
-                        # Update Diagonal
-                        s_obj["lhs"].setValue(
-                            getattr(res_tuple[0], "value", res_tuple[0])
-                        )
-                        s_obj["rhs"].setValue(
-                            getattr(res_tuple[1], "value", res_tuple[1])
-                        )
-
-                        # Update Cross-Terms
-                        if len(res_tuple) > 3:
-                            # Reset batch accumulator
-                            batch_coeffs = {src: 0.0 for src in s_obj["cross"]}
-                            for source_name, coeff in res_tuple[3]:
-                                if source_name in batch_coeffs:
-                                    val = getattr(coeff, "value", coeff)
-                                    batch_coeffs[source_name] += val
-
-                            # Push to FiPy variables
-                            for src, val in batch_coeffs.items():
-                                s_obj["cross"][src].setValue(val)
-
-                    # C. Sweep the Coupled System
-                    # Note: 'dt' is now dynamic
-                    res = coupled_eq.sweep(
-                        dt=current_dt,
-                        solver=solver,
-                        # underRelaxation=0.1,
-                    )
-
-                    # D. Apply Instantaneous Equilibrium (Operator Splitting) -- MOVED ABOVE
-                    # This matches user request to have equilibrium proceed transport/matrix solve
-
-                    # If we get here without error, the linear solve worked.
-                    step_converged = True
-
-                except Exception as e:
-                    # If solver diverged or crashed
-                    print(
-                        f"  Step failed at dt={current_dt:.1e}: {e}. Retrying with smaller dt."
-                    )
-                    traceback.print_exc()
-                    current_dt *= cut_factor
-                    if current_dt < 1e-5:
-                        raise RuntimeError(
-                            "Time step became too small. Model stiff/diverged."
-                        )
-
-                    # Restore previous values to try again
-                    for s_obj in species_struct:
-                        s_obj["var"].value[:] = last_sol_backup[s_obj["name"]]
-
-            # E. Calculate Change (Steady State Check)
-            max_change = 0.0
-            for s_obj in species_struct:
-                diff = np.max(
-                    np.abs(s_obj["var"].value - last_sol_backup[s_obj["name"]])
-                )
-                max_change = max(max_change, diff)
-
+            # -------------------------------------------------------------- #
+            # Compute max change (steady‑state criterion)
+            # -------------------------------------------------------------- #
+            max_change = max(
+                np.max(np.abs(s["var"].value - backup[s["name"]]))
+                for s in species_struct
+            )
             total_time += current_dt
 
-            # F. Adapt Time Step based on convergence trend
+            # -------------------------------------------------------------- #
+            # Adapt the time step based on convergence trend
+            # -------------------------------------------------------------- #
             if step > 1:
                 if max_change < last_max_change:
                     current_dt = min(current_dt * growth_factor, dt_max)
                 else:
-                    current_dt = max(current_dt * cut_factor, mp.dt_min)
+                    current_dt = max(current_dt * cut_factor, dt_min)
             else:
-                # For the first step, use the old threshold logic
+                # First step – use the original tolerance logic
                 if max_change < mp.dt_tolerance:
                     current_dt = min(current_dt * growth_factor, dt_max)
 
             last_max_change = max_change
 
-            # Reporting
-            if step % mp.report_step == 0:
-                if step > 0:
-                    print(
-                        f"Time: {get_time_units(total_time):.2f~P}, "
-                        f"dt: {get_time_units(current_dt):.2f~P}, "
-                        f"Max Change: {max_change:.2e}"
-                    )
-                    df, fqfn = save_data_async(
-                        mp,
-                        c,
-                        k,
-                        species_list_full,
-                        z,
-                        D_mol,
-                        diagenetic_reactions,
-                        current_dt,
-                    )
-            # Check for Steady State
-            if max_change < mp.dt_tolerance:
-                print(f"Steady State Criteria Met. max_change = {max_change:.2e}")
-                status = "Converged" if step < mp.max_steps else "Failed"
-                break
-
-    except KeyboardInterrupt:
-        status = "Interupted"
-
-    # 3. Final Report
-    print(f"{status} in {step} steps. Wall time: {time.time() - start_wall:.2f}s")
-
-    df, fqfn = save_data_async(
-        mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, current_dt
-    )
-    print(
-        f"Solver finished in {step} steps. Wall time: {time.time() - start_wall:.2f}s"
-    )
-    return step, max_change
-
-
-def run_steady_state_solver_coupled(
-    mp,
-    c,
-    species_list_full,
-    species_list_partial,
-    k,
-    diagenetic_reactions,
-    mesh,
-    D_mol,
-    bc_map,
-    z,
-):
-    """
-    Solve the equation system as a set of coupled reactions, rather than
-    sequentially.
-    """
-    from fipy import LinearLUSolver, CellVariable
-    from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
-    from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
-    from fipy.terms.diffusionTerm import DiffusionTerm
-    import numpy as np
-    import time
-    from functools import reduce
-
-    start_wall = time.time()
-    print("Starting Coupled Steady State Solver...")
-    solver = LinearLUSolver(tolerance=mp.tolerance)
-
-    # 1. PRE-BUILD THE EQUATIONS
-    # --------------------------
-    lhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list_partial}
-    rhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list_partial}
-
-    # Store cross-term placeholders: dict of dicts
-    # cross_vars[target_species][source_species] = CellVariable
-    cross_vars = {s: {} for s in species_list_partial}
-
-    # Analyze Topology once
-    f_init, RATES = diagenetic_reactions(mp, c, k, f=data_container())
-
-    for s in species_list_partial:
-        res = getattr(f_init, s)
-        if len(res) > 3:
-            # res[3] is the list of (source_name, coeff) couplings
-            for source_name, _ in res[3]:
-                if source_name not in cross_vars[s]:
-                    cross_vars[s][source_name] = CellVariable(mesh=mesh, value=0.0)
-
-    eqs = []
-
-    for species_name in species_list_partial:
-        var = getattr(c, species_name)
-        props = bc_map[species_name]
-
-        # -- Transport --
-        D_total = getattr(D_mol, species_name) + D_mol.D_bio
-        D_total = np.maximum(D_total, 1e-20)
-
-        vel = mp.w
-        if props["type"] == "dissolved":
-            vel = mp.w - mp.advection
-
-        # u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
-        u_var = CellVariable(mesh=mesh, value=vel, rank=1)
-        # FIX: Explicitly bind variables to terms for coupled solver inference
-        conv_term = PowerLawConvectionTerm(coeff=u_var, var=var)
-        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total), var=var)
-
-        # -- Reactions (Diagonal) --
-        lhs_term = ImplicitSourceTerm(coeff=lhs_vars[species_name], var=var)
-        rhs_term = rhs_vars[species_name]
-
-        # -- Reactions (Cross-Coupling) --
-        # Add implicit source terms for dependencies on other variables
-        cross_reaction_terms = 0.0
-        for source_name, cv in cross_vars[species_name].items():
-            source_var = getattr(c, source_name)
-            # ImplicitSourceTerm(coeff, var) adds `coeff * var` to the equation check.
-            # In our convention: dC/dt = Rate. If Rate = k * Source.
-            # We want + k*Source.
-            # ImplicitSourceTerm(coeff=k, var=Source) adds +k*Source to the Operator?
-            # FiPy equation: ... == ... + term.
-            # Yes.
-            cross_reaction_terms += ImplicitSourceTerm(coeff=cv, var=source_var)
-
-        # -- Irrigation --
-        if props["type"] == "dissolved":
-            irr_sink = ImplicitSourceTerm(
-                coeff=-CellVariable(mesh=mesh, value=D_mol.D_irr), var=var
-            )
-            irr_source = CellVariable(mesh=mesh, value=D_mol.D_irr * props["top"])
-        else:
-            irr_sink = 0.0
-            irr_source = 0.0
-
-        # Assemble Equation
-        eq = (
-            conv_term
-            == diff_term
-            + lhs_term
-            + rhs_term
-            + cross_reaction_terms
-            + irr_sink
-            + irr_source
-        )
-        eqs.append(eq)
-
-    # Create the Coupled Equation System
-    coupled_eq = reduce(lambda a, b: a & b, eqs)
-
-    # 2. PICARD ITERATION LOOP
-    # ------------------------
-    dt_large = 1e10  # Large time step for steady state equilibrium checks
-    max_change = 1e10
-    step = 0
-
-    while max_change > mp.dt_tolerance and step < mp.max_steps:
-        step += 1
-
-        last_sol = {s: getattr(c, s).value.copy() for s in species_list_full}
-
-        # Update reaction terms
-        f_res, RATES = diagenetic_reactions(mp, c, k, f=data_container())
-
-        # update matrix
-        for species_name in species_list_partial:
-            res_tuple = getattr(f_res, species_name)
-            lhs_val = res_tuple[0]
-            rhs_val = res_tuple[1]
-
-            # Update Diagonal
-            lhs_vars[species_name].setValue(getattr(lhs_val, "value", lhs_val))
-            rhs_vars[species_name].setValue(getattr(rhs_val, "value", rhs_val))
-
-            # Update Cross-Terms if present
-            if len(res_tuple) > 3:
-                # Accumulate coefficients first to avoid overwriting if multiple terms exist for same source
-                # Initialize with 0.0
-                batch_coeffs = {src: 0.0 for src in cross_vars[species_name]}
-
-                for source_name, coeff in res_tuple[3]:
-                    if source_name in batch_coeffs:
-                        val = getattr(coeff, "value", coeff)
-                        batch_coeffs[source_name] += val
-
-                # Update CellVariables
-                for src_name, total_coeff in batch_coeffs.items():
-                    target_cv = cross_vars[species_name][src_name]
-                    target_cv.setValue(total_coeff)
-
-        # Sweep the Coupled System
-        res = coupled_eq.sweep(
-            solver=solver,
-            # underRelaxation=0.1,
-        )
-
-        # Relaxation and Convergence
-        max_change = 0
-        for species_name in species_list_partial:
-            var = getattr(c, species_name)
-            new_val = relax_solution(var.value, last_sol[species_name], mp.relax)
-            var.setValue(new_val)
-
-            change = np.max(np.abs(var.value - last_sol[species_name]))
-            max_change = max(max_change, change)
-
-        if step % mp.report_step == 0:
-            if step > 0:
-                print(
-                    f"Iteration {step}: Max Var Change {max_change:.2e}, Coupled Residual {res:.2e}"
-                )
-                df, fqfn = save_data_async(
-                    mp,
-                    c,
-                    k,
-                    species_list_full,
-                    z,
-                    D_mol,
-                    diagenetic_reactions,
-                    dt_large,
-                )
-
-    # 3. FINALIZE
-    if step >= mp.max_steps:
-        converged = "No"
-        print(
-            f"Warning: Coupled solver did not converge. Last change: {max_change:.2e}"
-        )
-    else:
-        converged = "Yes"
-        print(f"Coupled steady state converged in {step} iterations.")
-
-    end_wall = time.time()
-    total_time = end_wall - start_wall
-    print(f"Coupled Solver Wall Time: {total_time:.2f} seconds")
-
-    return converged, step, total_time
-
-
-def run_non_steady_state_solver_coupled_bdf(
-    mp,
-    c,
-    species_list_full,
-    species_list_partial,
-    k,
-    diagenetic_reactions,
-    mesh,
-    D_mol,
-    bc_map,
-    z,
-):
-    """
-    Solve the non-steady state coupled system using Scipy's BDF solver.
-
-    This treats the system as a large ODE system: dC/dt = F(C, t).
-    F(C) includes diffusion, advection, and reactions.
-    """
-    from scipy.integrate import solve_ivp
-    from fipy import CellVariable
-    from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
-    from fipy.terms.diffusionTerm import DiffusionTerm
-    from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
-    from functools import reduce
-    from reactions_new import equilibrium_reactions
-    import numpy as np
-
-    print("Starting BDF Solver (scipy.integrate.solve_ivp)...")
-
-    # 1. SETUP EQUATIONS (Spatial Terms Only)
-    # ---------------------------------------
-    # We construct the spatial part of the operator: F(C) = Diffusion - Advection + Reaction
-    # Note: Fipy's equation notation usually implies LHS == RHS.
-    # To get dC/dt = F(C), we construct 'eq' such that F(C) is the residual of 'eq'.
-    # Standard: TransientTerm == Diff + React - Conv
-    # Rearranged: dC/dt = Diff + React - Conv
-    # So we sum these terms.
-
-    lhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list_partial}
-    rhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list_partial}
-    cross_vars = {s: {} for s in species_list_partial}
-
-    # Analyze Topology once to setup cross-term variables
-    f_init, RATES = diagenetic_reactions(mp, c, k, f=data_container())
-    for s in species_list_partial:
-        res = getattr(f_init, s)
-        if len(res) > 3:
-            for source_name, _ in res[3]:
-                if source_name not in cross_vars[s]:
-                    cross_vars[s][source_name] = CellVariable(mesh=mesh, value=0.0)
-
-    # Optimization: Cache objects
-    species_struct = []
-    spatial_eqs = []
-
-    for species_name in species_list_partial:
-        var = getattr(c, species_name)
-        props = bc_map[species_name]
-
-        # Cache
-        species_struct.append(
-            {
-                "name": species_name,
-                "var": var,
-                "lhs": lhs_vars[species_name],
-                "rhs": rhs_vars[species_name],
-                "cross": cross_vars[species_name],
-            }
-        )
-
-        # -- Transport --
-        D_total = np.maximum(getattr(D_mol, species_name) + D_mol.D_bio, 1e-20)
-        vel = mp.w - mp.advection if props["type"] == "dissolved" else mp.w
-
-        # u_var = CellVariable(mesh=mesh, value=([vel],), rank=1)
-        u_var = CellVariable(mesh=mesh, value=vel, rank=1)
-        conv_term = PowerLawConvectionTerm(coeff=u_var, var=var)
-        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total), var=var)
-
-        # -- Reactions --
-        # Implicit Source Term (LHS diagonal)
-        lhs_term = ImplicitSourceTerm(coeff=lhs_vars[species_name], var=var)
-        rhs_term = rhs_vars[species_name]
-
-        # Cross Terms
-        cross_terms = 0.0
-        for src_name, cv in cross_vars[species_name].items():
-            src_var = getattr(c, src_name)
-            cross_terms += ImplicitSourceTerm(coeff=cv, var=src_var)
-
-        # -- Irrigation --
-        irr_term = 0.0
-        if props["type"] == "dissolved":
-            irr_term = ImplicitSourceTerm(
-                coeff=CellVariable(mesh=mesh, value=-D_mol.D_irr), var=var
-            ) + CellVariable(mesh=mesh, value=D_mol.D_irr * props["top"])
-
-        # Assembly: dC/dt = Diff + Sources - Conv
-        # We sum them up. Fipy `residual` evaluates (LHS - RHS) usually.
-        # But here we are just adding terms to an expression object.
-        # Warning: PowerLawConvectionTerm is typically LHS.
-        # Term signs in Fipy:
-        # Eq: Transient == Diffusion + Source - Convection
-        # If we treat them as expressions:
-        # RHS_Expression = diff_term + lhs_term + rhs_term + cross_terms + irr_term - conv_term
-        # Note: 'lhs_term' here is actually a Source (Reaction Rate coefficient).
-        # Typically Rate = k * C. ImplicitSourceTerm(coeff=k, var=C) evaluates to k*C.
-
-        eq_expr = diff_term + lhs_term + rhs_term + cross_terms + irr_term - conv_term
-        spatial_eqs.append(eq_expr)
-
-    # Combine into one coupled system
-    coupled_eq_spatial = reduce(lambda a, b: a & b, spatial_eqs)
-
-    # 2. DEFINE ODE FUNCTION
-    # ----------------------
-    c_vars = [s["var"] for s in species_struct]
-
-    last_y = [None]
-
-    def update_state(y):
-        """Update Fipy variables and reaction coefficients from solver state y."""
-        # Simple cache: check if y has changed significantly
-        if last_y[0] is not None and np.allclose(y, last_y[0], atol=1e-15, rtol=1e-15):
-            return
-        last_y[0] = y.copy()
-
-        # 1. Update Fipy Variables
-        offset = 0
-        for v in c_vars:
-            n = v.mesh.numberOfCells
-            v.value[:] = y[offset : offset + n]
-            offset += n
-
-        # 2. Update Reaction Coefficients
-        f_res, _ = diagenetic_reactions(mp, c, k, f=data_container())
-
-        # Update Matrix Coefficients (LHS/RHS of the reaction terms)
-        for s_obj in species_struct:
-            name = s_obj["name"]
-            res_tuple = getattr(f_res, name)
-
-            # Update Diagonal
-            lhs_val = res_tuple[0]
-            if hasattr(lhs_val, "value"):
-                lhs_val = lhs_val.value
-            s_obj["lhs"].setValue(lhs_val)  # coeff
-
-            rhs_val = res_tuple[1]
-            if hasattr(rhs_val, "value"):
-                rhs_val = rhs_val.value
-            s_obj["rhs"].setValue(rhs_val)  # rhs
-
-            # Update Cross-Terms
-            if len(res_tuple) > 3:
-                # Reset accumulators
-                batch_coeffs = {src: 0.0 for src in s_obj["cross"]}
-                for source_name, coeff in res_tuple[3]:
-                    if source_name in batch_coeffs:
-                        val = getattr(coeff, "value", coeff)
-                        batch_coeffs[source_name] += val
-
-                for src, val in batch_coeffs.items():
-                    s_obj["cross"][src].setValue(val)
-
-    from diff_lib import get_time_units
-
-    last_reported_t = [0.0]
-
-    def f(t, y):
-        update_state(y)
-        # 3. Calculate Residual
-        rhs = coupled_eq_spatial.justResidualVector()
-        return rhs
-
-    def jac(t, y):
-        update_state(y)
-
-        # Build the matrix using internal API
-        # _prepareLinearSystem returns a Solver object that contains the matrix
-        solver = coupled_eq_spatial._prepareLinearSystem(
-            var=None, solver=None, boundaryConditions=(), dt=None
-        )
-        m_fipy = solver.matrix
-
-        # Scipy's BDF solver requires a numpy-compatible matrix (dense or scipy.sparse)
-        # FiPy's .numpyArray property provides this regardless of the backend (Scipy/PETSc)
-        if hasattr(m_fipy, "numpyArray"):
-            return m_fipy.numpyArray
-        return m_fipy
-
-    # 3. SOLVE
-    # --------
-    from scipy.integrate import BDF
-
-    # Initial Condition
-    y0 = np.concatenate([v.value.ravel() for v in c_vars])
-
-    solver = BDF(
-        f,
-        0,
-        y0,
-        mp.t_end,
-        jac=jac,
-        rtol=mp.tolerance,
-        atol=1e-12,
-        first_step=mp.dt_min,
-        max_step=mp.dt_max,
-    )
-
-    print(f"  Starting manual stepping loop...")
-
-    last_reported_t = 0.0
-    step_count = 0
-
-    while solver.status == "running":
-        solver.step()
-        step_count += 1
-        t = solver.t
-        dt = solver.step_size
-
-        # throttle reporting to once every ~1% of simulation time or every 5 seconds wall time
-        if t - last_reported_t > mp.t_end * 0.01 or t >= mp.t_end:
-            print(
-                f"Progress {t / mp.t_end * 100:6.2f}%, "
-                f"t = {get_time_units(t):.2f~P}, "
-                f"dt_solver = {get_time_units(dt):.2f~P}"
-            )
-            update_state(solver.y)  # Ensure variables are synced for saving
-            save_data_async(
+            # -------------------------------------------------------------- #
+            # Reporting / data output
+            # -------------------------------------------------------------- #
+            report_progress(
+                step,
                 mp,
+                total_time,
+                current_dt,
+                max_change,
                 c,
                 k,
                 species_list_full,
                 z,
                 D_mol,
                 diagenetic_reactions,
-                dt,
-            )
-            last_reported_t = t
-
-    # 4. UPDATE FINAL STATE
-    # ---------------------
-    final_y = solver.y
-    offset = 0
-    for v in c_vars:
-        n = v.mesh.numberOfCells
-        v.value[:] = final_y[offset : offset + n]
-        offset += n
-
-    # Report
-    print(f"BDF Solver finished: solver.status={solver.status}.")
-    print(f"  Total function evaluations (nfev): {solver.nfev}")
-    print(f"  Total Jacobian evaluations (njev): {solver.njev}")
-    print(f"  Total LU decompositions (nlu): {solver.nlu}")
-
-    return solver.nfev, 0.0
-
-
-def run_non_steady_state_solver_coupled_new(
-    mp,
-    c,
-    species_list_full,
-    species_list_partial,
-    k,
-    diagenetic_reactions,
-    mesh,
-    D_mol,
-    bc_map,
-    z,
-):
-    import time, traceback, numpy as np
-    from fipy import CellVariable
-    from fipy.terms import (
-        PowerLawConvectionTerm,
-        DiffusionTerm,
-        ImplicitSourceTerm,
-        TransientTerm,
-    )
-    from functools import reduce
-
-    # ---- Solver selection (unchanged) ----
-    if mp.solver_backend == "LinearGMRESSolver":
-        from fipy.solvers.petsc import LinearGMRESSolver as PETScLUSolver
-
-        solver = PETScLUSolver(precon="hypre", tolerance=mp.tolerance)
-    elif mp.solver_backend == "LinearLUSolver":
-        from fipy import LinearLUSolver
-
-        solver = LinearLUSolver(tolerance=mp.tolerance)
-    elif mp.solver_backend == "PETScNewtonSolver":
-        from fipy.solvers.petsc import PETScNewtonSolver
-
-        solver = PETScNewtonSolver(
-            precon="hypre", tolerance=mp.tolerance, max_it=30, damping=0.5
-        )
-    else:
-        from fipy import DefaultSolver
-
-        solver = DefaultSolver(tolerance=mp.tolerance)
-
-    # ---- Adaptive‑time‑step parameters (unchanged) ----
-    current_dt = getattr(mp, "dt_min", 1e-5 * 365 * 24 * 3600)  # start tiny
-    dt_max = mp.dt_max
-    growth_factor, cut_factor = 1.2, 0.5
-
-    # ------------------------------------------------------------
-    # 4️⃣  Pre‑build the FiPy variables (only once)
-    # ------------------------------------------------------------
-    lhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list_partial}
-    rhs_vars = {s: CellVariable(mesh=mesh, value=0.0) for s in species_list_partial}
-    cross_vars = {s: {} for s in species_list_partial}
-
-    # Populate cross_vars with *CellVariables* that have the correct mesh
-    # (the original code only created the dict entry; we now create the variable)
-    dummy_f = diagenetic_reactions(mp, c, k, f=data_container())[0]  # topology only
-    for s in species_list_partial:
-        res = getattr(dummy_f, s)
-        if len(res) > 3:
-            for src_name, _ in res[3]:
-                if src_name not in cross_vars[s]:
-                    cross_vars[s][src_name] = CellVariable(mesh=mesh, value=0.0)
-
-    # ------------------------------------------------------------
-    # 5️⃣  Build the coupled equation **once**
-    # ------------------------------------------------------------
-    eqs = []
-    species_struct = []  # cache for the time loop
-
-    for species_name in species_list_partial:
-        var = getattr(c, species_name)
-        props = bc_map[species_name]
-
-        # cache
-        species_struct.append(
-            {
-                "name": species_name,
-                "var": var,
-                "lhs": lhs_vars[species_name],
-                "rhs": rhs_vars[species_name],
-                "cross": cross_vars[species_name],
-            }
-        )
-
-        # transport terms
-        D_total = np.maximum(getattr(D_mol, species_name) + D_mol.D_bio, 1e-20)
-        vel = mp.w - mp.advection if props["type"] == "dissolved" else mp.w
-        u_var = CellVariable(mesh=mesh, value=vel, rank=1)
-
-        conv_term = PowerLawConvectionTerm(coeff=u_var, var=var)
-        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total), var=var)
-
-        # reaction terms
-        lhs_term = ImplicitSourceTerm(coeff=lhs_vars[species_name], var=var)
-        rhs_term = rhs_vars[species_name]
-
-        # cross‑coupling – **the crucial fix**: the coefficient lives on the *same*
-        # mesh as the *equation* variable, not on the source variable.
-        cross_terms = 0.0
-        for src_name, cv in cross_vars[species_name].items():
-            # cv is a CellVariable (mesh‑aligned); the variable we act on is *var*
-            cross_terms += ImplicitSourceTerm(coeff=cv, var=var)
-
-        # irrigation term (unchanged)
-        irr_term = 0.0
-        if props["type"] == "dissolved":
-            irr_term = ImplicitSourceTerm(
-                coeff=CellVariable(mesh=mesh, value=-D_mol.D_irr), var=var
-            ) + CellVariable(mesh=mesh, value=D_mol.D_irr * props["top"])
-
-        eq = (
-            TransientTerm(var=var) + conv_term
-            == diff_term + lhs_term + rhs_term + cross_terms + irr_term
-        )
-        eqs.append(eq)
-
-    coupled_eq = reduce(lambda a, b: a & b, eqs)
-
-    # ------------------------------------------------------------
-    # 6️⃣  Time‑stepping loop (only minor changes)
-    # ------------------------------------------------------------
-    step, total_time = 0, 0.0
-    last_max_change = np.inf
-    status = "max steps or time reached"
-    start_wall = time.time()
-
-    while total_time < mp.t_end and step < mp.max_steps:
-        step += 1
-
-        # 6a – old values for transient term
-        for s in species_struct:
-            s["var"].updateOld()
-
-        # keep a copy in case we have to roll back
-        backup = {s["name"]: s["var"].value.copy() for s in species_struct}
-
-        # ----------------------------------------------------------------
-        # 6b – try a step, shrink dt on failure
-        # ----------------------------------------------------------------
-        step_ok = False
-        while not step_ok:
-            try:
-                # ---- reaction rates -------------------------------------------------
-                # (the fast precipitation is now fully implicit, so we do **not**
-                # add any explicit source term here)
-                f_res, RATES = diagenetic_reactions(mp, c, k, f=data_container())
-
-                # ---- update the matrix coefficients ---------------------------------
-                for s in species_struct:
-                    name = s["name"]
-                    tup = getattr(f_res, name)
-
-                    # diagonal (LHS) and RHS
-                    s["lhs"].setValue(getattr(tup[0], "value", tup[0]))
-                    s["rhs"].setValue(getattr(tup[1], "value", tup[1]))
-
-                    # cross‑terms (if any)
-                    if len(tup) > 3:
-                        # accumulate into the *already existing* CellVariable
-                        for src_name, coeff in tup[3]:
-                            if src_name in s["cross"]:
-                                s["cross"][src_name].setValue(
-                                    getattr(coeff, "value", coeff)
-                                    + s["cross"][src_name].value
-                                )
-
-                # ---- solve the linear system ----------------------------------------
-                coupled_eq.sweep(dt=current_dt, solver=solver)
-
-                step_ok = True  # success → leave inner while
-
-            except Exception as exc:  # any PETSc / FiPy failure
-                print(f"  Step failed at dt={current_dt:.2e}: {exc}. Halving dt.")
-                current_dt *= cut_factor
-                if current_dt < mp.dt_min:
-                    raise RuntimeError("dt collapsed – model is too stiff.") from exc
-                # restore the solution from the backup
-                for s in species_struct:
-                    s["var"].value[:] = backup[s["name"]]
-
-        # ----------------------------------------------------------------
-        # 6c – post‑step diagnostics & adaptive dt
-        # ----------------------------------------------------------------
-        max_change = max(
-            np.max(np.abs(s["var"].value - backup[s["name"]])) for s in species_struct
-        )
-        total_time += current_dt
-
-        # adapt dt
-        if max_change < last_max_change:
-            current_dt = min(current_dt * growth_factor, dt_max)
-        else:
-            current_dt = max(current_dt * cut_factor, mp.dt_min)
-        last_max_change = max_change
-
-        # reporting
-        if step % mp.report_step == 0:
-            print(
-                f"Time: {get_time_units(total_time):.2f~P}, "
-                f"dt: {get_time_units(current_dt):.2f~P}, "
-                f"max Δ: {max_change:.2e}"
-            )
-            save_data_async(
-                mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, current_dt
             )
 
-        # steady‑state check
-        if max_change < mp.dt_tolerance:
-            status = "Converged"
-            break
+            # -------------------------------------------------------------- #
+            # Steady‑state check
+            # -------------------------------------------------------------- #
+            if max_change < mp.dt_tolerance:
+                print(f"Steady State criteria met (max_change = {max_change:.2e})")
+                status = "Converged" if step < mp.max_steps else "Failed"
+                break
 
-    # ----------------------------------------------------------------
-    # 7️⃣  Final tidy‑up
-    # ----------------------------------------------------------------
-    print(f"{status} in {step} steps. Wall time: {time.time() - start_wall:.2f}s")
-    df, fqfn = save_data_async(
-        mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, current_dt
-    )
+    except KeyboardInterrupt:
+        status = "Interrupted"
+    finally:
+        # ----------------------------------------------------------------- #
+        # Final data write and wall‑time report
+        # ----------------------------------------------------------------- #
+        save_data_async(
+            mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, current_dt
+        )
+        wall = time.time() - start_wall
+        print(f"{status} in {step} steps. Wall time: {wall:.2f}s")
+
     return step, max_change

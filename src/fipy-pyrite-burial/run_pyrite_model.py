@@ -46,7 +46,7 @@ p_dict = {
     "bc_fe3": weight_percent_to_mol(1, 56, 2.6),
     "DB_depth": 0,
     "DB0": 4e-12 * 0,
-    "max_steps": 100000,  # max number of iterations
+    "max_steps": 100,  # max number of iterations
     "tolerance": 1e-12,  # convergence criterion
     "dt_tolerance": 1e-16,  # convergence criterion for time stepping
     "state_data": state_in,  # read state data
@@ -71,7 +71,7 @@ p_dict["diagenetic_reactions"] = [
     hs_oxidation,
     elemental_sulfur_oxidation,
     sulfide_mediated_iron_reduction,
-    fes_formation_fully_implicit_2,
+    # fes_formation_fully_implicit_2,
     fe2_oxidation,
     fes_oxidation,
 ]
