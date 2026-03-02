@@ -38,7 +38,7 @@ print("Starting run_pyrite_model.py...", flush=True)
 experiment = "msr_h2s_ox_fe3_sorb_fe2_ox_fes"
 # state_in = "statenpz.npz"
 state_in = "statenpz.npz"
-state_out = "statenpz.npz"
+state_out = "statenpz2.npz"
 # state_out = None
 
 p_dict = {
@@ -49,7 +49,7 @@ p_dict = {
     "max_steps": 100,  # max number of iterations
     "tolerance": 1e-12,  # convergence criterion
     "dt_tolerance": 1e-6,  # steady state threshold (stop simulation)
-    "dt_target_change": 100.0,  # target change per step (for dt adaptation)
+    "dt_target_change": 10.0,  # target change per step (for dt adaptation)
     "state_data": state_in,  # read state data
     # "plot_name": f"{experiment}.csv",
     "dt_init": Q_("1 year").to("seconds").magnitude,  # initial dt
@@ -73,7 +73,7 @@ p_dict["diagenetic_reactions"] = [
     rn.hs_oxidation,
     rn.elemental_sulfur_oxidation,
     rn.sulfide_mediated_iron_reduction,
-    # rn.fes_formation_fully_implicit_2,
+    rn.fes_formation_fully_implicit_2,
     rn.fe2_oxidation,
     rn.fes_oxidation,
 ]

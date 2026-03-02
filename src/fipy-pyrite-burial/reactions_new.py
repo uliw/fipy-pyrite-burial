@@ -6,12 +6,7 @@ import numpy as np
 from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
 from fipy.terms import explicitSourceTerm
 from fipy.variables.cellVariable import CellVariable
-
-from typing import Mapping
-
-# ------------------------------------------------------------
-# Short aliases – they make the signatures easier to read
-# ------------------------------------------------------------
+from fipy.terms.term import Term
 
 
 def equilibrium_reactions(mp, c, k, f, RATES, dt):
@@ -122,9 +117,108 @@ def diagenetic_reactions(mp, c, k, f):
 # =============================================================================
 # HELPER FUNCTIONS (Matrix Math Abstraction)
 # =============================================================================
+def add_implicit_sink(
+    LHS: dict[str, ImplicitSourceTerm | float],
+    RATES: dict[str, float],
+    species: str,
+    coeff: Term | float | np.ndarray | CellVariable,
+    rate: float | np.ndarray | CellVariable,
+    c: dict[str, CellVariable],
+) -> None:
+    """
+    Add a linear sink ``‑coeff·var`` to the matrix entry for *species*.
+
+    The function is tolerant to the current content of ``LHS[species]``:
+    * if it is already an ``ImplicitSourceTerm`` we simply add the new
+      coefficient to its ``coeff`` attribute,
+    * otherwise a new ``ImplicitSourceTerm`` is created.
+    """
+    # ------------------------------------------------------------------
+    # Turn *coeff* into a FiPy ``Term`` if it is not already one
+    # ------------------------------------------------------------------
+    if not isinstance(coeff, Term):
+        # ``coeff`` may be a scalar, a NumPy array or a CellVariable
+        val = getattr(coeff, "value", coeff)
+        if hasattr(val, "shape") and val.shape != ():
+            # spatially varying coefficient → a CellVariable on the same mesh
+            coeff_val = CellVariable(mesh=c[species].mesh, value=val)
+        else:
+            coeff_val = float(val)  # a pure number
+        coeff = ImplicitSourceTerm(coeff=-coeff_val, var=c[species])
+
+    # ------------------------------------------------------------------
+    # Merge with an existing entry (if any)
+    # ------------------------------------------------------------------
+    if species in LHS and isinstance(LHS[species], ImplicitSourceTerm):
+        LHS[species].coeff += coeff.coeff
+    else:
+        LHS[species] = coeff
+
+    # ------------------------------------------------------------------
+    # Book‑keeping – used only for diagnostics
+    # ------------------------------------------------------------------
+    # RATES[species] = RATES.get(species, 0.0) - getattr(rate, "value", rate)
+    RATES[species] += getattr(rate, "value", rate)
 
 
-def add_implicit_sink(LHS, RATES, species, coeff, rate, c):
+def add_implicit_coupling(
+    CROSS: dict[str, list[tuple[str, float | np.ndarray | CellVariable]]],
+    RATES: dict[str, float],
+    target_species: str,
+    source_species: str,
+    coeff: float | np.ndarray | CellVariable,
+    rate: float | np.ndarray | CellVariable,
+    c: dict[str, CellVariable],
+) -> None:
+    """
+    Add a linear source ``+coeff·source`` to *target_species*.
+
+    ``CROSS`` is guaranteed to hold a list; if a non‑list value is already
+    present we promote it to a list that contains the old value and the new
+    coupling tuple.
+    """
+    if target_species in CROSS:
+        existing = CROSS[target_species]
+        # Existing entry is a list → just append
+        if isinstance(existing, list):
+            existing.append((source_species, coeff))
+        else:
+            # Something else (e.g. a FiPy expression) was stored before.
+            # Preserve it by turning it into a one‑item list.
+            CROSS[target_species] = [(source_species, coeff)]
+    else:
+        # First entry for this species
+        CROSS[target_species] = [(source_species, coeff)]
+
+    # Simple diagnostic sum
+    RATES[target_species] += getattr(rate, "value", rate)
+    # RATES[target_species] = RATES.get(target_species, 0.0) + float(getattr(rate, "value", rate))
+
+
+def add_implicit_coupling_old(
+    CROSS: dict[str, list[tuple[str, float]]],
+    RATES: dict[str, float],
+    target_species: str,
+    source_species: str,
+    coeff: float | np.ndarray | CellVariable,
+    rate: float | np.ndarray | CellVariable,
+    c: dict[str, CellVariable],
+) -> None:
+    """
+    Add a linear source ``+coeff·source`` to *target_species*.
+
+    The coupling information is stored in ``CROSS`` (later used to build
+    the full matrix) and a diagnostic entry is added to ``RATES``.
+    """
+    CROSS[target_species] = CROSS[target_species] + coeff
+    CROSS.setdefault(target_species, []).append((source_species, coeff))
+    RATES[target_species] += getattr(rate, "value", rate)
+    # RATES[target_species] = RATES.get(target_species, 0.0) + float(
+    #     getattr(rate, "value", rate)
+    # )
+
+
+def add_implicit_sink_older(LHS, RATES, species, coeff, rate, c):
     """Add a consumption term to the LHS matrix.
 
     Add a consumption term to the LHS matrix.
@@ -154,7 +248,9 @@ def add_explicit_source(RHS, RATES, species, rate):
     RATES[species] += getattr(rate, "value", rate)
 
 
-def add_implicit_coupling(CROSS, RATES, target_species, source_species, coeff, rate, c):
+def add_implicit_coupling_old(
+    CROSS, RATES, target_species, source_species, coeff, rate, c
+):
     """
     Add a coupled source term.
 
@@ -1430,16 +1526,16 @@ def equilibrate_fes_precipitation_old(c, k, mp):
 
 
 def fes_formation_gpt(
-    c: Mapping[str, CellVariable],  # concentration dictionary (fe2_total, ts2, fes, …)
-    k: Mapping[str, float],  # kinetic constants (fes_isp, fes_isd, fes_sp, hplus, …)
-    lim: Mapping[str, float],  # limiting‑factor scalars (e.g. "fes_explicit")
+    c: dict[str, CellVariable],  # concentration dictionary (fe2_total, ts2, fes, …)
+    k: dict[str, float],  # kinetic constants (fes_isp, fes_isd, fes_sp, hplus, …)
+    lim: dict[str, float],  # limiting‑factor scalars (e.g. "fes_explicit")
     LHS: dict[str, ImplicitSourceTerm],
     RHS: dict[
         str, explicitSourceTerm
     ],  # you already have a similar dict for explicit terms
     RATES: dict[str, float],
     CROSS: dict[str, list[tuple[str, float | np.ndarray]]],
-    mp: Mapping[str, float],  # model parameters (fac_s, f_diss, dt_max, …)
+    mp: dict[str, float],  # model parameters (fac_s, f_diss, dt_max, …)
 ) -> None:
     """
     Assemble the FiPy terms for the Fe‑S precipitation / dissolution system.
@@ -1613,14 +1709,14 @@ def fes_formation_gpt(
 
 
 def fes_formation_implicit(
-    c: Mapping[str, CellVariable],  # concentration dictionary (fe2_total, ts2, fes, …)
-    k: Mapping[str, float],  # kinetic constants (fes_isp, fes_isd, fes_sp, hplus, …)
-    lim: Mapping[str, float],  # limiting‑factor scalars (e.g. "fes_explicit")
+    c: dict[str, CellVariable],  # concentration dictionary (fe2_total, ts2, fes, …)
+    k: dict[str, float],  # kinetic constants (fes_isp, fes_isd, fes_sp, hplus, …)
+    lim: dict[str, float],  # limiting‑factor scalars (e.g. "fes_explicit")
     LHS: dict[str, ImplicitSourceTerm],  # matrix‐side terms (sink / coupling)
     RHS: dict[str, explicitSourceTerm],  # explicit source terms
     RATES: dict[str, float],  # diagnostics (accumulated raw rates)
     CROSS: dict[str, list[tuple[str, float | np.ndarray]]],  # bookkeeping for couplings
-    mp: Mapping[str, float],  # model parameters (fac_s, f_diss, dt_max, …)
+    mp: dict[str, float],  # model parameters (fac_s, f_diss, dt_max, …)
 ) -> None:
     """
     Build the FiPy terms for the Fe‑S system using a **fully implicit** precipitation
@@ -1773,14 +1869,14 @@ def fes_formation_implicit(
 
 
 def fes_formation_fully_implicit(
-    c: Mapping[str, CellVariable],
-    k: Mapping[str, float],
-    lim: Mapping[str, float],
+    c: dict[str, CellVariable],
+    k: dict[str, float],
+    lim: dict[str, float],
     LHS: dict[str, ImplicitSourceTerm],
     RHS: dict[str, explicitSourceTerm],
     RATES: dict[str, float],
     CROSS: dict[str, list[tuple[str, float]]],
-    mp: Mapping[str, float],
+    mp: dict[str, float],
 ) -> None:
     """
     Fast FeS precipitation is treated *entirely* implicitly.
@@ -1884,14 +1980,14 @@ def fes_formation_fully_implicit(
 
 
 def fes_formation_fully_implicit_2(
-    c: Mapping[str, CellVariable],
-    k: Mapping[str, float],
-    lim: Mapping[str, float],
+    c: dict[str, CellVariable],
+    k: dict[str, float],
+    lim: dict[str, float],
     LHS: dict[str, ImplicitSourceTerm],
     RHS: dict[str, explicitSourceTerm],
     RATES: dict[str, float],
     CROSS: dict[str, list[tuple[str, float]]],
-    mp: Mapping[str, float],
+    mp: dict[str, float],
 ) -> None:
     """
     Assemble the FiPy matrices for the Fe‑S system with **all fast
@@ -1987,9 +2083,9 @@ def fes_formation_fully_implicit_2(
     # -----------------------------------------------------------------
     # ``RATES`` is only for diagnostics – we store the *cell‑averaged* value.
     avg_rate = float(rate_precip.mean())
-    RATES["fe2_total"] = RATES.get("fe2_total", 0.0) + avg_rate
-    RATES["ts2"] = RATES.get("ts2", 0.0) + avg_rate
-    RATES["fes"] = RATES.get("fes", 0.0) + avg_rate
+    RATES["fe2_total"] += avg_rate
+    RATES["ts2"] += avg_rate
+    RATES["fes"] += avg_rate
 
     # -----------------------------------------------------------------
     # 4️⃣  Slow dissolution (still linear, therefore we keep the helpers)
@@ -2070,6 +2166,176 @@ def fes_formation_fully_implicit_2(
         # 5c – dissolution sink on the solid (same coeff as for the main solid)
         add_implicit_sink(
             LHS, RATES, "fes_32", coeff_fes_sink, coeff_fes_sink * fes_32.value, c=c
+        )
+
+        # 5d – dissolution source on H₂S_32 (coupled to solid)
+        add_implicit_coupling(
+            CROSS,
+            RATES,
+            target_species="ts2_32",
+            source_species="fes_32",
+            coeff=fes_diss_coeff,
+            rate=fes_diss_coeff * fes_32.value,
+            c=c,
+        )
+
+
+def fes_formation_fully_implicit_3(
+    c: dict[str, CellVariable],
+    k: dict[str, float],
+    lim: dict[str, float],
+    LHS: dict[str, ImplicitSourceTerm],
+    RHS: dict[str, explicitSourceTerm],
+    RATES: dict[str, float],
+    CROSS: dict[str, list[tuple[str, float]]],
+    mp: dict[str, float],
+) -> None:
+    """
+    Assemble the FiPy matrices for the Fe‑S system with **all fast
+    precipitation terms treated implicitly**.
+
+    Parameters
+    ----------
+    c, k, lim, mp
+        Dictionaries that hold the FiPy variables, kinetic constants,
+        user‑defined limiting factors and model parameters.
+    LHS, RHS, RATES, CROSS
+        Containers that collect the implicit/explicit source terms,
+        diagnostic rate totals and the coupling information required
+        later when the global FiPy equation is built.
+    """
+    # ------------------------------------------------------------------
+    # 0️⃣  Short‑hand aliases for readability
+    # ------------------------------------------------------------------
+    fe2: CellVariable = c["fe2_total"]
+    hs: CellVariable = c["ts2"]
+    fes: CellVariable = c["fes"]
+
+    # ------------------------------------------------------------------
+    # 1️⃣  Non‑linear precipitation rate (fully implicit)
+    # ------------------------------------------------------------------
+    omega_den = k["hplus"] * k["fes_sp"] + 1e-30
+    omega = (fe2 * mp["f_diss"] * hs) / omega_den  # Ω = (Fe²⁺·f_diss·H₂S)/(H⁺·Ksp)
+    rate_precip = k["fes_isp"] * (omega - 1.0)  # R = k_isp·(Ω‑1)
+
+    # ------------------------------------------------------------------
+    # 2️⃣  Implicit source terms for the three species
+    # ------------------------------------------------------------------
+    # Fe²⁺  :  -R·f_diss
+    term_fe2 = ImplicitSourceTerm(var=fe2, coeff=-rate_precip * mp["f_diss"])
+    if "fe2_total" in LHS:
+        LHS["fe2_total"].coeff += term_fe2.coeff
+    else:
+        LHS["fe2_total"] = term_fe2
+
+    # H₂S  :  -R
+    term_hs = ImplicitSourceTerm(var=hs, coeff=-rate_precip)
+    if "ts2" in LHS:
+        LHS["ts2"].coeff += term_hs.coeff
+    else:
+        LHS["ts2"] = term_hs
+
+    # FeS (solid) :  +R·fac_s
+    term_fes = ImplicitSourceTerm(var=fes, coeff=rate_precip * mp["fac_s"])
+    if "fes" in LHS:
+        LHS["fes"].coeff += term_fes.coeff
+    else:
+        LHS["fes"] = term_fes
+
+    # ------------------------------------------------------------------
+    # 3️⃣  Book‑keeping of the precipitation rate (diagnostics only)
+    # ------------------------------------------------------------------
+    avg_rate = float(rate_precip.mean())
+    for sp in ("fe2_total", "ts2", "fes"):
+        RATES[sp] = RATES.get(sp, 0.0) + avg_rate
+
+    # ------------------------------------------------------------------
+    # 4️⃣  Slow dissolution – still linear, keep the original helpers
+    # ------------------------------------------------------------------
+    # Ω_diss = min(Ω, 1)  →  (1‑Ω_diss) drives dissolution
+    omega_diss = np.minimum(omega, 1.0)
+    # mask = 1 where dissolution is active, 0 where precipitation dominates
+    diss_mask = 1.0 - np.where(omega > 1.0, 1.0, 0.0)
+
+    fes_diss_coeff = (
+        k["fes_isd"] * (1.0 - omega_diss) * diss_mask * lim["fes_explicit"]
+    )  # linear coefficient (scalar or array)
+
+    # Fe²⁺ source from dissolution
+    add_implicit_coupling(
+        CROSS,
+        RATES,
+        target_species="fe2_total",
+        source_species="fes",
+        coeff=fes_diss_coeff,
+        rate=fes_diss_coeff * fes.value,
+        c=c,
+    )
+    # H₂S source from dissolution
+    add_implicit_coupling(
+        CROSS,
+        RATES,
+        target_species="ts2",
+        source_species="fes",
+        coeff=fes_diss_coeff,
+        rate=fes_diss_coeff * fes.value,
+        c=c,
+    )
+    # FeS sink from dissolution (multiply by solid‑phase factor)
+    coeff_fes_sink = fes_diss_coeff * mp["fac_s"]
+    add_implicit_sink(
+        LHS,
+        RATES,
+        species="fes",
+        coeff=coeff_fes_sink,
+        rate=coeff_fes_sink * fes.value,
+        c=c,
+    )
+
+    # ------------------------------------------------------------------
+    # 5️⃣  Optional isotope bookkeeping (unchanged – still uses helpers)
+    # ------------------------------------------------------------------
+    if "ts2_32" in c:
+        ts2_32: CellVariable = c["ts2_32"]
+        fes_32: CellVariable = c["fes_32"]
+
+        # 5a – precipitation (non‑linear part) for 32S
+        ts2_inv = 1.0 / (hs.value + 1e-20)
+        coeff_ts2_32_precip = (
+            k["fes_isp"]
+            * (fe2 * mp["f_diss"] / omega_den - ts2_inv)
+            * np.where(omega > 1.0, 1.0, 0.0)
+        )
+        coeff_ts2_32_precip = np.maximum(coeff_ts2_32_precip, 0.0)
+
+        add_implicit_sink(
+            LHS,
+            RATES,
+            species="ts2_32",
+            coeff=coeff_ts2_32_precip,
+            rate=coeff_ts2_32_precip * ts2_32.value,
+            c=c,
+        )
+
+        # 5b – coupling of 32S to the solid
+        add_implicit_coupling(
+            CROSS,
+            RATES,
+            target_species="fes_32",
+            source_species="ts2_32",
+            coeff=coeff_ts2_32_precip * mp["fac_s"],
+            rate=coeff_ts2_32_precip * ts2_32.value * mp["fac_s"],
+            c=c,
+        )
+
+        # 5c – dissolution sink on the solid (same coeff as main solid)
+        add_implicit_sink(
+            LHS,
+            RATES,
+            species="fes_32",
+            coeff=coeff_fes_sink,
+            rate=coeff_fes_sink * fes_32.value,
+            c=c,
         )
 
         # 5d – dissolution source on H₂S_32 (coupled to solid)
