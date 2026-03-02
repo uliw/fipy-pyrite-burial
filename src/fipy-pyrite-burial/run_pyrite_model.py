@@ -28,7 +28,7 @@ from diff_lib import (
 )
 
 from pyrite_base_model import pyrite_model
-from reactions_new import *
+import reactions_new as rn
 
 ureg = pint.UnitRegistry()
 Q_ = ureg.Quantity
@@ -37,7 +37,7 @@ print("Starting run_pyrite_model.py...", flush=True)
 
 experiment = "msr_h2s_ox_fe3_sorb_fe2_ox_fes"
 # state_in = "statenpz.npz"
-state_in = None
+state_in = "statenpz.npz"
 state_out = "statenpz.npz"
 # state_out = None
 
@@ -48,11 +48,13 @@ p_dict = {
     "DB0": 4e-12 * 0,
     "max_steps": 100,  # max number of iterations
     "tolerance": 1e-12,  # convergence criterion
-    "dt_tolerance": 1e-16,  # convergence criterion for time stepping
+    "dt_tolerance": 1e-6,  # steady state threshold (stop simulation)
+    "dt_target_change": 100.0,  # target change per step (for dt adaptation)
     "state_data": state_in,  # read state data
     # "plot_name": f"{experiment}.csv",
+    "dt_init": Q_("1 year").to("seconds").magnitude,  # initial dt
     "dt_max": Q_("100 year").to("seconds").magnitude,  # time step in years
-    "dt_min": Q_("1 year").to("seconds").magnitude,  # time step in years
+    "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
     "t_end": Q_("10 kyr").to("seconds").magnitude,
     "solver": "non_steady",  # use non-steady solver, non_steady or steady
     # "solver": "bdf",  # use non-steady solver, non_steady or steady
@@ -66,18 +68,18 @@ p_dict = {
 
 # add reactions as needed
 p_dict["diagenetic_reactions"] = [
-    aerobic_respiration,
-    sulfate_reduction,
-    hs_oxidation,
-    elemental_sulfur_oxidation,
-    sulfide_mediated_iron_reduction,
-    # fes_formation_fully_implicit_2,
-    fe2_oxidation,
-    fes_oxidation,
+    rn.aerobic_respiration,
+    rn.sulfate_reduction,
+    rn.hs_oxidation,
+    rn.elemental_sulfur_oxidation,
+    rn.sulfide_mediated_iron_reduction,
+    # rn.fes_formation_fully_implicit_2,
+    rn.fe2_oxidation,
+    rn.fes_oxidation,
 ]
 
 p_dict["instantenous_reactions"] = [
-    fe2_sorption_clip,
+    rn.fe2_sorption_clip,
 ]
 
 

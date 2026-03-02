@@ -75,12 +75,14 @@ def pyrite_model(p_dict: dict):
             "eps": 1e-8,  # limiters
             "relax": 0.1,  # use 0.1 for coupled solver, and 0.8 otherwise
             "tolerance": 1e-5,  # convergence criterion
-            "dt_tolerance": 0.1,  # when to increase dt
+            "dt_tolerance": 0.1,  # steady state threshold
+            "dt_target_change": 1.0,  # desired change per time step
             "solver_backend": "default",
-            "dt_max": Q_("100 years").to("seconds").magnitude,  # time step in years
-            "dt_min": Q_("1 second").to("seconds").magnitude,  # time step in years
-            "max_steps": 2000,  # max number of iterations
+            "dt_max": Q_("100 years").to("seconds").magnitude,  # mad dt step in years
+            "dt_min": Q_("1 second").to("seconds").magnitude,  # min dt in years
+            "dt_init": Q_("1 year").to("seconds").magnitude,  # initial dt
             "t_end": Q_("10 kyear").to("seconds").magnitude,  # max model time
+            "max_steps": 2000,  # max number of iterations
             "VCDT": 0.044162589,  # VCDT reference ratio
             "initial_spacing": 0.01,  # meters
             "reaction_zone_spacing": 0.001,  # meters
