@@ -168,6 +168,10 @@ def pyrite_model(p_dict: dict):
     mp.f_diss = mp.phi / R_factor
     mp.f_sorb = (1.0 - mp.phi) * k.fe2_p_eq / R_factor
 
+    # 2. Concentration Factors (Use these in Diagenetic Reactions)
+    # [Fe2_pw] = [Fe2_total] * mp.f_pw_conc
+    mp.fe2_pw_conc = 1.0 / R_factor
+
     # calculate H2S/HS- speciation
     pKa1 = 7.0
     Ka1 = 10 ** (-pKa1)

@@ -52,8 +52,8 @@ p_dict = {
     "dt_target_change": 10.0,  # target change per step (for dt adaptation)
     "state_data": state_in,  # read state data
     # "plot_name": f"{experiment}.csv",
-    "dt_init": Q_("1 year").to("seconds").magnitude,  # initial dt
-    "dt_max": Q_("7 hours").to("seconds").magnitude,  # time step in years
+    "dt_init": Q_("1 hour").to("seconds").magnitude,  # initial dt
+    "dt_max": Q_("1 day").to("seconds").magnitude,  # time step in years
     "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
     "t_end": Q_("10 kyr").to("seconds").magnitude,
     "solver": "non_steady",  # use non-steady solver, non_steady or steady
@@ -73,8 +73,8 @@ p_dict["diagenetic_reactions"] = [
     rn.hs_oxidation,
     rn.elemental_sulfur_oxidation,
     rn.sulfide_mediated_iron_reduction,
-    # rn.fes_formation_fully_implicit_2,
     rn.fes_formation_only,
+    rn.fes_dissolution,
     rn.fe2_oxidation,
     rn.fes_oxidation,
 ]
@@ -82,6 +82,7 @@ p_dict["diagenetic_reactions"] = [
 p_dict["instantenous_reactions"] = [
     rn.fe2_sorption_clip,
     rn.sulfide_speciation_clip,
+    # rn.fes_precipitation_clip,
 ]
 
 

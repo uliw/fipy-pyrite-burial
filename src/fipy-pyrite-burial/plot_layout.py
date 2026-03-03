@@ -40,11 +40,6 @@ def get_layout(df):
                     {"color": "C9"},
                 ],
                 [df.c_fes2, r"FeS$_{2}$", {"color": "C7"}],
-                [
-                    df.c_fes_32,
-                    r"FeS_32$_{2}$",
-                    {"color": "C10", "linestyle": "dotted"},
-                ],
                 [df.c_fe3, r"Fe$_{3}^{+}$", {"color": "C5"}],
                 [df.c_fes, "FeS", {"color": "C6"}],
             ],
@@ -86,7 +81,7 @@ def get_layout(df):
             "left": [
                 # [df.f_o2, "f_o2", {"color": "C3"}],
                 [df.f_so4, "f_so4", {"color": "C0"}],
-                [df.f_ts2, r"$\sum S^{2-}$", {"color": "C1"}],
+                [df.f_ts2, r"TS$^{2-}$", {"color": "C1"}],
                 # [df.f_poc, "f_poc", {"color": "C4"}],
                 [df.f_s0, "f_s0", {"color": "C2"}],
                 [df.f_fe3, "f_fe3", {"color": "C5"}],
@@ -107,7 +102,7 @@ def get_layout(df):
             "xaxis": [df.z, "Depth [m]"],
             "left": [
                 [df.d_so4, "d_so4", {"color": "C0"}],
-                [df.d_ts2, r"d $\sum S^{2-}$", {"color": "C1"}],
+                [df.d_ts2, r"d TS$^{2-}$", {"color": "C1"}],
                 [df.d_s0, "d_s0", {"color": "C2"}],
                 [df.d_fes, "d_fes", {"color": "C6"}],
                 [df.d_fes2, "d_fes2", {"color": "C7"}],

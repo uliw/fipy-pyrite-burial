@@ -109,7 +109,7 @@ def get_delta(c, li, r):
 
         # 2. Thresholding for NaN
         # If total concentration is effectively zero, delta is undefined (NaN)
-        d = np.where(c_safe < 1e-6, np.nan, 1000 * (ratio - r) / r)
+        d = np.where(c_safe < 1e-4, np.nan, 1000 * (ratio - r) / r)
 
         # 3. Clipping Extreme Values
         # Delta values below -999 or above extreme limits are usually numerical artifacts at trace levels.
@@ -791,7 +791,9 @@ def add_explicit_source(RHS, RATES, species, rate, c=None):
     RATES[species] += getattr(rate, "value", rate)
 
 
-def add_implicit_coupling(CROSS, RATES, target_species, source_species, coeff, rate, c=None):
+def add_implicit_coupling(
+    CROSS, RATES, target_species, source_species, coeff, rate, c=None
+):
     """
     Add a coupled source term.
 
