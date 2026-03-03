@@ -98,8 +98,24 @@ def get_delta(c, li, r):
     import numpy
 
     with np.errstate(divide="ignore", invalid="ignore"):
-        h = c - li
-        d = np.where(li < 1e-4, float("nan"), 1000 * (h / li - r) / r)
+        # 1. Numerical Safeguards
+        # Ensure total mass 'c' is at least 'li' (light isotope) to avoid negative heavy mass
+        # and prevent division by very near zero or zero.
+        li_safe = np.maximum(li, 1e-30)
+        c_safe = np.maximum(c, li_safe)
+
+        h = c_safe - li_safe
+        ratio = h / li_safe
+
+        # 2. Thresholding for NaN
+        # If total concentration is effectively zero, delta is undefined (NaN)
+        d = np.where(c_safe < 1e-6, np.nan, 1000 * (ratio - r) / r)
+
+        # 3. Clipping Extreme Values
+        # Delta values below -999 or above extreme limits are usually numerical artifacts at trace levels.
+        # -1000 is the mathematical limit for 100% light isotope (0% heavy),
+        # so anything significantly below -1000 is impossible.
+        d = np.clip(d, -1000.0, 1000.0)
 
     return d
 
@@ -369,36 +385,43 @@ def _save_data_to_disk(mp, c, k, species_list, z, D_mol, f_final):
             return obj.value
         return obj
 
+    # 1. Collect all basic concentrations and rates
     for species_name in species_list:
         data[f"c_{species_name}"] = get_v(getattr(c, species_name))
-
-    for species_name in species_list:
         res_tuple = getattr(f_final, species_name)
-        rates_val = res_tuple[2]  # Index 2 is the RATES
-        data[f"f_{species_name}"] = get_v(rates_val)
+        data[f"f_{species_name}"] = get_v(res_tuple[2])
 
-    # Save all items in D_mol
+    # 2. Save all items in D_mol (diffusion coefficients)
     for d_name, d_val in D_mol.items():
         data[d_name] = get_v(d_val)
 
-    # calculate delta values
-    for species_name in species_list:
-        if "_32" in species_name:
-            base_species = species_name[:-3]
-            if base_species == "fes2":
-                s = 2 * data[f"c_{base_species}"]
-            else:
-                s = data[f"c_{base_species}"]
-            s32 = data[f"c_{species_name}"]
-            data[f"d_{base_species}"] = get_delta(s, s32, mp.VCDT)
+    # 3. Calculate delta values for specific sulfur species
+    # We prioritize common names (so4, h2s, fes, s0, fes2)
+    isotope_map = {
+        "so4": "so4_32",
+        "h2s": "h2s_32",
+        "hs": "hs_32",
+        "ts2": "ts2_32",
+        "fes": "fes_32",
+        "s0": "s0_32",
+        "fes2": "fes2_32",
+    }
+
+    for base, iso in isotope_map.items():
+        if f"c_{base}" in data and f"c_{iso}" in data:
+            s_total = data[f"c_{base}"]
+            if base == "fes2":
+                s_total = 2.0 * s_total
+            s32 = data[f"c_{iso}"]
+            data[f"d_{base}"] = get_delta(s_total, s32, mp.VCDT)
 
     data["w"] = np.ones(len(z)) * mp.w
     data["phi"] = np.ones(len(z)) * mp.phi
 
     df = pd.DataFrame(data)
+    # Ensure no NaN from misalignment by strictly using the same structure
     fqfn = pl.Path.cwd() / mp.plot_name
     df.to_csv(fqfn, index=False)
-    # print(f"Data saved to {fqfn}")
 
     return df, fqfn
 

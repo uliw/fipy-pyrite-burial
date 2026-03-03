@@ -54,11 +54,11 @@ def diagenetic_reactions(mp, c, k, f):
 
     # Accumulators (The State)
     # LHS: Diagonal (Self) Coefficients (Implicit Sinks)
-    LHS = {s: 0.0 for s in species_list}
+    LHS = {}  # Start as empty, populated by reaction functions
 
     # CROSS: Off-Diagonal / Coupled Terms
     # dict of list of tuples: target -> [(source_var_name, coeff_value), ...]
-    CROSS = {s: 0.0 for s in species_list}
+    CROSS = {}  # Start as empty, populated by reaction functions
 
     RHS = {s: np.zeros_like(c.so4) for s in species_list}
     RATES = {s: np.zeros_like(c.so4) for s in species_list}
@@ -105,11 +105,21 @@ def diagenetic_reactions(mp, c, k, f):
     from fipy.terms.term import Term
 
     for s in species_list:
-        if not isinstance(LHS[s], Term):
-            LHS[s] = ImplicitSourceTerm(coeff=LHS[s], var=c[s])
-        if not isinstance(CROSS[s], Term):
-            CROSS[s] = ImplicitSourceTerm(coeff=CROSS[s], var=c[s])
-        setattr(f, s, (LHS[s], RHS[s], RATES[s], CROSS[s]))
+        lhs_term = LHS.get(s, ImplicitSourceTerm(coeff=0.0, var=c[s]))
+        cross_list = CROSS.get(s, [])
+
+        cross_term = 0.0
+        if isinstance(cross_list, list):
+            for source_name, coeff in cross_list:
+                # Ensure numpy arrays are wrapped in CellVariable for correct rank
+                val = getattr(coeff, "value", coeff)
+                if hasattr(val, "shape") and val.shape != ():
+                    coeff_val = CellVariable(mesh=c[s].mesh, value=val)
+                else:
+                    coeff_val = val
+                cross_term += ImplicitSourceTerm(coeff=coeff_val, var=c[source_name])
+
+        setattr(f, s, (lhs_term, RHS[s], RATES[s], cross_term))
 
     return f, RATES
 
@@ -137,31 +147,33 @@ def add_implicit_sink(
     # Turn *coeff* into a FiPy ``Term`` if it is not already one
     # ------------------------------------------------------------------
     if not isinstance(coeff, Term):
-        # ``coeff`` may be a scalar, a NumPy array or a CellVariable
         val = getattr(coeff, "value", coeff)
         if hasattr(val, "shape") and val.shape != ():
-            # spatially varying coefficient → a CellVariable on the same mesh
             coeff_val = CellVariable(mesh=c[species].mesh, value=val)
         else:
-            coeff_val = float(val)  # a pure number
+            coeff_val = float(val)
+
+        # ImplicitSourceTerm(coeff=C, var=V) results in source +C*V
+        # To add a sink -S*V, we set coeff = -S.
         coeff = ImplicitSourceTerm(coeff=-coeff_val, var=c[species])
 
     # ------------------------------------------------------------------
-    # Merge with an existing entry (if any)
+    # Merge with an existing entry using Term addition
     # ------------------------------------------------------------------
-    if species in LHS and isinstance(LHS[species], ImplicitSourceTerm):
-        LHS[species].coeff += coeff.coeff
+    if species in LHS:
+        LHS[species] = LHS[species] + coeff
     else:
         LHS[species] = coeff
 
     # ------------------------------------------------------------------
     # Book‑keeping – used only for diagnostics
     # ------------------------------------------------------------------
-    # RATES[species] = RATES.get(species, 0.0) - getattr(rate, "value", rate)
-    RATES[species] += getattr(rate, "value", rate)
+    # If rate is a FiPy term or expression, extract its value
+    val = getattr(rate, "value", rate)
+    RATES[species] -= val
 
 
-def add_implicit_coupling(
+def add_implicit_coupling(x1
     CROSS: dict[str, list[tuple[str, float | np.ndarray | CellVariable]]],
     RATES: dict[str, float],
     target_species: str,
@@ -170,109 +182,15 @@ def add_implicit_coupling(
     rate: float | np.ndarray | CellVariable,
     c: dict[str, CellVariable],
 ) -> None:
-    """
-    Add a linear source ``+coeff·source`` to *target_species*.
-
-    ``CROSS`` is guaranteed to hold a list; if a non‑list value is already
-    present we promote it to a list that contains the old value and the new
-    coupling tuple.
-    """
-    if target_species in CROSS:
-        existing = CROSS[target_species]
-        # Existing entry is a list → just append
-        if isinstance(existing, list):
-            existing.append((source_species, coeff))
-        else:
-            # Something else (e.g. a FiPy expression) was stored before.
-            # Preserve it by turning it into a one‑item list.
-            CROSS[target_species] = [(source_species, coeff)]
-    else:
-        # First entry for this species
-        CROSS[target_species] = [(source_species, coeff)]
-
-    # Simple diagnostic sum
-    RATES[target_species] += getattr(rate, "value", rate)
-    # RATES[target_species] = RATES.get(target_species, 0.0) + float(getattr(rate, "value", rate))
-
-
-def add_implicit_coupling_old(
-    CROSS: dict[str, list[tuple[str, float]]],
-    RATES: dict[str, float],
-    target_species: str,
-    source_species: str,
-    coeff: float | np.ndarray | CellVariable,
-    rate: float | np.ndarray | CellVariable,
-    c: dict[str, CellVariable],
-) -> None:
-    """
-    Add a linear source ``+coeff·source`` to *target_species*.
-
-    The coupling information is stored in ``CROSS`` (later used to build
-    the full matrix) and a diagnostic entry is added to ``RATES``.
-    """
-    CROSS[target_species] = CROSS[target_species] + coeff
+    """Add a linear source ``+coeff·source`` to *target_species*."""
     CROSS.setdefault(target_species, []).append((source_species, coeff))
     RATES[target_species] += getattr(rate, "value", rate)
-    # RATES[target_species] = RATES.get(target_species, 0.0) + float(
-    #     getattr(rate, "value", rate)
-    # )
-
-
-def add_implicit_sink_older(LHS, RATES, species, coeff, rate, c):
-    """Add a consumption term to the LHS matrix.
-
-    Add a consumption term to the LHS matrix.
-    LHS = -Coefficient * Identity
-    """
-    from fipy.terms.term import Term
-    from fipy.variables.cellVariable import CellVariable
-
-    if not isinstance(coeff, Term):
-        val = getattr(coeff, "value", coeff)
-        if hasattr(val, "shape") and val.shape != ():
-            coeff_val = CellVariable(mesh=c[species].mesh, value=val)
-        else:
-            coeff_val = val
-        coeff = ImplicitSourceTerm(coeff=-coeff_val, var=c[species])
-    LHS[species] = LHS[species] + coeff
-    RATES[species] -= getattr(rate, "value", rate)
 
 
 def add_explicit_source(RHS, RATES, species, rate):
-    """Add a production term to the RHS vector.
-
-    Add a production term to the RHS vector.
-    RHS = -Rate (Standard library quirk for production)
-    """
+    """Add a production term to the RHS vector."""
     RHS[species] = RHS[species] + rate
     RATES[species] += getattr(rate, "value", rate)
-
-
-def add_implicit_coupling_old(
-    CROSS, RATES, target_species, source_species, coeff, rate, c
-):
-    """
-    Add a coupled source term.
-
-    If d[Target]/dt = +coeff * [Source]
-    Then we add `ImplicitSourceTerm(coeff=coeff, var=Source)` to Target's equation.
-
-    CROSS[target].append( (source, coeff) )
-
-    as well as the associated implicit sink.
-    """
-    from fipy.terms.term import Term
-    from fipy.variables.cellVariable import CellVariable
-
-    if not isinstance(coeff, Term):
-        val = getattr(coeff, "value", coeff)
-        if hasattr(val, "shape") and val.shape != ():
-            coeff_val = CellVariable(mesh=c[target_species].mesh, value=val)
-        else:
-            coeff_val = val
-        coeff = ImplicitSourceTerm(coeff=coeff_val, var=c[source_species])
-    CROSS[target_species] = CROSS[target_species] + coeff
-    RATES[target_species] += getattr(rate, "value", rate)
 
 
 def add_implicit_coupling_new(
@@ -290,29 +208,20 @@ def add_implicit_coupling_new(
     LHS: Diagonal matrix (implicit sinks)
     mp: Model parameters (contains fac_s)
     """
-    # 1. Determine Porosity Correction Factor
-    # mp.fac_s = phi / (1-phi)
-    if ctype == "liquid_2_liquid":  # liquid to liquid
+    if ctype == "liquid_2_liquid":
         fac = 1.0
-    elif ctype == "liquid_2_solid":  # liquid to solid
+    elif ctype == "liquid_2_solid":
         fac = mp.fac_s
-    elif ctype == "solid_2_solid":  # solid to solid
+    elif ctype == "solid_2_solid":
         fac = 1.0
-    elif ctype == "solid_2_liquid":  # solid to liquid
+    elif ctype == "solid_2_liquid":
         fac = 1.0 / mp.fac_s
     else:
         raise ValueError(f"type must be l2l, l2s, s2s, s2l, not {ctype}")
 
-    # 2. Add Coupling (Implicit Source in Target's Equation)
-    # The coefficient in the Target's equation is coeff * fac
-    # We pass rate * fac so that add_implicit_coupling reports it correctly
     add_implicit_coupling(
         CROSS, RATES, target_species, source_species, coeff * fac, rate * fac, c=c
     )
-
-    # 3. Add Implicit Sink (in Source's Equation)
-    # The reaction consumes 'source_species' at rate 'coeff * source_species'
-    # Note: add_implicit_sink handles negative sign: LHS = LHS - coeff
     add_implicit_sink(LHS, RATES, source_species, coeff, rate, c=c)
 
 
@@ -574,6 +483,20 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         )
 
 
+def sulfide_speciation_clip(c, k, mp, dt, RATES):
+    """Update reporting species (h2s, hs) based on total sulfide (ts2) and pH."""
+    ts2_val = c.ts2.value
+    c.h2s.value[:] = ts2_val * mp.h2s_frac
+    c.hs.value[:] = ts2_val * mp.hs_frac
+
+    if hasattr(c, "ts2_32"):
+        ts2_32_val = c.ts2_32.value
+        if hasattr(c, "h2s_32"):
+            c.h2s_32.value[:] = ts2_32_val * mp.h2s_frac
+        if hasattr(c, "hs_32"):
+            c.hs_32.value[:] = ts2_32_val * mp.hs_frac
+
+
 def fe2_sorption_clip(c, k, mp, dt, RATES):
     """Handle Iron Partitioning algebraically.
 
@@ -758,10 +681,10 @@ def fes_formation_only(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         c=c,
     )
 
-    # --- 7. Isotopes (32S) ---
     if hasattr(c, "ts2_32"):
         ts2_32_val = c.ts2_32.value
-        f32_ts2 = ts2_32_val / (hs_val + 1e-20)
+        ts2_val_total = c.ts2.value
+        f32_ts2 = ts2_32_val / (ts2_val_total + 1e-20)
 
         # Precipitation 32S
         # Use same porewater scaling as TS2 total
@@ -781,7 +704,7 @@ def fes_formation_only(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             "fes_32",
             "fe2_total",
             l_fes_32_precip,
-            (rate_32_precip * mp.fac_s),
+            (rate_32_precip * mp.phi / (1.0 - mp.phi)),
             c=c,
         )
 
@@ -2058,31 +1981,52 @@ def fes_formation_fully_implicit_2(
     #         the original helpers unchanged.
 
     # ---- Fe²⁺ -------------------------------------------------------
-    term_fe2 = ImplicitSourceTerm(var=fe2, coeff=-rate_precip * mp["f_diss"])
-    if "fe2_total" in LHS:
-        LHS["fe2_total"].coeff += term_fe2.coeff
-    else:
-        LHS["fe2_total"] = term_fe2
+    #   Sink = -(-rate_precip * f_diss) * fe2 = +rate_precip * f_diss * fe2
+    #   Wait, R = k_isp * (omega - 1). Sink should be -R*f_diss.
+    #   ImplicitSourceTerm(coeff=C, var=V) adds C*V to the equation.
+    #   Equation: Transient + ... = ... + ImplicitSourceTerm(coeff=C, var=V)
+    #   So we want C = -rate_precip * f_diss / fe2 ? No.
+    #   Actually rate_precip already contains fe2 (beta*fe2*hs).
+    #   So we can write R = (k_isp * (omega-1)/fe2) * fe2.
+    #   But omega = (fe2 * f_diss * hs) / omega_den.
+    #   So R = (k_isp * f_diss * hs / omega_den) * fe2 - k_isp.
+    #   This is what add_implicit_sink expects: a coefficient and a rate for diagnostics.
+
+    coeff_precip_fe2 = k["fes_isp"] * hs * mp["f_diss"] / omega_den
+    add_implicit_sink(
+        LHS,
+        RATES,
+        "fe2_total",
+        coeff=coeff_precip_fe2,
+        rate=rate_precip * mp["f_diss"],
+        c=c,
+    )
 
     # ---- H₂S --------------------------------------------------------
-    term_hs = ImplicitSourceTerm(var=hs, coeff=-rate_precip)
-    if "ts2" in LHS:
-        LHS["ts2"].coeff += term_hs.coeff
-    else:
-        LHS["ts2"] = term_hs
+    coeff_precip_hs = k["fes_isp"] * fe2 * mp["f_diss"] / omega_den
+    add_implicit_sink(LHS, RATES, "ts2", coeff=coeff_precip_hs, rate=rate_precip, c=c)
 
     # ---- FeS (solid) -------------------------------------------------
-    term_fes = ImplicitSourceTerm(var=fes, coeff=rate_precip * mp["fac_s"])
-    if "fes" in LHS:
-        LHS["fes"].coeff += term_fes.coeff
-    else:
-        LHS["fes"] = term_fes
+    # Source on solid = +rate_precip * fac_s
+    # We can treat it as a coupling or an explicit source if it doesn't depend on 'fes'
+    # Since it depends on fe2 and hs, it is a coupling.
+    add_implicit_coupling(
+        CROSS,
+        RATES,
+        "fes",
+        "fe2_total",
+        coeff=coeff_precip_fe2 * mp["fac_s"],
+        rate=rate_precip * mp["fac_s"],
+        c=c,
+    )
+    # And we need to subtract the constant part k_isp * fac_s
+    add_explicit_source(RHS, RATES, "fes", -k["fes_isp"] * mp["fac_s"])
 
     # -----------------------------------------------------------------
     # 3️⃣  Book‑keeping of the (non‑linear) precipitation rate
     # -----------------------------------------------------------------
     # ``RATES`` is only for diagnostics – we store the *cell‑averaged* value.
-    avg_rate = float(rate_precip.mean())
+    avg_rate = rate_precip.value
     RATES["fe2_total"] += avg_rate
     RATES["ts2"] += avg_rate
     RATES["fes"] += avg_rate
@@ -2245,7 +2189,7 @@ def fes_formation_fully_implicit_3(
     # ------------------------------------------------------------------
     # 3️⃣  Book‑keeping of the precipitation rate (diagnostics only)
     # ------------------------------------------------------------------
-    avg_rate = float(rate_precip.mean())
+    avg_rate = rate_precip.value
     for sp in ("fe2_total", "ts2", "fes"):
         RATES[sp] = RATES.get(sp, 0.0) + avg_rate
 

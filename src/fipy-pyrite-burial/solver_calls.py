@@ -37,9 +37,10 @@ if not hasattr(PETSc.KSP.ConvergedReason, "CONVERGED_RTOL_NORMAL"):
 class AdaptiveDT:
     """
     Advanced PID-controlled adaptive time stepping.
-    
+
     Uses standard H211B controller logic for smooth step size adaptation.
     """
+
     dt_min: float
     dt_max: float
     dt_initial: float
@@ -75,11 +76,11 @@ class AdaptiveDT:
         max_change: float,
         dt_cfl: float | None = None,
         step_success: bool = True,
-        target_error: float = 1e-4
+        target_error: float = 1e-4,
     ) -> float:
         """
         Compute the next dt based on solver performance and change magnitude.
-        
+
         Parameters:
         -----------
         max_change : float
@@ -102,18 +103,18 @@ class AdaptiveDT:
             # If this is the first step, assume we are at the target
             if self._err_prev is None:
                 self._err_prev = target_error
-                
+
             err = max(max_change, 1e-25)
             err_prev = max(self._err_prev, 1e-25)
             err_ref = target_error
 
             # PID Factor calculation: (ref/err) makes it shrink if err > ref
             factor = (
-                (err_prev / err) ** self.kP * 
-                (err_ref / err) ** self.kI * 
-                (err_ref / err_prev) ** self.kD
+                (err_prev / err) ** self.kP
+                * (err_ref / err) ** self.kI
+                * (err_ref / err_prev) ** self.kD
             )
-            
+
             # Dampen and limit the factor
             factor = max(self.cut_factor, min(self.growth_factor, factor))
             self._dt = max(self.dt_min, min(self._dt * factor, self.dt_max))
@@ -140,20 +141,23 @@ def _get_solver(mp: Any) -> Any:
 
     if backend == "LinearGMRESSolver":
         from fipy.solvers.petsc import LinearGMRESSolver
+
         return LinearGMRESSolver(precon="hypre", tolerance=tol)
     elif backend == "PETScLUSolver":
         from fipy.solvers.petsc import PETScLUSolver
+
         return PETScLUSolver(tolerance=tol)
     elif backend == "LinearLUSolver":
         from fipy import LinearLUSolver
+
         return LinearLUSolver(tolerance=tol)
     elif backend == "PETScNewtonSolver":
         from fipy.solvers.petsc import PETScNewtonSolver
-        return PETScNewtonSolver(
-            precon="hypre", tolerance=tol, max_it=30, damping=0.5
-        )
+
+        return PETScNewtonSolver(precon="hypre", tolerance=tol, max_it=30, damping=0.5)
     else:
         from fipy import DefaultSolver
+
         return DefaultSolver(tolerance=tol)
 
 
@@ -163,11 +167,11 @@ def _build_passive_eqs(
     mesh: Mesh,
     D_mol: Any,
     bc_map: Dict[str, Any],
-    species_list_partial: List[str]
+    species_list_partial: List[str],
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     Build the invariant parts of the species equations (transport and transient).
-    
+
     Returns:
     --------
     species_struct : list of dicts containing variable references
@@ -179,15 +183,12 @@ def _build_passive_eqs(
     for name in species_list_partial:
         var = getattr(c, name)
         props = bc_map[name]
-        
-        species_struct.append({
-            "name": name,
-            "var": var
-        })
+
+        species_struct.append({"name": name, "var": var})
 
         # Diffusion coefficient (Molecular + Bio-diffusion)
         D_total = np.maximum(getattr(D_mol, name) + D_mol.D_bio, 1e-20)
-        
+
         # Advection velocity
         vel = mp.w - mp.advection if props["type"] == "dissolved" else mp.w
         u_var = CellVariable(mesh=mesh, value=vel, rank=1)
@@ -218,7 +219,7 @@ def _assemble_coupled_equation(
     passive_eqs: Dict[str, Any],
     species_struct: List[Dict[str, Any]],
     diagenetic_reactions: Any,
-    species_list_partial: List[str]
+    species_list_partial: List[str],
 ) -> Tuple[Any, Dict[str, np.ndarray]]:
     """
     Calculate reaction terms and assemble the full coupled equation system.
@@ -240,16 +241,16 @@ def _assemble_coupled_equation(
     for s_obj in species_struct:
         name = s_obj["name"]
         res_tuple = getattr(f_res, name)
-        
+
         # Ensure RHS_Source is rank 0 for scalar variables
         rhs_source = res_tuple[1]
         if hasattr(rhs_source, "shape") and rhs_source.shape != ():
             rhs_source = CellVariable(mesh=mesh, value=rhs_source)
-            
+
         # Full Equation: PassiveParts == LHS_Reaction + CROSS_Reaction + RHS_Reaction
-        eq = (passive_eqs[name] == res_tuple[0] + res_tuple[3] + rhs_source)
+        eq = passive_eqs[name] == res_tuple[0] + res_tuple[3] + rhs_source
         eqs.append(eq)
-    
+
     # Bundle using bitwise AND (FiPy coupling)
     return reduce(lambda a, b: a & b, eqs), RATES
 
@@ -268,7 +269,7 @@ def run_non_steady_state_solver_coupled(
 ) -> Tuple[int, float]:
     """
     Solves the non-steady state ADR coupled system with advanced adaptive time stepping.
-    
+
     This function splits the model into manageable steps:
     1. Pre-builds passive transport terms.
     2. Runs a time loop where reaction terms are updated and solved.
@@ -283,7 +284,7 @@ def run_non_steady_state_solver_coupled(
         dt_max=mp.dt_max,
         dt_initial=getattr(mp, "dt_init", mp.dt_min),
     )
-    
+
     # Global CFL bound (optional safety)
     dx = mesh.cellVolumes.min() ** (1 / mesh.dim)
     v_max = max(abs(mp.w), abs(mp.advection))
@@ -291,10 +292,12 @@ def run_non_steady_state_solver_coupled(
     for s in species_list_partial:
         D_s = np.max(getattr(D_mol, s) + D_mol.D_bio)
         D_max = max(D_max, D_s)
-    
+
     dt_cfl = dt_controller.cfl_limit(dx, v_max, D_max)
 
-    print(f"Starting Adaptive ADR Solver. dt_init: {get_time_units(dt_controller.dt):.2f~P}")
+    print(
+        f"Starting Adaptive ADR Solver. dt_init: {get_time_units(dt_controller.dt):.2f~P}"
+    )
 
     # Build the transport backbone
     species_struct, passive_eqs = _build_passive_eqs(
@@ -314,7 +317,7 @@ def run_non_steady_state_solver_coupled(
             # Snapshot and advance old values
             for s_obj in species_struct:
                 s_obj["var"].updateOld()
-            
+
             last_val_backup = {s["name"]: s["var"].value.copy() for s in species_struct}
 
             # --- Solve Step (with automatic retry on failure) ---
@@ -322,56 +325,78 @@ def run_non_steady_state_solver_coupled(
             while not converged:
                 try:
                     coupled_eq, _ = _assemble_coupled_equation(
-                        mp, c, k, mesh, current_dt, passive_eqs, species_struct,
-                        diagenetic_reactions, species_list_partial
+                        mp,
+                        c,
+                        k,
+                        mesh,
+                        current_dt,
+                        passive_eqs,
+                        species_struct,
+                        diagenetic_reactions,
+                        species_list_partial,
                     )
-                    
+
                     coupled_eq.sweep(dt=current_dt, solver=solver)
                     converged = True
-                    
+
                 except Exception as e:
-                    print(f"  Step failed at dt={get_time_units(current_dt):.2f~P}: {e}. Cutting dt.")
+                    print(
+                        f"  Step failed at dt={get_time_units(current_dt):.2f~P}: {e}. Cutting dt."
+                    )
                     # Restore state
                     for s_obj in species_struct:
                         s_obj["var"].value[:] = last_val_backup[s_obj["name"]]
-                    
+
                     # Cut time step and retry
                     current_dt = dt_controller.update(0.0, step_success=False)
                     if current_dt <= mp.dt_min * 1.01:
-                        raise RuntimeError("Solver failed and time step is already at minimum.")
+                        raise RuntimeError(
+                            "Solver failed and time step is already at minimum."
+                        )
 
             # --- Calculate Convergence Metrics ---
             max_change = 0.0
             for s_obj in species_struct:
-                diff = np.max(np.abs(s_obj["var"].value - last_val_backup[s_obj["name"]]))
+                diff = np.max(
+                    np.abs(s_obj["var"].value - last_val_backup[s_obj["name"]])
+                )
                 max_change = max(max_change, diff)
 
             total_time += current_dt
-            
+
             # --- Adapt Time Step for Next Iteration ---
             # Use dt_target_change for adaptation, but default to something sane if missing
             adaptive_target = getattr(mp, "dt_target_change", 1e-4)
-            
+
             dt_controller.update(
-                max_change=max_change, 
-                dt_cfl=None, # DISABLE hard CFL cap for implicit solver
+                max_change=max_change,
+                dt_cfl=None,  # DISABLE hard CFL cap for implicit solver
                 step_success=True,
-                target_error=adaptive_target
+                target_error=adaptive_target,
             )
 
             # Reporting
-            if True: # Force reporting for debug
+            if step % mp.report_step == 0:  # Force reporting for debug
                 print(
                     f"Step {step:4d} | Time: {get_time_units(total_time):.2f~P} | "
                     f"dt: {get_time_units(current_dt):.2f~P} | Max Chg: {max_change:.2e}"
                 )
                 save_data_async(
-                    mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, current_dt
+                    mp,
+                    c,
+                    k,
+                    species_list_full,
+                    z,
+                    D_mol,
+                    diagenetic_reactions,
+                    current_dt,
                 )
 
             # Steady State Check
             if max_change < mp.dt_tolerance:
-                print(f"Steady State Met: max_change {max_change:.2e} < tolerance {mp.dt_tolerance:.2e}")
+                print(
+                    f"Steady State Met: max_change {max_change:.2e} < tolerance {mp.dt_tolerance:.2e}"
+                )
                 status = "Steady State Converged"
                 break
 
@@ -382,7 +407,11 @@ def run_non_steady_state_solver_coupled(
         print(traceback.format_exc())
 
     # Final Save
-    print(f"Final Report: {status} in {step} steps. Total Wall Time: {time.time() - start_wall:.2f}s")
-    save_data_async(mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, current_dt)
-    
+    print(
+        f"Final Report: {status} in {step} steps. Total Wall Time: {time.time() - start_wall:.2f}s"
+    )
+    save_data_async(
+        mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, current_dt
+    )
+
     return step, max_change
