@@ -765,3 +765,87 @@ def make_grid2(
     z_centers = mesh.cellCenters[0].value
 
     return mesh, z_centers
+
+
+# =============================================================================
+# HELPER FUNCTIONS (Matrix Math Abstraction)
+# =============================================================================
+def add_implicit_sink(LHS, RATES, species, coeff, rate, c=None):
+    """Add a consumption term to the LHS matrix.
+
+    Add a consumption term to the LHS matrix.
+    LHS = -Coefficient * Identity
+    """
+    # Use standard assignment to avoid in-place operator issues with some libraries
+    LHS[species] = LHS[species] - coeff
+    RATES[species] -= getattr(rate, "value", rate)
+
+
+def add_explicit_source(RHS, RATES, species, rate, c=None):
+    """Add a production term to the RHS vector.
+
+    Add a production term to the RHS vector.
+    RHS = -Rate (Standard library quirk for production)
+    """
+    RHS[species] = RHS[species] + rate
+    RATES[species] += getattr(rate, "value", rate)
+
+
+def add_implicit_coupling(CROSS, RATES, target_species, source_species, coeff, rate, c=None):
+    """
+    Add a coupled source term.
+
+    If d[Target]/dt = +coeff * [Source]
+    Then we add `ImplicitSourceTerm(coeff=coeff, var=Source)` to Target's equation.
+
+    CROSS[target].append( (source, coeff) )
+
+    as well as the associated implicit sink.
+    """
+    # FIXME: This needs the correct conversion factors for porosity mp.fac
+
+    CROSS[target_species].append((source_species, coeff))
+    # Note: Rates are accumulating scalar values for reporting, usually calculated explicitly before calling
+    RATES[target_species] += getattr(rate, "value", rate)
+
+
+def add_implicit_coupling_new(
+    ctype, CROSS, RATES, LHS, target_species, source_species, coeff, rate, mp, c
+):
+    """
+    Add a coupled source term with porosity correction.
+
+    If d[Target]/dt = +coeff * [Source]
+    Then we add `ImplicitSourceTerm(coeff=coeff*fac, var=Source)` to Target's equation.
+
+    ctype: connection type ('l2l', 'l2s', 's2s', 's2l')
+    CROSS: Off-diagonal coupling matrix
+    RATES: Rate reporting dictionary
+    LHS: Diagonal matrix (implicit sinks)
+    mp: Model parameters (contains fac_s)
+    """
+    # 1. Determine Porosity Correction Factor
+    # mp.fac_s = phi / (1-phi)
+    if ctype == "liquid_2_liquid":  # liquid to liquid
+        fac = 1.0
+    elif ctype == "liquid_2_solid":  # liquid to solid
+        fac = mp.fac_s
+    elif ctype == "solid_2_solid":  # solid to solid
+        fac = 1.0
+    elif ctype == "solid_2_liquid":  # solid to liquid
+        fac = 1.0 / mp.fac_s
+    else:
+        raise ValueError(f"type must be l2l, l2s, s2s, s2l, not {ctype}")
+
+    # 2. Add Coupling (Implicit Source in Target's Equation)
+    # The coefficient in the Target's equation is coeff * fac
+    CROSS[target_species].append((source_species, coeff * fac))
+
+    # 3. Add Implicit Sink (in Source's Equation)
+    # The reaction consumes 'source_species' at rate 'coeff * source_species'
+    # Note: add_implicit_sink handles negative sign: LHS = LHS - coeff
+    add_implicit_sink(LHS, RATES, source_species, coeff, rate, c)
+
+    # 4. Update Rate Reporting for Target
+    # We report the rate as seen by the target species (including fac)
+    RATES[target_species] += getattr(rate, "value", rate) * fac

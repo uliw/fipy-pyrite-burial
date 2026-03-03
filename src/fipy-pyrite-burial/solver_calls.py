@@ -247,8 +247,13 @@ def _assemble_coupled_equation(
         if hasattr(rhs_source, "shape") and rhs_source.shape != ():
             rhs_source = CellVariable(mesh=mesh, value=rhs_source)
 
-        # Full Equation: PassiveParts == LHS_Reaction + CROSS_Reaction + RHS_Reaction
-        eq = passive_eqs[name] == res_tuple[0] + res_tuple[3] + rhs_source
+        # Full Equation: PassiveParts        # Wrap the diagonal reaction coefficient into a FiPy Term
+        lhs_coeff = res_tuple[0]
+        if hasattr(lhs_coeff, "shape") and lhs_coeff.shape != ():
+            lhs_coeff = CellVariable(mesh=mesh, value=lhs_coeff)
+
+        lhs_reaction = ImplicitSourceTerm(coeff=lhs_coeff, var=s_obj["var"])
+        eq = passive_eqs[name] == lhs_reaction + res_tuple[3] + rhs_source
         eqs.append(eq)
 
     # Bundle using bitwise AND (FiPy coupling)

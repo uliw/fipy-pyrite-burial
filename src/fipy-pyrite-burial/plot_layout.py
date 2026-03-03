@@ -40,6 +40,11 @@ def get_layout(df):
                     {"color": "C9"},
                 ],
                 [df.c_fes2, r"FeS$_{2}$", {"color": "C7"}],
+                [
+                    df.c_fes_32,
+                    r"FeS_32$_{2}$",
+                    {"color": "C10", "linestyle": "dotted"},
+                ],
                 [df.c_fe3, r"Fe$_{3}^{+}$", {"color": "C5"}],
                 [df.c_fes, "FeS", {"color": "C6"}],
             ],
