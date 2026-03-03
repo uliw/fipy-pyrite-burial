@@ -47,10 +47,10 @@ p_dict = {
     "bc_fe3": weight_percent_to_mol(1, 56, 2.6),
     "DB_depth": 0,
     "DB0": 4e-12 * 0,
-    "max_steps": 100,  # max number of iterations
+    "max_steps": 50,  # max number of iterations
     "tolerance": 1e-12,  # convergence criterion
     "dt_tolerance": 1e-6,  # steady state threshold (stop simulation)
-    "dt_target_change": 10.0,  # target change per step (for dt adaptation)
+    "dt_target_change": 1.0,  # target change per step (for dt adaptation)
     "state_data": state_in,  # read state data
     # "plot_name": f"{experiment}.csv",
     "dt_init": Q_("1 hour").to("seconds").magnitude,  # initial dt
@@ -58,8 +58,8 @@ p_dict = {
     "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
     "t_end": Q_("10 kyr").to("seconds").magnitude,
     "solver": "non_steady",  # use non-steady solver, non_steady or steady
-    # "solver": "bdf",  # use non-steady solver, non_steady or steady
     "solver_backend": "default",  # see solver_calls for options
+    # "solver_backend": "petscSolver",  # see solver_calls for options
     "initial_spacing": 0.01,  # meters
     "reaction_zone_spacing": 0.001,  # meters
     "max_spacing": 0.1,  # meters, None = no cap
@@ -74,8 +74,10 @@ p_dict["diagenetic_reactions"] = [
     rn.hs_oxidation,
     rn.elemental_sulfur_oxidation,
     rn.sulfide_mediated_iron_reduction,
-    rn.fes_formation_only,
-    rn.fes_dissolution,
+    # rn.fes_formation_only,
+    # rn.fes_dissolution,
+    #    rn.fes_unified_reaction_safe,
+    rn.fes_unified_reaction_claude,
     rn.fe2_oxidation,
     rn.fes_oxidation,
 ]
@@ -83,13 +85,14 @@ p_dict["diagenetic_reactions"] = [
 p_dict["instantenous_reactions"] = [
     rn.fe2_sorption_clip,
     rn.sulfide_speciation_clip,
-    # rn.fes_precipitation_clip,
 ]
 # initialize live plotter
 plotter = LivePlotter(
     layout_path=p_dict.get("layout_file", "plot_layout.py"),
     display_length=p_dict.get("display_length", 2.0),
-    output_path=p_dict.get("plot_name", "pyrite_model_fipy.csv").replace(".csv", ".pdf"),
+    output_path=p_dict.get("plot_name", "pyrite_model_fipy.csv").replace(
+        ".csv", ".pdf"
+    ),
 )
 plotter.start()
 

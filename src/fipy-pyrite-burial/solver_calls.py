@@ -74,7 +74,7 @@ class AdaptiveDT:
 
     def update(
         self,
-        max_change: float,
+        error_metric: float,
         dt_cfl: float | None = None,
         step_success: bool = True,
         target_error: float = 1e-4,
@@ -84,8 +84,8 @@ class AdaptiveDT:
 
         Parameters:
         -----------
-        max_change : float
-            Maximum absolute change in cell variables during the step.
+        error_metric : float
+            Magnitude of variable change (e.g., Max or RMS) used for control.
         dt_cfl : float, optional
             Hard upper bound based on stability limits.
         step_success : bool
@@ -105,7 +105,7 @@ class AdaptiveDT:
             if self._err_prev is None:
                 self._err_prev = target_error
 
-            err = max(max_change, 1e-25)
+            err = max(error_metric, 1e-25)
             err_prev = max(self._err_prev, 1e-25)
             err_ref = target_error
 
@@ -121,7 +121,7 @@ class AdaptiveDT:
             self._dt = max(self.dt_min, min(self._dt * factor, self.dt_max))
         else:
             # Simplistic growth/cut logic
-            if max_change < target_error:
+            if error_metric < target_error:
                 self._dt = min(self._dt * self.growth_factor, self.dt_max)
             else:
                 self._dt = max(self._dt * self.cut_factor, self.dt_min)
@@ -131,7 +131,7 @@ class AdaptiveDT:
             self._dt = min(self._dt, dt_cfl)
 
         # 4. Store state
-        self._err_prev = max_change
+        self._err_prev = error_metric
         return self._dt
 
 
@@ -144,10 +144,11 @@ def _get_solver(mp: Any) -> Any:
         from fipy.solvers.petsc import LinearGMRESSolver
 
         return LinearGMRESSolver(precon="hypre", tolerance=tol)
-    elif backend == "PETScLUSolver":
-        from fipy.solvers.petsc import PETScLUSolver
+    elif backend == "petscSolver":
+        # this is currently not working
+        from fipy.solvers.petsc import petscSolver
 
-        return PETScLUSolver(tolerance=tol)
+        return petscSolver(tolerance=tol)
     elif backend == "LinearLUSolver":
         from fipy import LinearLUSolver
 
@@ -362,12 +363,13 @@ def run_non_steady_state_solver_coupled(
                         )
 
             # --- Calculate Convergence Metrics ---
-            max_change = 0.0
+            # Using Normalized RMS change to reduce sensitivity to grid resolution
+            # RMS = sqrt( mean( (c_new - c_old)**2 ) )
+            rms_change = 0.0
             for s_obj in species_struct:
-                diff = np.max(
-                    np.abs(s_obj["var"].value - last_val_backup[s_obj["name"]])
-                )
-                max_change = max(max_change, diff)
+                delta = s_obj["var"].value - last_val_backup[s_obj["name"]]
+                diff = np.sqrt(np.mean(delta**2))
+                rms_change = max(rms_change, diff)
 
             total_time += current_dt
 
@@ -376,7 +378,7 @@ def run_non_steady_state_solver_coupled(
             adaptive_target = getattr(mp, "dt_target_change", 1e-4)
 
             dt_controller.update(
-                max_change=max_change,
+                error_metric=rms_change,
                 dt_cfl=None,  # DISABLE hard CFL cap for implicit solver
                 step_success=True,
                 target_error=adaptive_target,
@@ -386,7 +388,7 @@ def run_non_steady_state_solver_coupled(
             if step % mp.report_step == 0:  # Force reporting for debug
                 print(
                     f"Step {step:4d} | Time: {get_time_units(total_time):.2f~P} | "
-                    f"dt: {get_time_units(current_dt):.2f~P} | Max Chg: {max_change:.2e}"
+                    f"dt: {get_time_units(current_dt):.2f~P} | RMS Chg: {rms_change:.2e}"
                 )
                 if plot_queue is not None:
                     write_to_queue_async(
@@ -413,9 +415,9 @@ def run_non_steady_state_solver_coupled(
                     )
 
             # Steady State Check
-            if max_change < mp.dt_tolerance:
+            if rms_change < mp.dt_tolerance:
                 print(
-                    f"Steady State Met: max_change {max_change:.2e} < tolerance {mp.dt_tolerance:.2e}"
+                    f"Steady State Met: rms_change {rms_change:.2e} < tolerance {mp.dt_tolerance:.2e}"
                 )
                 status = "Steady State Converged"
                 break
@@ -432,11 +434,19 @@ def run_non_steady_state_solver_coupled(
     )
     if plot_queue is not None:
         write_to_queue_async(
-            plot_queue, mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, current_dt
+            plot_queue,
+            mp,
+            c,
+            k,
+            species_list_full,
+            z,
+            D_mol,
+            diagenetic_reactions,
+            current_dt,
         )
     else:
         save_data_async(
             mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, current_dt
         )
 
-    return step, max_change
+    return step, rms_change

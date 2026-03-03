@@ -862,6 +862,71 @@ def fes_precipitation_clip_old(c, k, mp, dt, RATES):
 
 
 def fes_formation_only(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """FeS precipitation using Picard Linearization for strict positivity."""
+
+    # 1. Current State
+    fe2_val = c.fe2_total.value
+    fe2_pw_val = fe2_val * mp.fe2_pw_conc
+
+    ts2_val = c.ts2.value
+    hs_val = ts2_val * mp.hs_frac  # mol/L_pw
+
+    # 2. Saturation
+    omega_den = k.hplus * k.fes_sp + 1e-30
+    omega = (fe2_pw_val * hs_val) / omega_den
+
+    # 3. Precipitation Logic (Omega > 1)
+    is_precip = (omega > 1.0).astype(float)
+    rate_precip_total = k.fes_isp * (omega - 1.0) * is_precip  # mol/L_bulk/s
+
+    # ---------------------------------------------------------
+    # 4. Picard Linearization (Strictly Positive Implicit Sinks)
+    # l_coeff = Rate / Concentration
+    # ---------------------------------------------------------
+
+    # --- Fe2_total Equation (Bulk) ---
+    l_fe2 = rate_precip_total / (fe2_val + 1e-30)
+
+    add_implicit_sink(LHS, RATES, "fe2_total", l_fe2, rate_precip_total, c=c)
+    # NO EXPLICIT SOURCE!
+
+    # --- H2S Equation (Porewater) ---
+    rate_ts2_pw = rate_precip_total / mp.phi
+    l_ts2 = rate_ts2_pw / (ts2_val + 1e-30)
+
+    add_implicit_sink(LHS, RATES, "ts2", l_ts2, rate_ts2_pw, c=c)
+    # NO EXPLICIT SOURCE!
+
+    # --- FeS (Solid) Accumulation ---
+    rate_fes_solid = rate_precip_total / (1.0 - mp.phi)
+    l_fes_precip = rate_fes_solid / (fe2_val + 1e-30)
+
+    add_implicit_coupling(
+        CROSS, RATES, "fes", "fe2_total", l_fes_precip, rate_fes_solid, c=c
+    )
+
+    # --- Isotopes (32S) ---
+    if hasattr(c, "ts2_32"):
+        ts2_32_val = c.ts2_32.value * mp.hs_frac
+        ts2_val_total = ts2_val * mp.hs_frac
+        f32_ts2 = ts2_32_val / (ts2_val_total + 1e-30)
+
+        # The Picard implicit coefficient for the isotope is identical to the bulk!
+        l_ts2_32 = l_ts2
+        rate_32_precip = rate_ts2_pw * f32_ts2
+
+        add_implicit_sink(LHS, RATES, "ts2_32", l_ts2_32, rate_32_precip, c=c)
+
+        # Solid Isotope Accumulation
+        rate_fes_32_solid = rate_fes_solid * f32_ts2
+        l_fes_32_precip = rate_fes_32_solid / (fe2_val + 1e-30)
+
+        add_implicit_coupling(
+            CROSS, RATES, "fes_32", "fe2_total", l_fes_32_precip, rate_fes_32_solid, c=c
+        )
+
+
+def fes_formation_only_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """FeS precipitation"""
     # 1. Current State
     fe2_val = c.fe2_total.value
@@ -1001,3 +1066,340 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             coeff_diss * c.fes_32.value / mp.fac_s,
             c=c,
         )
+
+
+def fes_unified_reaction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """
+    Unified FeS Precipitation & Dissolution.
+    Uses unconditionally stable asymptotic formulation.
+    """
+    import numpy as np
+
+    # 1. Current State
+    fe2_val = c.fe2_total.value
+    fe2_pw_val = fe2_val * mp.fe2_pw_conc
+
+    ts2_val = c.ts2.value
+    hs_val = ts2_val * mp.hs_frac  # mol/L_pw
+    fes_val = c.fes.value
+
+    # 2. Saturation
+    omega_den = k.hplus * k.fes_sp + 1e-30
+    omega = (fe2_pw_val * hs_val) / omega_den
+
+    # 3. Regimes & Limiters
+    is_precip = (omega >= 1.0).astype(float)
+    is_diss = (omega < 1.0).astype(float)
+    fes_limiter = fes_val / (fes_val + 1e-10)
+
+    # ---------------------------------------------------------
+    # 4. Asymptotic Semi-Implicit Formulation
+    # ---------------------------------------------------------
+    k_p_term = k.fes_isp * is_precip
+    k_d_term = k.fes_isd * fes_limiter * is_diss
+
+    # Shared Explicit Source (s_coeff) -> Represents BACKWARD FLUX (Dissolution)
+    s_bulk = k_p_term + (k_d_term * fes_val)
+
+    # Shared Implicit Multiplier -> Represents FORWARD FLUX (Precipitation)
+    l_mult = (k_p_term + k_d_term * fes_val) / omega_den
+
+    # --- H2S Equation (Porewater) ---
+    l_ts2 = l_mult * fe2_pw_val * mp.hs_frac
+    s_ts2 = s_bulk
+
+    add_implicit_sink(LHS, RATES, "ts2", l_ts2 / mp.phi, 0.0, c=c)
+    add_explicit_source(RHS, RATES, "ts2", s_ts2 / mp.phi)
+
+    # --- Fe2_total Equation (Bulk) ---
+    l_fe2 = l_mult * hs_val * mp.fe2_pw_conc
+    s_fe2 = s_bulk
+
+    add_implicit_sink(LHS, RATES, "fe2_total", l_fe2, 0.0, c=c)
+    add_explicit_source(RHS, RATES, "fe2_total", s_fe2)
+
+    # ---------------------------------------------------------
+    # 5. Reporting and Solid Phase Coupling
+    # ---------------------------------------------------------
+    net_precip_bulk = (l_ts2 * ts2_val) - s_ts2
+
+    # Clean Reporting: Revert the helper's explicit addition, then apply true net rate
+    RATES["ts2"] -= s_ts2 / mp.phi
+    RATES["ts2"] -= net_precip_bulk / mp.phi
+
+    RATES["fe2_total"] -= s_fe2
+    RATES["fe2_total"] -= net_precip_bulk
+
+    # --- FeS (Solid) Equation ---
+    net_fes_solid_rate = net_precip_bulk / (1.0 - mp.phi)
+    add_explicit_source(RHS, RATES, "fes", net_fes_solid_rate)
+    # (Helper naturally adds net_fes_solid_rate to RATES["fes"], which is correct)
+
+    # ---------------------------------------------------------
+    # 6. Isotopes (32S) - CORRECTED
+    # ---------------------------------------------------------
+    if hasattr(c, "ts2_32"):
+        ts2_32_val = c.ts2_32.value  # DO NOT multiply by hs_frac!
+        fes_32_val = c.fes_32.value
+
+        # Solid Isotope Ratio (used for dissolution flux)
+        f32_fes = fes_32_val / (fes_val + 1e-30)
+
+        # Forward flux (Precipitation) implicit coefficient is identical to bulk
+        l_ts2_32 = l_ts2
+
+        # Backward flux (Dissolution) explicit source ALWAYS takes the solid ratio
+        s_ts2_32 = s_ts2 * f32_fes
+
+        add_implicit_sink(LHS, RATES, "ts2_32", l_ts2_32 / mp.phi, 0.0, c=c)
+        add_explicit_source(RHS, RATES, "ts2_32", s_ts2_32 / mp.phi)
+
+        # Calculate true net isotope precipitation
+        net_precip_32 = (l_ts2_32 * ts2_32_val) - s_ts2_32
+
+        # Clean Reporting
+        RATES["ts2_32"] -= s_ts2_32 / mp.phi
+        RATES["ts2_32"] -= net_precip_32 / mp.phi
+
+        # FeS_32 Solid Accumulation
+        net_fes_32_solid = net_precip_32 / (1.0 - mp.phi)
+        add_explicit_source(RHS, RATES, "fes_32", net_fes_32_solid)
+
+
+def fes_unified_reaction_safe(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """
+    Unified FeS Precipitation & Dissolution.
+    Uses 'Capped Picard' formulation: Pure implicit sinks capped by exact thermodynamic limits
+    to guarantee stability without phantom sources or isotope mixing.
+    """
+    import numpy as np
+
+    # ---------------------------------------------------------
+    # 1. State Variables & Thermodynamics
+    # ---------------------------------------------------------
+    fe_bulk = c.fe2_total.value
+    fe_pw = fe_bulk * mp.fe2_pw_conc
+    ts2_pw = c.ts2.value
+    hs_pw = ts2_pw * mp.hs_frac
+    fes_sol = c.fes.value
+
+    K_eff = (k.fes_sp * k.hplus) / mp.hs_frac
+    omega_den = k.hplus * k.fes_sp + 1e-30
+    omega = (fe_pw * hs_pw) / omega_den
+
+    # Calculate EXACT thermodynamic distance to equilibrium (Buffered Quadratic)
+    # x_eq is the moles/L_pw of H2S that must react to reach exactly Omega = 1
+    A = mp.fe2_pw_conc
+    B = -(fe_pw + hs_pw * mp.fe2_pw_conc)
+    C = (fe_pw * hs_pw) - K_eff
+    delta = np.maximum(B**2 - 4.0 * A * C, 0.0)
+    x_eq = (-B - np.sqrt(delta)) / (2.0 * A)
+
+    # ---------------------------------------------------------
+    # 2. Calculate Raw Kinetic Rates
+    # ---------------------------------------------------------
+    # Precipitation (mol/L_bulk/s) -> convert to Porewater rate
+    rate_p_bulk_raw = k.fes_isp * np.maximum(omega - 1.0, 0.0)
+    rate_p_pw_raw = rate_p_bulk_raw / mp.phi
+
+    # Dissolution (1/s) -> convert to Solid rate -> convert to Porewater rate
+    rate_d_raw_freq = (
+        k.fes_isd * np.maximum(1.0 - omega, 0.0) * (fes_sol / (fes_sol + 1e-10))
+    )
+    rate_d_sol_raw = rate_d_raw_freq * fes_sol
+    rate_d_pw_raw = rate_d_sol_raw * ((1.0 - mp.phi) / mp.phi)
+
+    # ---------------------------------------------------------
+    # 3. Apply Thermodynamic Brakes (The Ping-Pong Fix)
+    # ---------------------------------------------------------
+    # Cap the rate so it cannot consume more than the equilibrium distance (x_eq)
+    # over the course of a characteristic time step (~1000 seconds for 16 mins)
+    tau_safe = 1000.0
+
+    max_p_pw = np.maximum(x_eq, 0.0) / tau_safe
+
+    # Dissolution is limited by BOTH thermodynamic distance AND available solid FeS
+    max_avail_sol_pw = fes_sol * ((1.0 - mp.phi) / mp.phi)
+    max_d_pw = np.minimum(np.maximum(-x_eq, 0.0), max_avail_sol_pw) / tau_safe
+
+    # CAPPED RATES (in Porewater Units: mol/L_pw/s)
+    rate_p_pw = np.minimum(rate_p_pw_raw, max_p_pw)
+    rate_d_pw = np.minimum(rate_d_pw_raw, max_d_pw)
+
+    # Convert back to native phase units for the solver
+    rate_p_bulk = rate_p_pw * mp.phi
+    rate_p_sol = rate_p_pw * mp.phi / (1.0 - mp.phi)
+
+    rate_d_bulk = rate_d_pw * mp.phi
+    rate_d_sol = rate_d_pw * mp.phi / (1.0 - mp.phi)
+
+    # ---------------------------------------------------------
+    # 4. Pure Picard Coupling (Zero Explicit Artifacts)
+    # ---------------------------------------------------------
+
+    # --- PRECIPITATION (Strict Implicit Sinks on Liquid, Source to Solid) ---
+    l_ts2_p = rate_p_pw / (ts2_pw + 1e-30)
+    l_fe_p = rate_p_bulk / (fe_bulk + 1e-30)
+
+    add_implicit_sink(LHS, RATES, "ts2", l_ts2_p, rate_p_pw, c=c)
+    add_implicit_sink(LHS, RATES, "fe2_total", l_fe_p, rate_p_bulk, c=c)
+    add_explicit_source(RHS, RATES, "fes", rate_p_sol)
+
+    # --- DISSOLUTION (Strict Implicit Sink on Solid, Source to Liquid) ---
+    l_fes_d = rate_d_sol / (fes_sol + 1e-30)
+
+    add_implicit_sink(LHS, RATES, "fes", l_fes_d, rate_d_sol, c=c)
+    add_explicit_source(RHS, RATES, "ts2", rate_d_pw)
+    add_explicit_source(RHS, RATES, "fe2_total", rate_d_bulk)
+
+    # ---------------------------------------------------------
+    # 5. Isotopes (32S) - Perfect Physical Splitting
+    # ---------------------------------------------------------
+    if hasattr(c, "ts2_32"):
+        ts2_32_val = c.ts2_32.value
+        fes_32_val = c.fes_32.value
+
+        # True Isotopic Ratios
+        f32_ts2 = ts2_32_val / (ts2_pw + 1e-30)
+        f32_fes = fes_32_val / (fes_sol + 1e-30)
+
+        # A. Precipitation extracts EXACTLY the liquid ratio via Implicit Sink
+        l_ts2_32_p = l_ts2_p
+        rate_32_p_pw = rate_p_pw * f32_ts2
+
+        add_implicit_sink(LHS, RATES, "ts2_32", l_ts2_32_p, rate_32_p_pw, c=c)
+        add_explicit_source(
+            RHS, RATES, "fes_32", rate_32_p_pw * mp.phi / (1.0 - mp.phi)
+        )
+
+        # B. Dissolution releases EXACTLY the solid ratio via Explicit Source
+        l_fes_32_d = l_fes_d
+        rate_32_d_sol = rate_d_sol * f32_fes
+        rate_32_d_pw = rate_32_d_sol * (1.0 - mp.phi) / mp.phi
+
+        add_implicit_sink(LHS, RATES, "fes_32", l_fes_32_d, rate_32_d_sol, c=c)
+        add_explicit_source(RHS, RATES, "ts2_32", rate_32_d_pw)
+
+
+def fes_unified_reaction_claude(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """
+    Unified FeS Precipitation & Dissolution.
+    Uses unconditionally stable asymptotic formulation.
+    """
+    import numpy as np
+
+    # 1. Current State
+    fe2_val = c.fe2_total.value
+    fe2_pw_val = fe2_val * mp.fe2_pw_conc
+
+    ts2_val = c.ts2.value
+    hs_val = ts2_val * mp.hs_frac  # mol/L_pw
+    fes_val = c.fes.value
+
+    # 2. Saturation
+    omega_den = k.hplus * k.fes_sp + 1e-30
+    omega = (fe2_pw_val * hs_val) / omega_den
+
+    # 3. Regimes & Limiters
+    is_precip = (omega >= 1.0).astype(float)
+    is_diss = (omega < 1.0).astype(float)
+    fes_limiter = fes_val / (fes_val + 1e-10)
+
+    # ---------------------------------------------------------
+    # 4. Asymptotic Semi-Implicit Formulation
+    # ---------------------------------------------------------
+    k_p_term = k.fes_isp * is_precip
+    k_d_term = k.fes_isd * fes_limiter * is_diss
+
+    # Shared Explicit Source (s_coeff) -> Represents BACKWARD FLUX (Dissolution)
+    s_bulk = k_p_term + (k_d_term * fes_val)
+
+    # Shared Implicit Multiplier -> Represents FORWARD FLUX (Precipitation)
+    l_mult = (k_p_term + k_d_term * fes_val) / omega_den
+
+    # --- H2S Equation (Porewater) ---
+    l_ts2 = l_mult * fe2_pw_val * mp.hs_frac
+    s_ts2 = s_bulk
+
+    add_implicit_sink(LHS, RATES, "ts2", l_ts2 / mp.phi, 0.0, c=c)
+    add_explicit_source(RHS, RATES, "ts2", s_ts2 / mp.phi)
+
+    # --- Fe2_total Equation (Bulk) ---
+    l_fe2 = l_mult * hs_val * mp.fe2_pw_conc
+    s_fe2 = s_bulk
+
+    add_implicit_sink(LHS, RATES, "fe2_total", l_fe2, 0.0, c=c)
+    add_explicit_source(RHS, RATES, "fe2_total", s_fe2)
+
+    # ---------------------------------------------------------
+    # 5. Reporting and Solid Phase Coupling
+    # ---------------------------------------------------------
+    net_precip_bulk = (l_ts2 * ts2_val) - s_ts2
+
+    # Clean Reporting: Revert the helper's explicit addition, then apply true net rate
+    RATES["ts2"] -= s_ts2 / mp.phi
+    RATES["ts2"] -= net_precip_bulk / mp.phi
+
+    RATES["fe2_total"] -= s_fe2
+    RATES["fe2_total"] -= net_precip_bulk
+
+    # --- FeS (Solid) Equation ---
+    net_fes_solid_rate = net_precip_bulk / (1.0 - mp.phi)
+    add_explicit_source(RHS, RATES, "fes", net_fes_solid_rate)
+
+    # ---------------------------------------------------------
+    # 6. Isotopes (32S) - FIXED
+    # ---------------------------------------------------------
+    if hasattr(c, "ts2_32"):
+        ts2_32_val = (
+            c.ts2_32.value
+        )  # Total 32S in dissolved sulfide; do NOT apply hs_frac here
+        fes_32_val = c.fes_32.value
+
+        # --- Isotope ratios ---
+        f32_fes = fes_32_val / (fes_val + 1e-30)  # 32S fraction in solid FeS
+        f32_ts2 = ts2_32_val / (ts2_val + 1e-30)  # 32S fraction in dissolved sulfide
+
+        # --- Forward flux (Precipitation): implicit coefficient is identical to bulk ---
+        # Rate of 32S-HS precipitation = k * fe2 * hs_32 = k * fe2 * ts2_32 * hs_frac
+        # Written as: l_ts2 * ts2_32_val  (l_ts2 already contains hs_frac)
+        l_ts2_32 = (
+            l_ts2  # ✓ correct: hs_frac absorbed into l_ts2, ts2_32 is the variable
+        )
+
+        # --- Backward flux (Dissolution or Asymptotic Stabilisation) ---
+        #
+        # KEY FIX: s_bulk plays DIFFERENT physical roles in each regime:
+        #
+        #   DISSOLUTION regime (omega < 1):
+        #     s_bulk is actual FeS dissolution flux.
+        #     → 32S released in proportion to the SOLID isotope ratio (f32_fes). ✓
+        #     net_32 = s_bulk*(omega*f32_ts2 - f32_fes)  [correct dissolution budget]
+        #
+        #   PRECIPITATION regime (omega >= 1):
+        #     s_bulk is a NUMERICAL stabilisation term, NOT real dissolution.
+        #     → Must use POREWATER ratio (f32_ts2) so the net is correct:
+        #       net_32 = l_ts2*ts2_32 - s_bulk*f32_ts2
+        #              = s_bulk*omega*f32_ts2 - s_bulk*f32_ts2
+        #              = s_bulk * f32_ts2 * (omega - 1)
+        #              = net_bulk * f32_ts2   ✓  (no fractionation)
+        #
+        #   WRONG (original code used f32_fes in both regimes):
+        #       net_32 = s_bulk*omega*f32_ts2 - s_bulk*f32_fes
+        #       ≠ net_bulk * f32_ts2  whenever f32_fes ≠ f32_ts2
+        #
+        s_ts2_32 = s_bulk * (is_precip * f32_ts2 + is_diss * f32_fes)
+
+        add_implicit_sink(LHS, RATES, "ts2_32", l_ts2_32 / mp.phi, 0.0, c=c)
+        add_explicit_source(RHS, RATES, "ts2_32", s_ts2_32 / mp.phi)
+
+        # True net isotope precipitation rate
+        net_precip_32 = (l_ts2_32 * ts2_32_val) - s_ts2_32
+
+        # Clean Reporting
+        RATES["ts2_32"] -= s_ts2_32 / mp.phi
+        RATES["ts2_32"] -= net_precip_32 / mp.phi
+
+        # FeS_32 Solid Accumulation (no fractionation: gains/loses 32S at same net rate)
+        net_fes_32_solid = net_precip_32 / (1.0 - mp.phi)
+        add_explicit_source(RHS, RATES, "fes_32", net_fes_32_solid)

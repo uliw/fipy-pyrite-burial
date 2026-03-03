@@ -222,7 +222,18 @@ def plot(
 
     fig.tight_layout()
     if outfile:
-        fig.savefig(outfile)
+        # Save current size to restore it later (preserves GUI window state)
+        original_size = fig.get_size_inches()
+
+        # Set figure size strictly for PDF output to ensure independence from GUI/handle state
+        fig.set_size_inches(fig_width, 2 + 2 * n_subplots)
+        fig.tight_layout()
+        fig.savefig(outfile, bbox_inches="tight")
+
+        # Restore original size if the figure is meant to stay open or be shown
+        if show or keep_open:
+            fig.set_size_inches(*original_size)
+            fig.tight_layout()
 
     if show:
         plt.show()
@@ -775,7 +786,9 @@ if __name__ == "__main__":
     print(f"Plot generated: {outfile}")
 
 
-def show_grid(ax, grid, step=50, thickness="0.1 pt", color="lightgrey", alpha=0.3, **kwargs):
+def show_grid(
+    ax, grid, step=50, thickness="0.1 pt", color="lightgrey", alpha=0.3, **kwargs
+):
     """Plot a vertical line each multiple of a mesh coordinate.
 
     Add this to the plot referenced by ax

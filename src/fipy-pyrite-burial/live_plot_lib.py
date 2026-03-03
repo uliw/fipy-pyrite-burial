@@ -63,6 +63,7 @@ class LivePlotter:
         plt.ion()  # Turn on interactive mode
         fig = None
         ax_objects = None
+        last_df = None
 
         print("[LivePlotter] Background process started.")
 
@@ -80,13 +81,24 @@ class LivePlotter:
 
                 if data_item is None:
                     print("[LivePlotter] Termination signal received.")
-                    if fig and self.output_path:
+                    if fig and self.output_path and last_df is not None:
                         print(f"[LivePlotter] Saving final plot to {self.output_path}")
-                        fig.savefig(self.output_path)
+                        # Use plot_data_new.plot to ensure correct aspect ratio and sizing
+                        plot_data_new.plot(
+                            last_df,
+                            self.display_length,
+                            outfile=self.output_path,
+                            show=False,
+                            fig_handle=fig,
+                            plot_description=plt_desc if "plt_desc" in locals() else None,
+                            measured_data_path=self.measured_data_path,
+                            keep_open=True,
+                        )
                     break
 
                 # data_item is expected to be a dictionary representing a DataFrame
                 df = pd.DataFrame(data_item)
+                last_df = df
 
                 try:
                     plt_desc = plot_data_new.load_layout_from_file(df, self.layout_path)
