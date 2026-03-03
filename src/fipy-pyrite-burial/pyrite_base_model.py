@@ -5,7 +5,7 @@ Model units are meter/second, mmol/liter, and meter
 """
 
 
-def pyrite_model(p_dict: dict):
+def pyrite_model(p_dict: dict, plot_queue=None):
     """Model pyrite precipitation.
 
     As a function of organic matter availability, including isotopes
@@ -257,6 +257,7 @@ def pyrite_model(p_dict: dict):
         D_mol,
         bc_map,
         z,
+        plot_queue=plot_queue,
     )
     converged = "Yes" if step < mp.max_steps else "No"
     total_time = 0.0

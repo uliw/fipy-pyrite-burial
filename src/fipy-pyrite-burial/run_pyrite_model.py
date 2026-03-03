@@ -29,6 +29,7 @@ from diff_lib import (
 
 from pyrite_base_model import pyrite_model
 import reactions_new as rn
+from live_plot_lib import LivePlotter
 
 ureg = pint.UnitRegistry()
 Q_ = ureg.Quantity
@@ -84,6 +85,13 @@ p_dict["instantenous_reactions"] = [
     rn.sulfide_speciation_clip,
     # rn.fes_precipitation_clip,
 ]
+# initialize live plotter
+plotter = LivePlotter(
+    layout_path=p_dict.get("layout_file", "plot_layout.py"),
+    display_length=p_dict.get("display_length", 2.0),
+    output_path=p_dict.get("plot_name", "pyrite_model_fipy.csv").replace(".csv", ".pdf"),
+)
+plotter.start()
 
 
 (
@@ -97,7 +105,7 @@ p_dict["instantenous_reactions"] = [
     converged,
     step,
     total_time,
-) = pyrite_model(p_dict)
+) = pyrite_model(p_dict, plot_queue=plotter.queue)
 
 # -----------------------------------------------------------------------------
 # 8. EXPORT DATA
@@ -117,3 +125,5 @@ print(f"d34S = {d34s:0.2f}, d34S pyrite = {df.d_fes2.iloc[-1]:.2f}")
 
 if state_out:
     save_state(c, state_out)
+
+plotter.stop()

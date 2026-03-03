@@ -17,6 +17,7 @@ from fipy.terms.transientTerm import TransientTerm
 from petsc4py import PETSc
 
 from diff_lib import get_time_units, data_container, save_data_async
+from live_plot_lib import write_to_queue_async
 from reactions_new import equilibrium_reactions
 
 if TYPE_CHECKING:
@@ -271,6 +272,7 @@ def run_non_steady_state_solver_coupled(
     D_mol: Any,
     bc_map: Dict[str, Any],
     z: np.ndarray,
+    plot_queue: Optional[Any] = None,
 ) -> Tuple[int, float]:
     """
     Solves the non-steady state ADR coupled system with advanced adaptive time stepping.
@@ -386,16 +388,29 @@ def run_non_steady_state_solver_coupled(
                     f"Step {step:4d} | Time: {get_time_units(total_time):.2f~P} | "
                     f"dt: {get_time_units(current_dt):.2f~P} | Max Chg: {max_change:.2e}"
                 )
-                save_data_async(
-                    mp,
-                    c,
-                    k,
-                    species_list_full,
-                    z,
-                    D_mol,
-                    diagenetic_reactions,
-                    current_dt,
-                )
+                if plot_queue is not None:
+                    write_to_queue_async(
+                        plot_queue,
+                        mp,
+                        c,
+                        k,
+                        species_list_full,
+                        z,
+                        D_mol,
+                        diagenetic_reactions,
+                        current_dt,
+                    )
+                else:
+                    save_data_async(
+                        mp,
+                        c,
+                        k,
+                        species_list_full,
+                        z,
+                        D_mol,
+                        diagenetic_reactions,
+                        current_dt,
+                    )
 
             # Steady State Check
             if max_change < mp.dt_tolerance:
@@ -415,8 +430,13 @@ def run_non_steady_state_solver_coupled(
     print(
         f"Final Report: {status} in {step} steps. Total Wall Time: {time.time() - start_wall:.2f}s"
     )
-    save_data_async(
-        mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, current_dt
-    )
+    if plot_queue is not None:
+        write_to_queue_async(
+            plot_queue, mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, current_dt
+        )
+    else:
+        save_data_async(
+            mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, current_dt
+        )
 
     return step, max_change

@@ -60,6 +60,8 @@ def plot(
     show=True,
     plot_description=None,
     measured_data_path=None,
+    fig_handle=None,
+    keep_open=False,
 ):
     """Plot data dynamically based on plot_description.
 
@@ -70,29 +72,8 @@ def plot(
         outfile: Output file path
         show: Whether to show the plot
         plot_description: Dictionary describing plot structure. If None, uses default structure.
-            Example structure:
-            {
-                "first": {
-                    "xaxis": [df.z, "Depth [m]"],
-                    "left": [[df.c_so4, "SO4 [mmol]", {"color": "C0"}], ...],
-                    "right": [[df.c_o2, "O2 [mmol]", {"color": "C2"}], ...],
-                    "right2": [...],  # Additional right axes
-                    "options-left": "set_ylim(0, 30)",  # Arbitrary matplotlib methods
-                    "options-right": "set_ylim(0, 100)",  # For right axis
-                },
-                "second": {
-                    "xaxis": [df.z, "Depth [m]"],
-                    "left": [[df.f_so4, "f_so4"]],
-                    "yscale": "log",
-                    "options-left": "set_ylim(1e-10, 1e-5), set_title('Title')",
-                },
-            }
-
-            The "options-left", "options-right", "options-right2", etc. keys allow
-            you to specify arbitrary matplotlib method calls to apply to the corresponding
-            axis. Multiple method calls can be separated by commas.
-            Examples: "set_ylim(0, 100)", "set_title('My Title'), grid(True)"
         measured_data_path: Path to CSV containing measured data to overlay as scatter plots.
+        fig_handle: Optional existing figure handle to reuse.
     """
     # Use default plot structure if none provided
     if plot_description is None:
@@ -109,9 +90,16 @@ def plot(
     df2 = _load_measured_data(measured_data_path)
 
     # Create figure and subplots
-    fig, axes = plt.subplots(n_subplots, 1)
-    if n_subplots == 1:
-        axes = [axes]
+    if fig_handle is None:
+        fig, axes = plt.subplots(n_subplots, 1)
+        if n_subplots == 1:
+            axes = [axes]
+    else:
+        fig = fig_handle
+        fig.clear()
+        axes = fig.subplots(n_subplots, 1)
+        if n_subplots == 1:
+            axes = [axes]
 
     # Get figure width from top-level or first subplot
     # Support both 'fig_width' and 'plot_width'
@@ -122,7 +110,8 @@ def plot(
     elif fig_width is None:
         fig_width = 8
 
-    fig.set_size_inches(fig_width, 2 + 2 * n_subplots)
+    if fig_handle is None:
+        fig.set_size_inches(fig_width, 2 + 2 * n_subplots)
 
     # Track all axes for xlim adjustment
     all_axes = []
@@ -237,7 +226,7 @@ def plot(
 
     if show:
         plt.show()
-    else:
+    elif not keep_open:
         plt.close(fig)
 
     return fig, ax_objects
