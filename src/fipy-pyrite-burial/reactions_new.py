@@ -107,7 +107,21 @@ def diagenetic_reactions(mp, c, k, f):
 
     # 4. FINALIZE
     # -----------
-    # Pack results into f container
+    # Convert the CROSS dict into FiPy ImplicitSourceTerm objects and pack all
+    # results into the f container as a tuple per species:
+    #   f.<species> = (lhs_coeff, rhs_source, rates, cross_term)
+    #
+    # The CROSS dict contains entries of the form:
+    #   CROSS[target_species] = [(source_name, coeff_with_fac), ...]
+    # where coeff_with_fac already includes the porosity factor applied by
+    # add_implicit_coupling_new().
+    #
+    # Each (source_name, coeff) entry becomes:
+    #   ImplicitSourceTerm(coeff=coeff, var=c[source_name])
+    # in the target species' equation.  Because var=c[source_name] refers to a
+    # *different* species variable, FiPy treats this as an off-diagonal (cross-)
+    # coupling term when all species equations are assembled into the coupled
+    # block system in _assemble_coupled_equation() (solver_calls.py).
     from fipy.terms.term import Term
 
     for s in species_list:
@@ -488,10 +502,23 @@ def fes_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # Implicit Sink for O2: coeff = 2.25 * k * FeS.
     add_implicit_sink(LHS, RATES, "o2", coeff_o2_fes, rate_base * 2.25, c=c)
 
-    # SO4 Source (1.0x) - LIQUID
-    # Couple to FeS.
-    # Target Liquid. No mp.fac_s.
-    add_implicit_coupling(CROSS, RATES, "so4", "fes", k.fes_ox * c.o2, rate_base, c=c)
+    # SO4 Source (1.0x) - LIQUID, Coupled to FeS (SOLID)
+    # Use add_implicit_coupling_new with add_lhs_sink=False because the FeS sink
+    # was already registered by the add_implicit_coupling_new call for fe3 above.
+    # The "solid_2_liquid" ctype applies the (1-phi)/phi porosity factor automatically.
+    add_implicit_coupling_new(
+        "solid_2_liquid",
+        CROSS,
+        RATES,
+        LHS,
+        "so4",  # target: liquid
+        "fes",  # source: solid
+        k.fes_ox * c.o2,
+        coeff_fes * c.fes,
+        mp,
+        c=c,
+        add_lhs_sink=False,  # fes sink already added by the fe3 coupling above
+    )
 
     if hasattr(c, "fes_32"):
         rate_base_32 = k.fes_ox * c.fes_32 * c.o2
@@ -646,26 +673,36 @@ def pyrite_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         c=c,
     )
 
-    # SO4 Source (2.0x) - LIQUID
-    # Couple to FeS2
-    add_implicit_coupling(
+    # SO4 Source (2.0x) - LIQUID, Coupled to FeS2 (SOLID)
+    # Use add_implicit_coupling_new with add_lhs_sink=False because the FeS2 sink
+    # was already registered by add_implicit_sink above.
+    # The "solid_2_liquid" ctype applies the (1-phi)/phi porosity factor automatically.
+    add_implicit_coupling_new(
+        "solid_2_liquid",
         CROSS,
         RATES,
-        "so4",
-        "fes2",
+        LHS,
+        "so4",  # target: liquid
+        "fes2",  # source: solid
         2 * k.fes2_ox * c.o2,
         2 * k.fes2_ox * c.o2 * c.fes2,
+        mp,
         c=c,
+        add_lhs_sink=False,  # fes2 sink already added by add_implicit_sink above
     )
     # SO4_32
-    add_implicit_coupling(
+    add_implicit_coupling_new(
+        "solid_2_liquid",
         CROSS,
         RATES,
-        "so4_32",
-        "fes2_32",
+        LHS,
+        "so4_32",  # target: liquid
+        "fes2_32",  # source: solid
         k.fes2_ox * c.o2,
         k.fes2_ox * c.o2 * c.fes2_32,
+        mp,
         c=c,
+        add_lhs_sink=False,  # fes2_32 sink already added by add_implicit_sink above
     )
 
 

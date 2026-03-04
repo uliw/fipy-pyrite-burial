@@ -7,7 +7,7 @@ import math
 import numpy as np
 from functools import reduce
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from fipy import CellVariable
 from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
@@ -239,6 +239,23 @@ def _assemble_coupled_equation(
             RATES[s] += RATES_eq[s]
 
     # 4. Build individual equations and couple them
+    #
+    # res_tuple layout (produced by diagenetic_reactions() in reactions_new.py):
+    #   res_tuple[0]  lhs_coeff   – diagonal (self) implicit-sink coefficient
+    #   res_tuple[1]  rhs_source  – explicit source / RHS vector
+    #   res_tuple[2]  rates       – rate array for diagnostic reporting
+    #   res_tuple[3]  cross_term  – sum of off-diagonal FiPy ImplicitSourceTerm objects
+    #
+    # Cross-term data flow:
+    #   1. add_implicit_coupling_new() in diff_lib.py appends (source_species, coeff*fac)
+    #      to CROSS[target_species], where fac encodes the phase-conversion factor.
+    #   2. diagenetic_reactions() in reactions_new.py converts each CROSS entry into
+    #      ImplicitSourceTerm(coeff=coeff*fac, var=c[source_species]) and sums them into
+    #      cross_term (= res_tuple[3]).
+    #   3. Here, cross_term is added to the RHS of the target species' FiPy equation.
+    #      Because var=c[source_species] differs from the equation's own species variable,
+    #      FiPy places the term in the off-diagonal block of the coupled block matrix when
+    #      the per-species equations are joined with the & operator below.
     eqs = []
     for s_obj in species_struct:
         name = s_obj["name"]
@@ -249,16 +266,21 @@ def _assemble_coupled_equation(
         if hasattr(rhs_source, "shape") and rhs_source.shape != ():
             rhs_source = CellVariable(mesh=mesh, value=rhs_source)
 
-        # Full Equation: PassiveParts        # Wrap the diagonal reaction coefficient into a FiPy Term
+        # Wrap the diagonal reaction coefficient into a FiPy ImplicitSourceTerm
         lhs_coeff = res_tuple[0]
         if hasattr(lhs_coeff, "shape") and lhs_coeff.shape != ():
             lhs_coeff = CellVariable(mesh=mesh, value=lhs_coeff)
 
+        # Diagonal (self) implicit sink for this species
         lhs_reaction = ImplicitSourceTerm(coeff=lhs_coeff, var=s_obj["var"])
+        # res_tuple[3] is the off-diagonal cross-coupling term (other-species sources)
         eq = passive_eqs[name] == lhs_reaction + res_tuple[3] + rhs_source
         eqs.append(eq)
 
     # Bundle using bitwise AND (FiPy coupling)
+    # This merges all per-species equations into a single coupled block system where
+    # each off-diagonal ImplicitSourceTerm (from res_tuple[3]) occupies the
+    # corresponding off-diagonal block in the global sparse matrix.
     return reduce(lambda a, b: a & b, eqs), RATES
 
 

@@ -794,24 +794,52 @@ def add_explicit_source(RHS, RATES, species, rate, update_rates=True, c=None):
 
 
 def add_implicit_coupling_new(
-    ctype, CROSS, RATES, LHS, target_species, source_species, coeff, rate_bulk, mp, c
+    ctype,
+    CROSS,
+    RATES,
+    LHS,
+    target_species,
+    source_species,
+    coeff,
+    rate_bulk,
+    mp,
+    c,
+    add_lhs_sink=True,
 ):
     """
     Add a coupled implicit source term with porosity correction.
 
-    d[Target]/dt = +coeff * fac * [Source]
-    d[Source]/dt = -coeff       * [Source]   (implicit sink)
+    d[Target]/dt = +coeff * fac * [Source]   (off-diagonal cross-coupling)
+    d[Source]/dt = -coeff       * [Source]   (implicit sink, only when add_lhs_sink=True)
+
+    The cross-coupling coefficient ``coeff * fac`` is stored in the CROSS dict and is
+    later assembled into a FiPy ``ImplicitSourceTerm(coeff=coeff*fac, var=c[source])``
+    in the target species' equation.  Because ``var`` refers to a *different* species
+    variable than the equation being built, FiPy places the term in the off-diagonal
+    block of the coupled block matrix.
 
     Parameters
     ----------
-    rate_bulk : net reaction rate in mol/L_bulk/s
-        Always pass in BULK units. The helper converts to each species' own
-        concentration basis for RATES reporting:
-            liquid species : rate_bulk / phi          [mol/L_pw/s]
-            solid  species : rate_bulk * phi/(1-phi)  [mol/L_solid/s]
-
     ctype : 'liquid_2_liquid' | 'liquid_2_solid' | 'solid_2_solid' | 'solid_2_liquid'
-        Describes the direction of the coupling (source → target).
+        Describes the phase of (source → target).  This controls the porosity
+        conversion factor ``fac`` applied to the cross-coupling coefficient:
+            liquid_2_liquid : fac = 1
+            liquid_2_solid  : fac = phi / (1-phi)   (= mp.fac_s)
+            solid_2_solid   : fac = 1
+            solid_2_liquid  : fac = (1-phi) / phi   (= 1 / mp.fac_s)
+    coeff : array-like
+        Implicit rate coefficient for the source species sink (units: 1/s in the
+        source species' own concentration basis).  The cross-coupling coefficient
+        stored in CROSS is ``coeff * fac``.
+    rate_bulk : array-like
+        Reaction rate passed in the source species' own concentration basis,
+        used only for RATES reporting (diagnostics/plotting).  Not used by the solver.
+    add_lhs_sink : bool, optional (default True)
+        When True, also registers ``-coeff`` as an implicit sink on the source species
+        LHS diagonal (i.e. adds ``LHS[source] -= coeff``).  Set to False when the
+        source species sink has already been registered by a prior call for the same
+        reaction (e.g. via ``add_implicit_sink`` or a previous ``add_implicit_coupling_new``),
+        to avoid double-counting the sink while still adding the off-diagonal cross term.
     """
     # ---- Porosity factor (source → target volume conversion) ----
     if ctype == "liquid_2_liquid":
@@ -830,27 +858,28 @@ def add_implicit_coupling_new(
     target_is_liquid = ctype.endswith("liquid")
 
     # ---- Cross-coupling (off-diagonal block) ----
+    # Stored as (source_species, coefficient) and assembled into
+    # ImplicitSourceTerm(coeff=coeff*fac, var=c[source_species]) in the
+    # target's FiPy equation inside diagenetic_reactions().
     CROSS[target_species].append((source_species, coeff * fac))
 
-    # ---- Implicit sink on source (LHS only — no RATES here) ----
-    LHS[source_species] = LHS[source_species] - coeff
+    # ---- Implicit sink on source (LHS diagonal — no RATES here) ----
+    if add_lhs_sink:
+        LHS[source_species] = LHS[source_species] - coeff
 
-    # ---- RATES: convert bulk rate to each species' own concentration basis ----
+    # ---- RATES: convert to each species' own concentration basis (for reporting only) ----
     rate_bulk_val = getattr(rate_bulk, "value", rate_bulk)
 
     rate_source = (
-        rate_bulk_val / mp.phi if source_is_liquid else rate_bulk_val * mp.fac_s
-    )
-    rate_target = (
-        rate_bulk_val * mp.fac_s if target_is_liquid else rate_bulk_val / mp.phi
+        rate_bulk_val / mp.phi if source_is_liquid else rate_bulk_val / (1.0 - mp.phi)
     )
 
-    # Source loses material  (sign: negative)
+    # Source loses material (sign: negative)
     RATES[source_species] -= rate_source
 
-    # AFTER — correct volume conversion for each target type
+    # Target gains material with correct volume-fraction conversion
     if target_is_liquid:
-        RATES[target_species] += rate_bulk_val * (1.0 / mp.fac_s)  # × (1-phi)/phi
+        RATES[target_species] += rate_bulk_val / mp.phi
     else:
         RATES[target_species] += rate_bulk_val / (1.0 - mp.phi)
 
@@ -859,17 +888,22 @@ def add_implicit_coupling(
     CROSS, RATES, target_species, source_species, coeff, rate, c=None
 ):
     """
-    Add a coupled source term.
+    Add a coupled source term (legacy helper — prefer ``add_implicit_coupling_new``).
 
     If d[Target]/dt = +coeff * [Source]
     Then we add `ImplicitSourceTerm(coeff=coeff, var=Source)` to Target's equation.
 
     CROSS[target].append( (source, coeff) )
 
-    as well as the associated implicit sink.
-    """
-    # FIXME: This needs the correct conversion factors for porosity mp.fac
+    This function does NOT add an implicit sink for the source species and does NOT
+    apply any porosity conversion to ``coeff``.  It is intended for situations where:
+      1. The source species sink has already been registered by a prior call (e.g.
+         ``add_implicit_sink`` or ``add_implicit_coupling_new``), and
+      2. Any required phase-conversion factor has been applied to ``coeff`` by the caller.
 
+    For new code, use ``add_implicit_coupling_new`` with ``add_lhs_sink=False`` instead,
+    which handles phase-conversion automatically.
+    """
     CROSS[target_species].append((source_species, coeff))
     # Note: Rates are accumulating scalar values for reporting, usually calculated explicitly before calling
     RATES[target_species] += getattr(rate, "value", rate)
