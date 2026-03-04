@@ -879,7 +879,7 @@ def fes_unified_reaction_claude3(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     --------------------------------
     ts2     : add_implicit_coupling_new handles precipitation sink (in L_pw basis)
               add_explicit_source handles dissolution source (in L_pw basis)
-    fe2_total: add_implicit_sink handles precipitation sink (rate in L_bulk basis)
+    fe2_total: CROSS cross-coupling to ts2 handles precipitation sink (off-diagonal)
               add_explicit_source handles dissolution source (in L_bulk basis)
     fes     : add_implicit_coupling_new handles net precip (in L_solid basis)
               add_explicit_source(..., update_rates=False) adds dissolution to RHS only
@@ -918,7 +918,6 @@ def fes_unified_reaction_claude3(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     l_mult = s_bulk / omega_den  # implicit forward multiplier
 
     l_ts2 = l_mult * fe2_pw_val * mp.hs_frac  # implicit coeff for ts2  [L_pw basis]
-    l_fe2 = l_mult * hs_val * mp.fe2_pw_conc  # implicit coeff for fe2  [L_bulk basis]
 
     # Net precipitation in bulk units (positive = net precipitation)
     net_precip_bulk = l_ts2 * ts2_val - s_bulk  # mol/L_bulk/s
@@ -957,12 +956,13 @@ def fes_unified_reaction_claude3(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     add_explicit_source(RHS, RATES, "fes", -s_bulk / (1.0 - mp.phi), update_rates=False)
 
     # ------------------------------------------------------------------
-    # 5c. fe2_total implicit sink
+    # 5c. fe2_total cross-coupling to ts2 (off-diagonal sink)
     # ------------------------------------------------------------------
-    # Pass net_precip_bulk as rate (L_bulk basis matches fe2_total's basis)
-    # No cross-coupling to fes — already handled via ts2 above
-    add_implicit_sink(LHS, RATES, "fe2_total", l_fe2, net_precip_bulk, c=c)
-    # CROSS["fe2_total"].append(("ts2", -l_ts2))  # negative = sink in fe2's equation
+    # Replace independent self-sink with cross-coupling: fe2 consumption is
+    # driven by ts2 concentration, preventing numerical drift.
+    # CROSS entry: ImplicitSourceTerm(coeff=-l_ts2, var=c.ts2) → off-diagonal sink
+    CROSS["fe2_total"].append(("ts2", -l_ts2))
+    RATES["fe2_total"] -= getattr(net_precip_bulk, "value", net_precip_bulk)
 
     # ------------------------------------------------------------------
     # 6. Isotopes (32S)
