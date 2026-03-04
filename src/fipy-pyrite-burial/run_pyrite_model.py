@@ -47,14 +47,14 @@ p_dict = {
     "bc_fe3": weight_percent_to_mol(1, 56, 2.6),
     "DB_depth": 0,
     "DB0": 4e-12 * 0,
-    "max_steps": 50,  # max number of iterations
+    "max_steps": 200,  # max number of iterations
     "tolerance": 1e-12,  # convergence criterion
     "dt_tolerance": 1e-6,  # steady state threshold (stop simulation)
     "dt_target_change": 1.0,  # target change per step (for dt adaptation)
     "state_data": state_in,  # read state data
     # "plot_name": f"{experiment}.csv",
     "dt_init": Q_("1 hour").to("seconds").magnitude,  # initial dt
-    "dt_max": Q_("1 day").to("seconds").magnitude,  # time step in years
+    "dt_max": Q_("1 month").to("seconds").magnitude,  # time step in years
     "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
     "t_end": Q_("10 kyr").to("seconds").magnitude,
     "solver": "non_steady",  # use non-steady solver, non_steady or steady
@@ -74,10 +74,8 @@ p_dict["diagenetic_reactions"] = [
     rn.hs_oxidation,
     rn.elemental_sulfur_oxidation,
     rn.sulfide_mediated_iron_reduction,
-    # rn.fes_formation_only,
-    # rn.fes_dissolution,
     #    rn.fes_unified_reaction_safe,
-    rn.fes_unified_reaction_claude,
+    rn.fes_unified_reaction_claude3,
     rn.fe2_oxidation,
     rn.fes_oxidation,
 ]
@@ -115,16 +113,7 @@ plotter.start()
 # -----------------------------------------------------------------------------
 df, fqfn = save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions)
 
-phi = mp.phi  # FIXME: do we need to scale this?
-s = phi * (df.c_so4.iloc[-1] + df.c_ts2.iloc[-1]) + (1 - phi) * (
-    df.c_s0.iloc[-1] + df.c_fes.iloc[-1] + 2 * df.c_fes2.iloc[-1]
-)
-s32 = phi * (df.c_so4_32.iloc[-1] + df.c_ts2_32.iloc[-1]) + (1 - phi) * (
-    df.c_s0_32.iloc[-1] + df.c_fes_32.iloc[-1] + df.c_fes2_32.iloc[-1]
-)
-
-d34s = get_delta(s, s32, mp.VCDT)
-print(f"d34S = {d34s:0.2f}, d34S pyrite = {df.d_fes2.iloc[-1]:.2f}")
+print(f"d34S = {rn.get_total_delta(c, mp):.2f}")
 
 if state_out:
     save_state(c, state_out)

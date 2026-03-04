@@ -283,6 +283,8 @@ def run_non_steady_state_solver_coupled(
     2. Runs a time loop where reaction terms are updated and solved.
     3. Adapts the time step using a PID-controlled logic.
     """
+    from reactions_new import get_total_delta
+
     start_wall = time.time()
     solver = _get_solver(mp)
 
@@ -388,7 +390,8 @@ def run_non_steady_state_solver_coupled(
             if step % mp.report_step == 0:  # Force reporting for debug
                 print(
                     f"Step {step:4d} | Time: {get_time_units(total_time):.2f~P} | "
-                    f"dt: {get_time_units(current_dt):.2f~P} | RMS Chg: {rms_change:.2e}"
+                    f"dt: {get_time_units(current_dt):.2f~P} | RMS Chg: {rms_change:.2e} | "
+                    f"d34S = {get_total_delta(c, mp):.2f}"
                 )
                 if plot_queue is not None:
                     write_to_queue_async(
