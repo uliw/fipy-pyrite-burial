@@ -924,8 +924,8 @@ def fes_unified_reaction_claude3(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # ------------------------------------------------------------------
     # Pass net_precip_bulk as rate (L_bulk basis matches fe2_total's basis)
     # No cross-coupling to fes — already handled via ts2 above
-    # add_implicit_sink(LHS, RATES, "fe2_total", l_fe2, net_precip_bulk, c=c)
-    CROSS["fe2_total"].append(("ts2", -l_ts2))  # negative = sink in fe2's equation
+    add_implicit_sink(LHS, RATES, "fe2_total", l_fe2, net_precip_bulk, c=c)
+    # CROSS["fe2_total"].append(("ts2", -l_ts2))  # negative = sink in fe2's equation
 
     # ------------------------------------------------------------------
     # 6. Isotopes (32S)
