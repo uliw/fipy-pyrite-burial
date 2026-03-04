@@ -1088,7 +1088,7 @@ def fes_unified_reaction_claude(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         add_explicit_source(RHS, RATES, "fes_32", net_fes_32_solid)
 
 
-def get_total_delta(c, mp):
+def get_total_delta(c, mp, index=-1):
     """Get total delta that is being buried.
 
     Calculate the total amount of S and S32 that leaves the system through the lower
@@ -1103,11 +1103,11 @@ def get_total_delta(c, mp):
 
     # Liquid species are scaled by porosity (phi)
     # Solid species are scaled by solid fraction (1-phi)
-    s = phi * (c.so4.value[-1] + c.ts2.value[-1]) + f_s * (
-        c.s0.value[-1] + c.fes.value[-1] + 2 * c.fes2.value[-1]
+    s = phi * (c.so4.value[index] + c.ts2.value[index]) + f_s * (
+        c.s0.value[index] + c.fes.value[index] + 2 * c.fes2.value[index]
     )
-    s32 = phi * (c.so4_32.value[-1] + c.ts2_32.value[-1]) + f_s * (
-        c.s0_32.value[-1] + c.fes_32.value[-1] + c.fes2_32.value[-1]
+    s32 = phi * (c.so4_32.value[index] + c.ts2_32.value[index]) + f_s * (
+        c.s0_32.value[index] + c.fes_32.value[index] + c.fes2_32.value[index]
     )
 
     return get_delta(s, s32, mp.VCDT)

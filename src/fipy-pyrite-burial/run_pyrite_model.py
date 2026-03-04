@@ -47,7 +47,7 @@ p_dict = {
     "bc_fe3": weight_percent_to_mol(1, 56, 2.6),
     "DB_depth": 0,
     "DB0": 4e-12 * 0,
-    "max_steps": 200,  # max number of iterations
+    "max_steps": 20,  # max number of iterations
     "tolerance": 1e-12,  # convergence criterion
     "dt_tolerance": 1e-6,  # steady state threshold (stop simulation)
     "dt_target_change": 1.0,  # target change per step (for dt adaptation)
