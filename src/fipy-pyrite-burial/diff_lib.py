@@ -805,15 +805,16 @@ def add_implicit_coupling_new(
     mp,
     c,
     add_lhs_sink=True,
+    stoich_ratio=1.0,
 ):
     """
-    Add a coupled implicit source term with porosity correction.
+    Add a coupled implicit source term with porosity correction and optional stoichiometry.
 
-    d[Target]/dt = +coeff * fac * [Source]   (off-diagonal cross-coupling)
-    d[Source]/dt = -coeff       * [Source]   (implicit sink, only when add_lhs_sink=True)
+    d[Target]/dt = +coeff * fac * stoich_ratio * [Source]   (off-diagonal cross-coupling)
+    d[Source]/dt = -coeff                       * [Source]   (implicit sink, only when add_lhs_sink=True)
 
-    The cross-coupling coefficient ``coeff * fac`` is stored in the CROSS dict and is
-    later assembled into a FiPy ``ImplicitSourceTerm(coeff=coeff*fac, var=c[source])``
+    The cross-coupling coefficient ``coeff * fac * stoich_ratio`` is stored in the CROSS dict
+    and is later assembled into a FiPy ``ImplicitSourceTerm(coeff=coeff*fac*stoich_ratio, var=c[source])``
     in the target species' equation.  Because ``var`` refers to a *different* species
     variable than the equation being built, FiPy places the term in the off-diagonal
     block of the coupled block matrix.
@@ -830,7 +831,7 @@ def add_implicit_coupling_new(
     coeff : array-like
         Implicit rate coefficient for the source species sink (units: 1/s in the
         source species' own concentration basis).  The cross-coupling coefficient
-        stored in CROSS is ``coeff * fac``.
+        stored in CROSS is ``coeff * fac * stoich_ratio``.
     rate_bulk : array-like
         Reaction rate passed in the source species' own concentration basis,
         used only for RATES reporting (diagnostics/plotting).  Not used by the solver.
@@ -840,6 +841,9 @@ def add_implicit_coupling_new(
         source species sink has already been registered by a prior call for the same
         reaction (e.g. via ``add_implicit_sink`` or a previous ``add_implicit_coupling_new``),
         to avoid double-counting the sink while still adding the off-diagonal cross term.
+    stoich_ratio : float, optional (default 1.0)
+        The stoichiometric ratio between the source and target species. For example,
+        if 2 parts of target are produced for 1 part of source consumed, stoich_ratio=2.0.
     """
     # ---- Porosity factor (source → target volume conversion) ----
     if ctype == "liquid_2_liquid":
@@ -859,9 +863,9 @@ def add_implicit_coupling_new(
 
     # ---- Cross-coupling (off-diagonal block) ----
     # Stored as (source_species, coefficient) and assembled into
-    # ImplicitSourceTerm(coeff=coeff*fac, var=c[source_species]) in the
+    # ImplicitSourceTerm(coeff=coeff*fac*stoich_ratio, var=c[source_species]) in the
     # target's FiPy equation inside diagenetic_reactions().
-    CROSS[target_species].append((source_species, coeff * fac))
+    CROSS[target_species].append((source_species, coeff * fac * stoich_ratio))
 
     # ---- Implicit sink on source (LHS diagonal — no RATES here) ----
     if add_lhs_sink:
@@ -879,9 +883,9 @@ def add_implicit_coupling_new(
 
     # Target gains material with correct volume-fraction conversion
     if target_is_liquid:
-        RATES[target_species] += rate_bulk_val / mp.phi
+        RATES[target_species] += (rate_bulk_val / mp.phi) * stoich_ratio
     else:
-        RATES[target_species] += rate_bulk_val / (1.0 - mp.phi)
+        RATES[target_species] += (rate_bulk_val / (1.0 - mp.phi)) * stoich_ratio
 
 
 def add_implicit_coupling(
