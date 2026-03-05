@@ -34,6 +34,7 @@ def get_layout(df):
                 [df.c_ts2, "TS$^{2-}$", {"color": "C1"}],
                 [df.c_o2, "O2", {"color": "C3"}],
                 [df.c_fe2, r"Fe$^{2+}$", {"color": "C8"}],
+                [df.c_fe2_total, r"TFe$^{2+}$", {"color": "C8", "linestyle": "dotted"}],
                 [
                     df.c_fe2_total + df.c_fe3 + df.c_fes + df.c_fes2,
                     r"Total Iron$",

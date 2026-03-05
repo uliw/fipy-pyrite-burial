@@ -43,11 +43,11 @@ state_out = "statenpz2.npz"
 # state_out = None
 
 p_dict = {
-    "bc_fe3": weight_percent_to_mol(0.0001, 56, 2.6),
+    # "bc_fe3": weight_percent_to_mol(0.0001, 56, 2.6),
     "bc_fe3": weight_percent_to_mol(1, 56, 2.6),
     "DB_depth": 0,
     "DB0": 4e-12 * 0,
-    "max_steps": 20,  # max number of iterations
+    "max_steps": 200,  # max number of iterations
     "tolerance": 1e-12,  # convergence criterion
     "dt_tolerance": 1e-6,  # steady state threshold (stop simulation)
     "dt_target_change": 1.0,  # target change per step (for dt adaptation)
@@ -74,10 +74,10 @@ p_dict["diagenetic_reactions"] = [
     rn.hs_oxidation,
     rn.elemental_sulfur_oxidation,
     rn.sulfide_mediated_iron_reduction,
-    #    rn.fes_unified_reaction_safe,
-    rn.fes_unified_reaction_claude3,
+    rn.fes_unified_reaction,
     rn.fe2_oxidation,
     rn.fes_oxidation,
+    rn.pyrite_formation_s0,
 ]
 
 p_dict["instantenous_reactions"] = [
