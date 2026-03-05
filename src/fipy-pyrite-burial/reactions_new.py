@@ -541,8 +541,8 @@ def pyrite_formation_s0(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     This is a bit tricky as we have two different S atoms into the same
     target (FeS2)
     """
-    # S0 Sink Solid
-    coeff_s0 = k.fes_s0 * c.fes * mp.fac_s
+    # S0 Sink to Solid so no porosity scaling
+    coeff_s0 = k.fes_s0 * c.fes
     add_implicit_sink(LHS, RATES, "s0", coeff_s0, coeff_s0 * c.s0, c=c)
 
     # FeS to FeS2 SOLID, Rate = k * FeS * S0.
@@ -561,7 +561,10 @@ def pyrite_formation_s0(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     )
 
     if hasattr(c, "fes2_32"):
-        # 1st sulfur atom from S0_32 to FeS2_32
+        # S0 is porewater → must include mp.fac_s to match bulk sink coefficient,
+        # and use "liquid_2_solid" for correct volume conversion to fes2_32 (solid)
+
+        # 1st S atom: from s0_32 (porewater) to fes2_32 (solid)
         add_implicit_coupling_new(
             "solid_2_solid",
             CROSS,
@@ -570,11 +573,12 @@ def pyrite_formation_s0(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             "fes2_32",
             "s0_32",
             k.fes_s0 * c.fes,
-            k.fes_s0 * c.fes * c.s0_32,
+            k.fes_s0 * c.fes,
             mp,
             c=c,
         )
-        # 2nd sulfur atom from FeS_32 to FeS2_32 coeff_fes = k.fes_s0 * c.s0
+
+        # 2nd S atom: from fes_32 (solid) to fes2_32 (solid) — this was correct
         add_implicit_coupling_new(
             "solid_2_solid",
             CROSS,
