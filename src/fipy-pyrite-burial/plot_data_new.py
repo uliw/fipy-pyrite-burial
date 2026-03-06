@@ -106,9 +106,9 @@ def plot(
     fig_width = plot_description.get("fig_width", plot_description.get("plot_width"))
     if fig_width is None and valid_subplots:
         first_config = list(valid_subplots.values())[0]
-        fig_width = first_config.get("fig_width", first_config.get("plot_width", 8))
+        fig_width = first_config.get("fig_width", first_config.get("plot_width", 12))
     elif fig_width is None:
-        fig_width = 8
+        fig_width = 12
 
     if fig_handle is None:
         fig.set_size_inches(fig_width, 2 + 2 * n_subplots)

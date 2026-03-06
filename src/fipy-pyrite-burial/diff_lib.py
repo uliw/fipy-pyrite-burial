@@ -801,7 +801,7 @@ def add_implicit_coupling_new(
     target_species,
     source_species,
     coeff,
-    rate_bulk,
+    rate,
     mp,
     c,
     add_lhs_sink=True,
@@ -832,7 +832,7 @@ def add_implicit_coupling_new(
         Implicit rate coefficient for the source species sink (units: 1/s in the
         source species' own concentration basis).  The cross-coupling coefficient
         stored in CROSS is ``coeff * fac * stoich_ratio``.
-    rate_bulk : array-like
+    rate : array-like
         Reaction rate passed in the source species' own concentration basis,
         used only for RATES reporting (diagnostics/plotting).  Not used by the solver.
     add_lhs_sink : bool, optional (default True)
@@ -845,21 +845,23 @@ def add_implicit_coupling_new(
         The stoichiometric ratio between the source and target species. For example,
         if 2 parts of target are produced for 1 part of source consumed, stoich_ratio=2.0.
     """
-    # ---- Porosity factor (source → target volume conversion) ----
-    if ctype == "liquid_2_liquid":
-        fac = 1.0
-    elif ctype == "liquid_2_solid":
-        fac = mp.fac_s  # phi / (1-phi)
-    elif ctype == "solid_2_solid":
-        fac = 1.0
-    elif ctype == "solid_2_liquid":
-        fac = 1.0 / mp.fac_s  # (1-phi) / phi
-    else:
-        raise ValueError(f"ctype must be liquid_2_liquid/solid/etc., not {ctype}")
-
-    # ---- Is each side a liquid or solid? ----
     source_is_liquid = ctype.startswith("liquid")
     target_is_liquid = ctype.endswith("liquid")
+
+    # ---- Single conversion: species basis → bulk ----
+    rate_val = getattr(rate, "value", rate)
+    rate_bulk = rate_val * mp.phi if source_is_liquid else rate_val * (1.0 - mp.phi)
+
+    # ---- Porosity factor for matrix cross-coupling coefficient ----
+    fac = {
+        "liquid_2_liquid": 1.0,
+        "liquid_2_solid": mp.fac_s,
+        "solid_2_solid": 1.0,
+        "solid_2_liquid": 1.0 / mp.fac_s,
+    }.get(ctype)
+
+    if fac is None:
+        raise ValueError(f"Unknown ctype: {ctype}")
 
     # ---- Cross-coupling (off-diagonal block) ----
     # Stored as (source_species, coefficient) and assembled into
@@ -871,21 +873,13 @@ def add_implicit_coupling_new(
     if add_lhs_sink:
         LHS[source_species] = LHS[source_species] - coeff
 
-    # ---- RATES: convert to each species' own concentration basis (for reporting only) ----
-    rate_bulk_val = getattr(rate_bulk, "value", rate_bulk)
+    # ---- RATES reporting ----
+    # Source: rate_val is already in source species' own basis — no conversion needed
+    RATES[source_species] -= rate_val
 
-    rate_source = (
-        rate_bulk_val / mp.phi if source_is_liquid else rate_bulk_val / (1.0 - mp.phi)
-    )
-
-    # Source loses material (sign: negative)
-    RATES[source_species] -= rate_source
-
-    # Target gains material with correct volume-fraction conversion
-    if target_is_liquid:
-        RATES[target_species] += (rate_bulk_val / mp.phi) * stoich_ratio
-    else:
-        RATES[target_species] += (rate_bulk_val / (1.0 - mp.phi)) * stoich_ratio
+    # Target: convert bulk → target species' own basis, apply stoichiometry
+    target_rate = rate_bulk / mp.phi if target_is_liquid else rate_bulk / (1.0 - mp.phi)
+    RATES[target_species] += target_rate * stoich_ratio
 
 
 def add_implicit_coupling(

@@ -32,7 +32,7 @@ def get_reaction_constants(phi, pH):
             "m^3/(mol*second)",
             "m^3/(mol*second)",
         ],  # FeS + S0 -> FeS2, TBD ???
-        "fes_t2s": [
+        "fes_ts2": [
             5e-8,
             "m^3/(mol*second)",
             "m^3/(mol*second)",

@@ -38,28 +38,28 @@ print("Starting run_pyrite_model.py...", flush=True)
 
 experiment = "msr_h2s_ox_fe3_sorb_fe2_ox_fes"
 # state_in = "statenpz.npz"
-state_in = "statenpz.npz"
+state_in = None
 state_out = "statenpz2.npz"
 # state_out = None
 
 p_dict = {
     # "bc_fe3": weight_percent_to_mol(0.0001, 56, 2.6),
+    "t_end": Q_("10 kyr").to("seconds").magnitude,
+    "max_steps": 1000,  # max number of iterations
+    "dt_init": Q_("1 hour").to("seconds").magnitude,  # initial dt
+    "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
+    "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
     "bc_fe3": weight_percent_to_mol(1, 56, 2.6),
     "DB_depth": 0,
     "DB0": 4e-12 * 0,
-    "max_steps": 200,  # max number of iterations
     "tolerance": 1e-12,  # convergence criterion
     "dt_tolerance": 1e-6,  # steady state threshold (stop simulation)
     "dt_target_change": 1.0,  # target change per step (for dt adaptation)
     "state_data": state_in,  # read state data
     # "plot_name": f"{experiment}.csv",
-    "dt_init": Q_("1 hour").to("seconds").magnitude,  # initial dt
-    "dt_max": Q_("1 month").to("seconds").magnitude,  # time step in years
-    "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
-    "t_end": Q_("10 kyr").to("seconds").magnitude,
     "solver": "non_steady",  # use non-steady solver, non_steady or steady
     "solver_backend": "default",  # see solver_calls for options
-    # "solver_backend": "petscSolver",  # see solver_calls for options
+    "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
     "initial_spacing": 0.01,  # meters
     "reaction_zone_spacing": 0.001,  # meters
     "max_spacing": 0.1,  # meters, None = no cap
@@ -78,6 +78,8 @@ p_dict["diagenetic_reactions"] = [
     rn.fe2_oxidation,
     rn.fes_oxidation,
     rn.pyrite_formation_s0,
+    rn.pyrite_formation_fes_ts2,
+    rn.pyrite_oxidation,
 ]
 
 p_dict["instantenous_reactions"] = [
