@@ -457,9 +457,10 @@ def fe2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     add_implicit_sink(LHS, RATES, "o2", coeff_o2, rate_base * 0.25, c=c)
 
     # Fe3 Source (1.0x) - SOLID
-    # Couple to Fe2 (Liquid)
+    # Couple to Fe2 (Liquid) — fe2_total is "dissolved" (porewater basis),
+    # so the conversion is liquid → solid.
     add_implicit_coupling_new(
-        "solid_2_solid",
+        "liquid_2_solid",
         CROSS,
         RATES,
         LHS,
@@ -883,8 +884,8 @@ def fes_unified_reaction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         RHS, RATES, "ts2", s_bulk / mp.phi, update_rates=False
     )  # L_pw basis
     add_explicit_source(
-        RHS, RATES, "fe2_total", s_bulk, update_rates=False
-    )  # L_bulk basis
+        RHS, RATES, "fe2_total", s_bulk / mp.phi, update_rates=False
+    )  # L_pw basis (fe2_total is dissolved)
 
     # Dissolution removes FeS: add to RHS only — RATES["fes"] already set by helper above
     add_explicit_source(RHS, RATES, "fes", -s_bulk / (1.0 - mp.phi), update_rates=False)
@@ -894,9 +895,10 @@ def fes_unified_reaction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # ------------------------------------------------------------------
     # Replace independent self-sink with cross-coupling: fe2 consumption is
     # driven by ts2 concentration, preventing numerical drift.
-    # CROSS entry: ImplicitSourceTerm(coeff=-l_ts2, var=c.ts2) → off-diagonal sink
-    CROSS["fe2_total"].append(("ts2", -l_ts2))
-    RATES["fe2_total"] -= getattr(net_precip_bulk, "value", net_precip_bulk)
+    # CROSS entry: ImplicitSourceTerm(coeff=-l_ts2/phi, var=c.ts2) → off-diagonal sink
+    # fe2_total is dissolved (L_pw basis), so divide by phi like ts2.
+    CROSS["fe2_total"].append(("ts2", -l_ts2 / mp.phi))
+    RATES["fe2_total"] -= getattr(net_precip_bulk, "value", net_precip_bulk) / mp.phi
 
     # ------------------------------------------------------------------
     # 6. Isotopes (32S)
