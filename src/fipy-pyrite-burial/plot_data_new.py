@@ -62,6 +62,7 @@ def plot(
     measured_data_path=None,
     fig_handle=None,
     keep_open=False,
+    title=None,
 ):
     """Plot data dynamically based on plot_description.
 
@@ -126,6 +127,8 @@ def plot(
     if fig_handle is None:
         fig.set_size_inches(fig_width, 2 + 2 * n_subplots)
 
+    if title is not None:
+        fig.suptitle(f"{title}", fontsize=16)
     # Track all axes for xlim adjustment
     all_axes = []
     ax_objects = []

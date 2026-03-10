@@ -26,6 +26,7 @@ class LivePlotter:
         output_path: Optional[str] = None,
         video_path: Optional[str] = None,
         fps: int = 15,
+        title: Optional[str] = None,
     ):
         self.layout_path = layout_path
         self.display_length = display_length
@@ -37,6 +38,7 @@ class LivePlotter:
         self._ctx = mp.get_context("spawn")
         self._queue = self._ctx.Queue()
         self._process: Optional[mp.Process] = None
+        self.title = title
 
     @property
     def queue(self):
@@ -80,6 +82,7 @@ class LivePlotter:
         last_df = None
         plt_desc = None
         writer = None
+        last_title = None
 
         print(
             f"[LivePlotter] Background process started (Animation: {self.video_path is not None})."
@@ -95,7 +98,7 @@ class LivePlotter:
 
             def process_data_item(data_item) -> bool:
                 """Processes a single data item. Returns True if we should stop."""
-                nonlocal fig, ax_objects, last_df, plt_desc, writer
+                nonlocal fig, ax_objects, last_df, plt_desc, writer, last_title
                 if data_item is None:
                     print("[LivePlotter] Termination signal received.")
                     if fig and last_df is not None and self.output_path:
@@ -109,10 +112,13 @@ class LivePlotter:
                             plot_description=plt_desc,
                             measured_data_path=self.measured_data_path,
                             keep_open=True,
+                            title=last_title or self.title,
                         )
                     return True
 
-                df = pd.DataFrame(data_item)
+                data, title = data_item
+                last_title = title
+                df = pd.DataFrame(data)
                 last_df = df
 
                 try:
@@ -126,6 +132,7 @@ class LivePlotter:
                             plot_description=plt_desc,
                             measured_data_path=self.measured_data_path,
                             keep_open=True,
+                            title=title or self.title,
                         )
                     else:
                         plot_data_new.plot(
@@ -137,6 +144,7 @@ class LivePlotter:
                             plot_description=plt_desc,
                             measured_data_path=self.measured_data_path,
                             keep_open=True,
+                            title=title or self.title,
                         )
                 except Exception as e:
                     if "invalid command name" not in str(e):
@@ -167,7 +175,7 @@ class LivePlotter:
                                 f"[LivePlotter] Setting up writer for {self.video_path}...",
                                 flush=True,
                             )
-                            writer.setup(fig, self.video_path, dpi=100)
+                            writer.setup(fig, self.video_path, dpi=300)
                             writer._saving = True
                         try:
                             writer.grab_frame()
@@ -223,6 +231,7 @@ def write_to_queue_async(
     D_mol: Any,
     diagenetic_reactions: Any,
     current_dt: float,
+    title: str,
 ) -> None:
     """
     Simultaneously snaps model state and sends it to the plot_queue.
@@ -280,7 +289,7 @@ def write_to_queue_async(
     # 3. Send to queue (as a simple dict of numpy arrays, which is picklable)
     # Use put_nowait or a short timeout to avoid blocking the simulation if queue is full
     try:
-        plot_queue.put_nowait(data)
+        plot_queue.put_nowait((data, title))
     except Exception:
         # If queue is full, just skip this update for performance
         pass

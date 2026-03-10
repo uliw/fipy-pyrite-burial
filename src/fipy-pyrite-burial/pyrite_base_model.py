@@ -89,6 +89,7 @@ def pyrite_model(p_dict: dict, plot_queue=None):
             "reaction_zone": (5e-2, 2e-1),  # in meters
             "max_spacing": 0.1,  # meters, None = no cap
             "state_data": "state_data.npz",
+            "title": None,  # defaults to current time
         }
     )
 

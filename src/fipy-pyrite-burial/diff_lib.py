@@ -609,7 +609,15 @@ def check_peclet_numbers(mesh, mp, D_mol, species_list, bc_map):
 
 
 def save_data_async(
-    mp, c, k, species_list, z, D_mol, diagenetic_reactions, current_dt
+    mp,
+    c,
+    k,
+    species_list,
+    z,
+    D_mol,
+    diagenetic_reactions,
+    current_dt,
+    title=None,
 ) -> None:
     """
     Schedule a background write of model results to CSV and return immediately.

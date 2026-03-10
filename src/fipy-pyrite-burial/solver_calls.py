@@ -418,11 +418,17 @@ def run_non_steady_state_solver_coupled(
 
             # Reporting
             if step % mp.report_step == 0:  # Force reporting for debug
+                time_str = f" Time: {get_time_units(total_time):.2f~P}"
+                if mp.title is None:
+                    title_str = time_str
+                else:
+                    title_str = mp.title
                 print(
-                    f"Step {step:4d} | Time: {get_time_units(total_time):.2f~P} | "
+                    f"Step {step:4d} | {time_str} | "
                     f"dt: {get_time_units(current_dt):.2f~P} | RMS Chg: {rms_change:.2e} | "
                     f"d34S = {get_total_delta(c, mp):.2f}"
                 )
+
                 if plot_queue is not None:
                     write_to_queue_async(
                         plot_queue,
@@ -434,6 +440,7 @@ def run_non_steady_state_solver_coupled(
                         D_mol,
                         diagenetic_reactions,
                         current_dt,
+                        title_str,
                     )
                 else:
                     save_data_async(
@@ -445,6 +452,7 @@ def run_non_steady_state_solver_coupled(
                         D_mol,
                         diagenetic_reactions,
                         current_dt,
+                        title=title_str,
                     )
 
             # Steady State Check
@@ -476,6 +484,7 @@ def run_non_steady_state_solver_coupled(
             D_mol,
             diagenetic_reactions,
             current_dt,
+            title_str,
         )
     else:
         save_data_async(
