@@ -1,23 +1,5 @@
 """Define a specific modeling scenario."""
 
-from petsc4py import PETSc
-
-if not hasattr(PETSc.KSP.ConvergedReason, "CONVERGED_ATOL_NORMAL"):
-    PETSc.KSP.ConvergedReason.CONVERGED_ATOL_NORMAL = (
-        PETSc.KSP.ConvergedReason.CONVERGED_ATOL_NORMAL_EQUATIONS
-    )
-if not hasattr(PETSc.KSP.ConvergedReason, "CONVERGED_RTOL_NORMAL"):
-    PETSc.KSP.ConvergedReason.CONVERGED_RTOL_NORMAL = (
-        PETSc.KSP.ConvergedReason.CONVERGED_RTOL_NORMAL_EQUATIONS
-    )
-
-import fipy.tools.comms.dummyComm
-
-if not hasattr(fipy.tools.comms.dummyComm.DummyComm, "petsc4py_comm"):
-    fipy.tools.comms.dummyComm.DummyComm.petsc4py_comm = property(
-        fget=lambda x: PETSc.COMM_SELF
-    )
-
 import pint
 from diff_lib import (
     save_data,
@@ -44,11 +26,11 @@ state_out = "state.npz"
 p_dict = {
     # "bc_fe3": weight_percent_to_mol(0.0001, 56, 2.6),
     "t_end": Q_("1 kyear").to("seconds").magnitude,
-    "max_steps": 5000,  # max number of iterations
+    "max_steps": 10,  # max number of iterations
     "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
     "dt_init": Q_("1 hour").to("seconds").magnitude,  # initial dt
     "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
-    "process_monitor": "video",  # gui | video | none
+    "process_monitor": "gui",  # gui | video | none
     "plot_name": f"{experiment}",
     "isotopes": False,
     "report_step": 10,  # how often to update plot

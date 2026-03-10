@@ -14,7 +14,6 @@ from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
 from fipy.terms.diffusionTerm import DiffusionTerm
 from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
 from fipy.terms.transientTerm import TransientTerm
-from petsc4py import PETSc
 
 from diff_lib import get_time_units, data_container, save_data_async
 from live_plot_lib import write_to_queue_async
@@ -22,16 +21,6 @@ from reactions_new import equilibrium_reactions
 
 if TYPE_CHECKING:
     from fipy.meshes.mesh import Mesh
-
-# PETSc version-specific fix for converged reason constants
-if not hasattr(PETSc.KSP.ConvergedReason, "CONVERGED_ATOL_NORMAL"):
-    PETSc.KSP.ConvergedReason.CONVERGED_ATOL_NORMAL = (
-        PETSc.KSP.ConvergedReason.CONVERGED_ATOL_NORMAL_EQUATIONS
-    )
-if not hasattr(PETSc.KSP.ConvergedReason, "CONVERGED_RTOL_NORMAL"):
-    PETSc.KSP.ConvergedReason.CONVERGED_RTOL_NORMAL = (
-        PETSc.KSP.ConvergedReason.CONVERGED_RTOL_NORMAL_EQUATIONS
-    )
 
 
 @dataclass
@@ -140,27 +129,45 @@ def _get_solver(mp: Any) -> Any:
     backend = mp.solver_backend
     tol = mp.tolerance
 
-    if backend == "LinearGMRESSolver":
-        from fipy.solvers.petsc import LinearGMRESSolver
+    if backend == "default":
+        from fipy import DefaultSolver
 
-        return LinearGMRESSolver(precon="hypre", tolerance=tol)
-    elif backend == "petscSolver":
-        # this is currently not working
-        from fipy.solvers.petsc import petscSolver
-
-        return petscSolver(tolerance=tol)
+        solver = DefaultSolver(tolerance=tol)
     elif backend == "LinearLUSolver":
         from fipy import LinearLUSolver
 
-        return LinearLUSolver(tolerance=tol)
-    elif backend == "PETScNewtonSolver":
-        from fipy.solvers.petsc import PETScNewtonSolver
-
-        return PETScNewtonSolver(precon="hypre", tolerance=tol, max_it=30, damping=0.5)
+        solver = LinearLUSolver(tolerance=tol)
     else:
-        from fipy import DefaultSolver
+        from petsc4py import PETSc
 
-        return DefaultSolver(tolerance=tol)
+        # PETSc version-specific fix for converged reason constants
+        if not hasattr(PETSc.KSP.ConvergedReason, "CONVERGED_ATOL_NORMAL"):
+            PETSc.KSP.ConvergedReason.CONVERGED_ATOL_NORMAL = (
+                PETSc.KSP.ConvergedReason.CONVERGED_ATOL_NORMAL_EQUATIONS
+            )
+        if not hasattr(PETSc.KSP.ConvergedReason, "CONVERGED_RTOL_NORMAL"):
+            PETSc.KSP.ConvergedReason.CONVERGED_RTOL_NORMAL = (
+                PETSc.KSP.ConvergedReason.CONVERGED_RTOL_NORMAL_EQUATIONS
+            )
+
+        if backend == "LinearGMRESSolver":
+            from fipy.solvers.petsc import LinearGMRESSolver
+
+            solver = LinearGMRESSolver(precon="hypre", tolerance=tol)
+        elif backend == "petscSolver":
+            # this is currently not working
+            from fipy.solvers.petsc import petscSolver
+
+            solver = petscSolver(tolerance=tol)
+
+        elif backend == "PETScNewtonSolver":
+            from fipy.solvers.petsc import PETScNewtonSolver
+
+            solver = PETScNewtonSolver(
+                precon="hypre", tolerance=tol, max_it=30, damping=0.5
+            )
+
+    return solver
 
 
 def _build_passive_eqs(
