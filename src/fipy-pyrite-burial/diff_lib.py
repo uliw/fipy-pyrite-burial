@@ -873,9 +873,9 @@ def add_implicit_coupling_new(
     if add_lhs_sink:
         LHS[source_species] = LHS[source_species] - coeff
 
-    # ---- RATES reporting ----
-    # Source: rate_val is already in source species' own basis — no conversion needed
-    RATES[source_species] -= rate_val
+        # ---- RATES reporting ----
+        # Source: rate_val is already in source species' own basis — no conversion needed
+        RATES[source_species] -= rate_val
 
     # Target: convert bulk → target species' own basis, apply stoichiometry
     target_rate = rate_bulk / mp.phi if target_is_liquid else rate_bulk / (1.0 - mp.phi)

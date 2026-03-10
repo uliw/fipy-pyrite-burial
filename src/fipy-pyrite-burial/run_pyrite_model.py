@@ -44,8 +44,8 @@ state_out = "statenpz2.npz"
 
 p_dict = {
     # "bc_fe3": weight_percent_to_mol(0.0001, 56, 2.6),
-    "t_end": Q_("10 kyr").to("seconds").magnitude,
-    "max_steps": 1000,  # max number of iterations
+    "t_end": Q_("40 kyear").to("seconds").magnitude,
+    "max_steps": 80000,  # max number of iterations
     "dt_init": Q_("1 hour").to("seconds").magnitude,  # initial dt
     "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
     "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
@@ -116,6 +116,10 @@ plotter.start()
 df, fqfn = save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions)
 
 print(f"d34S = {rn.get_total_delta(c, mp):.2f}")
+from diff_lib import mol_to_weight_percent
+
+total_iron = df.c_fe2_total + df.c_fe3 + df.c_fes + df.c_fes2
+print(f"total_iron diff = {total_iron.max() - total_iron.min():.2e}")
 
 if state_out:
     save_state(c, state_out)

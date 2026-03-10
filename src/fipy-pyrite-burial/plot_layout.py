@@ -76,6 +76,7 @@ def get_layout(df):
                     {"color": "black"},
                 ],
             ],
+            "right_ylim": (0, 4),
             "right2": [
                 [
                     mol_to_weight_percent(df.c_fe3, 56, 2.6),
@@ -90,6 +91,7 @@ def get_layout(df):
                     {"color": "black", "linestyle": "dotted"},
                 ],
             ],
+            "right2_ylim": (0, 3),
         },
         "second_subplot": {
             "xaxis": [df.z, "Depth [m]"],

@@ -110,6 +110,19 @@ def plot(
     elif fig_width is None:
         fig_width = 12
 
+    # Calculate maximum number of right axes across all subplots
+    max_right_axes = 0
+    # Potential keys: "right", "right1", "right2", ...
+    keys_to_check = ["right"] + [f"right{i}" for i in range(1, MAX_RIGHT_AXES + 1)]
+    for subplot_config in valid_subplots.values():
+        n_right = sum(
+            1 for key in keys_to_check if key in subplot_config and subplot_config[key]
+        )
+        max_right_axes = max(max_right_axes, n_right)
+
+    # Grow figure width by 1 inch per right axis
+    fig_width += max_right_axes
+
     if fig_handle is None:
         fig.set_size_inches(fig_width, 2 + 2 * n_subplots)
 
