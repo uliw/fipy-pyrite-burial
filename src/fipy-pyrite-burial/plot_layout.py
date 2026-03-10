@@ -90,6 +90,12 @@ def get_layout(df):
                     r"TFe [wt% Fe]",
                     {"color": "black", "linestyle": "dotted"},
                 ],
+                [
+                    mol_to_weight_percent(df.c_fe2_total, 56, 2.6),
+                    # df.c_fes2,
+                    r"Fe$^{2+}$ total [wt% Fe]",
+                    {"color": "C8", "linestyle": "dotted"},
+                ],
             ],
             "right2_ylim": (0, 3),
         },

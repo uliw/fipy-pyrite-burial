@@ -35,9 +35,7 @@ def pyrite_model(p_dict: dict, plot_queue=None):
 
     from reactions_new import diagenetic_reactions
     from reaction_constants import get_reaction_constants
-
-    # from reactions_old import diagenetic_reactions
-    # from coupled_reactions import diagenetic_reactions
+    from live_plot_lib import LivePlotter
 
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
@@ -46,8 +44,9 @@ def pyrite_model(p_dict: dict, plot_queue=None):
 
     mp = data_container(
         {
-            "plot_name": "pyrite_model_fipy.csv",
+            "plot_name": "pyrite_model_fipy",
             "layout_file": "plot_layout.py",  # Plot layout file
+            "process_monitor": "video",  # gui | video | none
             "steady_state": False,  # assume steady state?
             "max_depth": 10.0,  # meters
             "display_length": 2,  # meters
@@ -56,6 +55,7 @@ def pyrite_model(p_dict: dict, plot_queue=None):
             "w": Q_("46 cm/kyr").to("m/s").m,  # sedimentation rate in m/s
             "advection": 0,  # upward directed flow component
             "pH": 7.5,  # porewater pH, Velde et al.
+            "isotopes": False,  # include isotope calculations
             "so4_d": 21,  # seawater delta
             "msr_alpha": 1.07,  # MSR enrichment factor in mUr
             "hs_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
@@ -246,6 +246,30 @@ def pyrite_model(p_dict: dict, plot_queue=None):
 
     check_peclet_numbers(mesh, mp, D_mol, species_list_partial, bc_map)
 
+    # --- Setup LivePlotter ---
+    plotter = None
+    if plot_queue is None and mp.process_monitor != "none":
+        output_path = f"{mp.plot_name}.pdf"
+        import os
+
+        video_path = (
+            os.path.abspath(f"{mp.plot_name}.mp4")
+            if mp.process_monitor == "video"
+            else None
+        )
+
+        plotter = LivePlotter(
+            layout_path=mp.layout_file,
+            display_length=mp.display_length,
+            output_path=output_path,
+            video_path=video_path,
+        )
+        print(f"[Parent] Starting LivePlotter...", flush=True)
+        plotter.start()
+        print(f"[Parent] LivePlotter started. Queue: {plotter.queue}", flush=True)
+        plot_queue = plotter.queue
+
+    print(f"[Parent] Calling solver...", flush=True)
     step, max_change = run_non_steady_state_solver_coupled(
         mp,
         c,
@@ -259,6 +283,10 @@ def pyrite_model(p_dict: dict, plot_queue=None):
         z,
         plot_queue=plot_queue,
     )
+
+    if plotter:
+        plotter.stop()
+
     converged = "Yes" if step < mp.max_steps else "No"
     total_time = 0.0
 
@@ -279,6 +307,7 @@ def pyrite_model(p_dict: dict, plot_queue=None):
 # code stub to run pyrite model
 if __name__ == "__main__":
     import pint
+    import plot_data_new
     from diff_lib import (
         save_data,
         get_delta,

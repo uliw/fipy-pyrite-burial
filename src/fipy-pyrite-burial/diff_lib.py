@@ -420,7 +420,7 @@ def _save_data_to_disk(mp, c, k, species_list, z, D_mol, f_final):
 
     df = pd.DataFrame(data)
     # Ensure no NaN from misalignment by strictly using the same structure
-    fqfn = pl.Path.cwd() / mp.plot_name
+    fqfn = pl.Path.cwd() / f"{mp.plot_name}.csv"
     df.to_csv(fqfn, index=False)
 
     return df, fqfn

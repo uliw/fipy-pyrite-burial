@@ -193,7 +193,7 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     )
 
     # isotopes
-    if hasattr(c, "so4_32"):
+    if mp.isotopes:
         alpha = 1.0 + (mp.msr_alpha - 1.0) * lim["alpha_explicit"]
         s_val = c.so4 + 1e-12
         s32_val = c.so4_32 + 1e-12
@@ -241,7 +241,7 @@ def hs_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         c=c,
     )
 
-    if hasattr(c, "ts2_32"):
+    if mp.isotopes:
         """Calculate Fractionation Factors using Explicit Values (Linearization)
         Note: We use .value to get numpy arrays for the denominator to avoid
         creating complex non-linear FiPy terms that slow convergence.
@@ -315,7 +315,7 @@ def elemental_sulfur_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         c=c,
     )
 
-    if hasattr(c, "s0_32"):
+    if mp.isotopes:
         # S0_32 Source (1.0x) - LIQUID, Coupled to S0_32 (SOLID)
         add_implicit_coupling_new(
             "solid_2_liquid",
@@ -355,7 +355,7 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     coeff_coupling_fe2 = k.fe3_hs * c.ts2 * mp.hs_frac
 
     add_implicit_coupling_new(
-        "solid_2_liquid",
+        "solid_2_solid",
         CROSS,
         RATES,
         LHS,
@@ -383,7 +383,7 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         c=c,
     )
 
-    if hasattr(c, "ts2_32"):
+    if mp.isotopes:
         # s_val = c.ts2 + 1e-20
         # s32_val = c.ts2_32 + 1e-20
         # s_ratio = s32_val / s_val
@@ -408,12 +408,10 @@ def sulfide_speciation_clip(c, k, mp, dt, RATES):
     c.h2s.value[:] = ts2_val * mp.h2s_frac
     c.hs.value[:] = ts2_val * mp.hs_frac
 
-    if hasattr(c, "ts2_32"):
+    if mp.isotopes:
         ts2_32_val = c.ts2_32.value
-        if hasattr(c, "h2s_32"):
-            c.h2s_32.value[:] = ts2_32_val * mp.h2s_frac
-        if hasattr(c, "hs_32"):
-            c.hs_32.value[:] = ts2_32_val * mp.hs_frac
+        c.h2s_32.value[:] = ts2_32_val * mp.h2s_frac
+        c.hs_32.value[:] = ts2_32_val * mp.hs_frac
 
 
 def fe2_sorption_clip(c, k, mp, dt, RATES):
@@ -516,7 +514,7 @@ def fes_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         add_lhs_sink=False,  # fes sink already added by the fe3 coupling above
     )
 
-    if hasattr(c, "fes_32"):
+    if mp.isotopes:
         rate_base_32 = k.fes_ox * c.fes_32 * c.o2
         add_implicit_coupling_new(
             "solid_2_liquid",
@@ -556,7 +554,7 @@ def pyrite_formation_s0(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         c=c,
     )
 
-    if hasattr(c, "fes2_32"):
+    if mp.isotopes:
         # S0 is porewater → must include mp.fac_s to match bulk sink coefficient,
         # and use "liquid_2_solid" for correct volume conversion to fes2_32 (solid)
 
@@ -612,7 +610,7 @@ def pyrite_formation_fes_ts2(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         c=c,
     )
 
-    if hasattr(c, "fes_32"):
+    if mp.isotopes:
         # 1. Isotope sinks (on species that are consumed)
         # H2S_32 (liquid) sink
         add_implicit_sink(LHS, RATES, "ts2_32", coeff_ts2, coeff_ts2 * c.ts2_32, c=c)
@@ -712,7 +710,7 @@ def pyrite_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # ------------------------------------------------------------------
     # 6. Isotopes — so4_32 coupled to fes2_32, stoich=1.0 (mol-S basis)
     # ------------------------------------------------------------------
-    if hasattr(c, "fes2_32"):
+    if mp.isotopes:
         f32_fes2 = c.fes2_32 / (c.fes2 + 1e-30)  # 32S fraction in pyrite
 
         # Implicit coeff for fes2_32 sink, scaled by isotope fraction
@@ -777,7 +775,7 @@ def fes_precipitation_clip(c, k, mp, dt, RATES):
     # ---------------------------------------------------------
     # 5. Calculate Isotope Mass Transfer FIRST
     # ---------------------------------------------------------
-    if hasattr(c, "ts2_32"):  # FIX: Was checking for h2s_32 but variables are ts2
+    if mp.isotopes:
         # Current Porewater Ratio
         R_pw = c.ts2_32.value[mask] / (c.ts2.value[mask] + 1e-20)
 
@@ -788,8 +786,7 @@ def fes_precipitation_clip(c, k, mp, dt, RATES):
         c.ts2_32.value[mask] -= loss_32
 
         # Ensure your solid isotope variable matches your initialization
-        if hasattr(c, "fes_32"):
-            c.fes_32.value[mask] += loss_32 * mp.fac_s
+        c.fes_32.value[mask] += loss_32 * mp.fac_s
 
     # ---------------------------------------------------------
     # 6. Update Bulk State Variables
@@ -901,7 +898,7 @@ def fes_unified_reaction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # ------------------------------------------------------------------
     # 6. Isotopes (32S)
     # ------------------------------------------------------------------
-    if hasattr(c, "ts2_32"):
+    if mp.isotopes:
         ts2_32_val = c.ts2_32.value
         fes_32_val = c.fes_32.value
 

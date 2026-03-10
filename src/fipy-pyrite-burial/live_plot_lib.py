@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import time
+import queue
+import signal
+import sys
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import matplotlib.pyplot as plt
@@ -21,89 +24,100 @@ class LivePlotter:
         display_length: float,
         measured_data_path: Optional[str] = None,
         output_path: Optional[str] = None,
+        video_path: Optional[str] = None,
+        fps: int = 15,
     ):
         self.layout_path = layout_path
         self.display_length = display_length
         self.measured_data_path = measured_data_path
         self.output_path = output_path
-        self._queue: mp.Queue = mp.Queue()
+        self.video_path = video_path
+        self.fps = fps
+        # Use 'spawn' to avoid inheriting PETSc/MPI signal handlers and state
+        self._ctx = mp.get_context("spawn")
+        self._queue = self._ctx.Queue()
         self._process: Optional[mp.Process] = None
 
     @property
-    def queue(self) -> mp.Queue:
+    def queue(self):
         return self._queue
 
     def start(self) -> None:
         """Launch the background plotting process."""
-        self._process = mp.Process(target=self._run_plot_loop, daemon=True)
+        self._process = self._ctx.Process(target=self._run_plot_loop, daemon=False)
         self._process.start()
 
     def stop(self) -> None:
         """Stop the background plotting process."""
         if self._process and self._process.is_alive():
             self._queue.put(None)  # Sentinel for exit
-            self._process.join(timeout=2)
+            self._process.join(timeout=10)
             if self._process.is_alive():
                 self._process.terminate()
 
     def _run_plot_loop(self) -> None:
         """Internal loop running in the background process."""
-        import plot_data_new
+        # Reset signal handlers to default to avoid PETSc's SIGPIPE handling
+        if hasattr(signal, "SIGPIPE"):
+            signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+
         import matplotlib
 
-        # Ensure we use an interactive backend if possible
-        # Use try-except to avoid crashing if backend is already set
-        try:
-            # TkAgg is usually safest across platforms for interactive use
-            matplotlib.use("TkAgg")
-            matplotlib.rcParams["toolbar"] = "None"
-        except Exception:
-            pass
+        if self.video_path:
+            matplotlib.use("Agg")  # Force Agg backend early
+        else:
+            matplotlib.use("TkAgg")  # Force Agg backend early
+        import plot_data_new
+        from matplotlib.animation import FFMpegWriter
 
-        plt.ion()  # Turn on interactive mode
+        print(
+            f"[LivePlotter] Child process starting. video_path={self.video_path}",
+            flush=True,
+        )
+
         fig = None
         ax_objects = None
         last_df = None
+        plt_desc = None
+        writer = None
 
-        print("[LivePlotter] Background process started.")
+        print(
+            f"[LivePlotter] Background process started (Animation: {self.video_path is not None})."
+        )
+
+        writer = None
+
+        print(
+            f"[LivePlotter] Background process started (Animation: {self.video_path is not None})."
+        )
 
         try:
-            while True:
-                # Check for new data
-                try:
-                    # Non-blocking get with short timeout to allow plt.pause
-                    data_item = self._queue.get(timeout=0.1)
-                except Exception:
-                    # No data, just keep the GUI alive
-                    if fig:
-                        plt.pause(0.01)
-                    continue
 
+            def process_data_item(data_item) -> bool:
+                """Processes a single data item. Returns True if we should stop."""
+                nonlocal fig, ax_objects, last_df, plt_desc, writer
                 if data_item is None:
                     print("[LivePlotter] Termination signal received.")
-                    if fig and self.output_path and last_df is not None:
+                    if fig and last_df is not None and self.output_path:
                         print(f"[LivePlotter] Saving final plot to {self.output_path}")
-                        # Use plot_data_new.plot to ensure correct aspect ratio and sizing
                         plot_data_new.plot(
                             last_df,
                             self.display_length,
                             outfile=self.output_path,
                             show=False,
                             fig_handle=fig,
-                            plot_description=plt_desc if "plt_desc" in locals() else None,
+                            plot_description=plt_desc,
                             measured_data_path=self.measured_data_path,
                             keep_open=True,
                         )
-                    break
+                    return True
 
-                # data_item is expected to be a dictionary representing a DataFrame
                 df = pd.DataFrame(data_item)
                 last_df = df
 
                 try:
                     plt_desc = plot_data_new.load_layout_from_file(df, self.layout_path)
                     if fig is None:
-                        # First time plotting
                         fig, ax_objects = plot_data_new.plot(
                             df,
                             self.display_length,
@@ -114,7 +128,6 @@ class LivePlotter:
                             keep_open=True,
                         )
                     else:
-                        # Update existing plot
                         plot_data_new.plot(
                             df,
                             self.display_length,
@@ -126,27 +139,76 @@ class LivePlotter:
                             keep_open=True,
                         )
                 except Exception as e:
-                    # Catch Tkinter errors specifically if possible, or any plotting error
-                    if "invalid command name" in str(e):
-                        print(f"[LivePlotter] GUI window closed or lost. Recreating...")
-                    else:
+                    if "invalid command name" not in str(e):
                         print(f"[LivePlotter] Plot update error: {e}")
                     fig = None
 
-                # Process GUI events
                 if fig:
-                    try:
-                        fig.canvas.draw()
-                        fig.canvas.flush_events()
-                    except Exception as e:
-                        print(f"[LivePlotter] Draw error: {e}")
-                        fig = None
-                    plt.pause(0.01)
+                    if writer is None and self.video_path:
+                        print(
+                            f"[LivePlotter] Initializing FFMpegWriter for {self.video_path}...",
+                            flush=True,
+                        )
+                        try:
+                            writer = FFMpegWriter(
+                                fps=self.fps,
+                                metadata=dict(artist="LivePlotter"),
+                            )
+                        except Exception as e:
+                            print(
+                                f"[LivePlotter] Failed to initialize FFMpegWriter: {e}. Falling back to GUI.",
+                                flush=True,
+                            )
+                            writer = None
+
+                    if writer:
+                        if not hasattr(writer, "_saving"):
+                            print(
+                                f"[LivePlotter] Setting up writer for {self.video_path}...",
+                                flush=True,
+                            )
+                            writer.setup(fig, self.video_path, dpi=100)
+                            writer._saving = True
+                        try:
+                            writer.grab_frame()
+                        except Exception as ge:
+                            print(f"[LivePlotter] Grab frame error: {ge}", flush=True)
+                    else:
+                        try:
+                            # Only setup GUI if not in video mode
+                            if not self.video_path:
+                                matplotlib.use("TkAgg")
+                                plt.ion()
+                            fig.canvas.draw()
+                            fig.canvas.flush_events()
+                        except Exception as e:
+                            print(f"[LivePlotter] Draw error: {e}")
+                            fig = None
+                        plt.pause(0.01)
+                return False
+
+            while True:
+                try:
+                    data_item = self._queue.get(timeout=0.1)
+                    if process_data_item(data_item):
+                        break
+                except queue.Empty:
+                    if fig and not writer:
+                        plt.pause(0.01)
+                    continue
+                except Exception as e:
+                    print(f"[LivePlotter] Loop error: {e}")
+                    break
 
         except KeyboardInterrupt:
             pass
         finally:
-            plt.ioff()
+            if writer and hasattr(writer, "_saving"):
+                print("[LivePlotter] Finishing writer...", flush=True)
+                writer.finish()
+                print("[LivePlotter] Writer finished.", flush=True)
+            if not self.video_path:
+                plt.ioff()
             plt.close("all")
             print("[LivePlotter] Background process exiting.")
 
