@@ -29,29 +29,55 @@ def equilibrium_reactions(mp, c, k, f, RATES, dt):
 
 def diagenetic_reactions(mp, c, k, f):
     """
-    Main orchestrator for diagenetic reactions. That are inside
-    transport matrix.
+    Main orchestrator for diagenetic reactions.  That are inside transport matrix.
     Calculates limiters, initializes matrices, and calls specific process functions.
 
-    Porosity Handling (Divided Form):
-    ---------------------------------
-    This model solves the 'divided' form of the conservation equations, where the
-    volume fractions (porosity phi or 1-phi) are divided out.
+    Porosity Handling:
 
-    Equation Form:
-       dC/dt + v*grad(C) = D*grad^2(C) + R_divided
+    Model units are meter/second, concentrations are given mmol/liter (mol/m^3) and
+    solids are expressed as concentration per unit of solid volume (mmol/L_solid).
 
-    The reaction rates R_base are typically defined per unit porewater (mol/L_pw/s).
-    - For Liquid Species: R_divided = R_base
-    - For Solid Species:  R_divided = R_base * (phi / (1 - phi))
+    This keeps the physics of the "solid phase" independent of how much water is
+    currently squeezing around it.  If the sediment compacts (porosity ϕ decreases), the
+    amount of organic matter per gram of rock doesn't change, but the amount of organic
+    matter per liter of bulk sediment does.  ​
 
-    This scaling ensures that for a reaction consuming 1 mol of L and producing 1 mol of S,
-    the total mass balance (mol/L_bulk) is preserved:
-       d/dt(phi*C_L) + d/dt((1-phi)*C_S) = -phi*R_base + (1-phi)*(R_base * phi / (1-phi)) = 0
+    As such, a reaction between a liquid and a solid needs to be scaled
 
-    Consistency Note:
-    The solver in diff_lib.py must NOT scale transport coefficients (v, D) by phi
-    when using this divided source term logic (assuming constant phi).
+    f = k * [SO4] * (1 - phi)/phi * [OM]
+
+    This is now handled by the maxtrix helper functions via the ctype parameter, where
+    ctype indicates 'rate_phase_2_species_phase'.. Eg.
+    when calculting the consumption of organic matter by sulfate you would write
+
+    # POC Sink - SOLID
+    coeff_poc = k.poc_o2 * c.so4
+    add_implicit_sink(
+        LHS, RATES, "poc", coeff_poc, rate_base, ctype="solid", mp=mp, c=c
+    )
+
+    whereas the consumption of sulfate would be
+
+    coeff_so4 = k.poc_so4 * c.poc
+    add_implicit_sink(LHS, RATES, "so4", coeff_so4, so4_rate, ctype="liquid", mp=mp, c=c)
+
+    or as a coupled reaction:
+
+    add_implicit_coupling_new(
+        "liquid_2_liquid",  # type
+        CROSS,  #  Off-diagonal coupling matrix
+        RATES,  #  Rate reporting dictionary
+        LHS,  # Diagonal matrix (implicit sinks)
+        "ts2",  # species that is produced
+        "so4",  # species that is consumed
+        coeff_so4,  # reaction coefficient
+        so4_rate,  # coeff * concentration
+        mp,
+        c=c,  # model parameters
+    )
+
+    the porosity correction will then applied automatically depending on the
+    ctype paramater,
     """
     from fipy import ImplicitSourceTerm
 
@@ -152,12 +178,16 @@ def aerobic_respiration(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     rate_base = k.poc_o2 * c.poc * c.o2
 
     # POC Sink - SOLID
-    coeff_poc = k.poc_o2 * c.o2 * mp.fac_s
-    add_implicit_sink(LHS, RATES, "poc", coeff_poc, rate_base * mp.fac_s, c=c)
+    coeff_poc = k.poc_o2 * c.o2
+    add_implicit_sink(
+        LHS, RATES, "poc", coeff_poc, rate_base, ctype="solid", mp=mp, c=c
+    )
 
     # O2 Sink (1.27x) - LIQUID
     coeff_o2 = 1.27 * k.poc_o2 * c.poc
-    add_implicit_sink(LHS, RATES, "o2", coeff_o2, 1.27 * rate_base, c=c)
+    add_implicit_sink(
+        LHS, RATES, "o2", coeff_o2, 1.27 * rate_base, ctype="liquid", mp=mp, c=c
+    )
     # No produced species here (CO2 ignored)
 
 
@@ -171,8 +201,8 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     so4_rate = poc_rate * 0.5
 
     # 2. POC Sink (Ref Species) - SOLID
-    coeff_poc = k.poc_so4 * lim["so4_explicit"] * lim["inhib_o2"] * mp.fac_s
-    add_implicit_sink(LHS, RATES, "poc", coeff_poc, poc_rate * mp.fac_s, c=c)
+    coeff_poc = k.poc_so4 * lim["so4_explicit"] * lim["inhib_o2"]
+    add_implicit_sink(LHS, RATES, "poc", coeff_poc, poc_rate, ctype="solid", mp=mp, c=c)
 
     # 3. SO4 Sink -> Rate = 0.5 * Base - LIQUID
     # HS- ~ 0.5 H2S,
@@ -225,7 +255,9 @@ def hs_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     # O2 Sink (0.5x) - LIQUID
     coeff_o2 = 0.5 * k.hs_ox * c.ts2 * mp.hs_frac
-    add_implicit_sink(LHS, RATES, "o2", coeff_o2, coeff_o2 * c.o2, c=c)
+    add_implicit_sink(
+        LHS, RATES, "o2", coeff_o2, coeff_o2 * c.o2, ctype="liquid", mp=mp, c=c
+    )
 
     # S0 Source (1.0x) - SOLID, Couple to H2S
     add_implicit_coupling_new(
@@ -289,17 +321,15 @@ def elemental_sulfur_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     Reaction: 1 S0 + 2 O2 -> 1 SO4
     Phases: S0 (Solid), O2 (Liquid), SO4 (Liquid)
     """
-    # Phase conversion: Solid Rate -> Liquid Rate
-    fac_l = (1.0 - mp.phi) / mp.phi
-
     # S0 sink (Solid)
     # Rate = k * [O2] * [S0]
     coeff_s0 = k.s0_ox * c.o2
 
     # O2 Sink (2.0x) - LIQUID
-    # Must include fac_l because the reaction is driven by a solid concentration
-    coeff_o2 = 2.0 * k.s0_ox * c.s0 * fac_l
-    add_implicit_sink(LHS, RATES, "o2", coeff_o2, coeff_o2 * c.o2, c=c)
+    coeff_o2 = 2.0 * k.s0_ox * c.s0
+    add_implicit_sink(
+        LHS, RATES, "o2", coeff_o2, coeff_o2 * c.o2, ctype="solid_2_liquid", mp=mp, c=c
+    )
 
     # SO4 Source (1.0x) - LIQUID, Coupled to S0 (SOLID)
     add_implicit_coupling_new(
@@ -452,7 +482,16 @@ def fe2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     # O2 Sink (1/4) - LIQUID
     coeff_o2 = k.fe2_ox * c.fe2_total * 0.25
-    add_implicit_sink(LHS, RATES, "o2", coeff_o2, rate_base * 0.25, c=c)
+    add_implicit_sink(
+        LHS,
+        RATES,
+        "o2",
+        coeff_o2,
+        rate_base * 0.25,
+        ctype="liquid",
+        mp=mp,
+        c=c,
+    )
 
     # Fe3 Source (1.0x) - SOLID
     # Couple to Fe2 total which 670 parts solid and 1 poart liquid
@@ -494,7 +533,16 @@ def fes_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     coeff_o2_fes = 2.25 * k.fes_ox * c.fes
     rate_base = k.fes_ox * c.fes * c.o2
     # Implicit Sink for O2: coeff = 2.25 * k * FeS.
-    add_implicit_sink(LHS, RATES, "o2", coeff_o2_fes, rate_base * 2.25, c=c)
+    add_implicit_sink(
+        LHS,
+        RATES,
+        "o2",
+        coeff_o2_fes,
+        rate_base * 2.25,
+        ctype="solid_2_liquid",
+        mp=mp,
+        c=c,
+    )
 
     # SO4 Source (1.0x) - LIQUID, Coupled to FeS (SOLID)
     # Use add_implicit_coupling_new with add_lhs_sink=False because the FeS sink
@@ -537,7 +585,9 @@ def pyrite_formation_s0(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     # S0 Sink to Solid so no porosity scaling
     coeff_s0 = k.fes_s0 * c.fes
-    add_implicit_sink(LHS, RATES, "s0", coeff_s0, coeff_s0 * c.s0, c=c)
+    add_implicit_sink(
+        LHS, RATES, "s0", coeff_s0, coeff_s0 * c.s0, ctype="solid_2_liquid", mp=mp, c=c
+    )
 
     # FeS to FeS2 SOLID, Rate = k * FeS * S0.
     coeff_fes = k.fes_s0 * c.s0  # porosity is corrected in  add_implicit_coupling_new!
@@ -592,7 +642,16 @@ def pyrite_formation_fes_ts2(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     # H2S Sink (1.0x) - LIQUID
     coeff_ts2 = k.fes_ts2 * c.fes * mp.hs_frac
-    add_implicit_sink(LHS, RATES, "ts2", coeff_ts2, coeff_ts2 * c.ts2, c=c)
+    add_implicit_sink(
+        LHS,
+        RATES,
+        "ts2",
+        coeff_ts2,
+        coeff_ts2 * c.ts2,
+        ctype="solid_2_liquid",
+        mp=mp,
+        c=c,
+    )
 
     # FeS2 Source (1.0x) - SOLID
     # Couple to FeS.
@@ -613,7 +672,16 @@ def pyrite_formation_fes_ts2(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     if mp.isotopes:
         # 1. Isotope sinks (on species that are consumed)
         # H2S_32 (liquid) sink
-        add_implicit_sink(LHS, RATES, "ts2_32", coeff_ts2, coeff_ts2 * c.ts2_32, c=c)
+        add_implicit_sink(
+            LHS,
+            RATES,
+            "ts2_32",
+            coeff_ts2,
+            coeff_ts2 * c.ts2_32,
+            ctype="solid_2_liquid",
+            mp=mp,
+            c=c,
+        )
 
         # 2. FeS2_32 Source (Solid) from FeS_32 (Solid)
         # 1st S atom: from FeS_32
@@ -807,7 +875,7 @@ def fes_unified_reaction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     ts2     : add_implicit_coupling_new handles precipitation sink (in L_pw basis)
               add_explicit_source handles dissolution source (in L_pw basis)
     fe2_total: CROSS cross-coupling to ts2 handles precipitation sink (off-diagonal)
-              add_explicit_source handles dissolution source (in L_bulk basis)
+              add_explicit_source handles dissolution source (in L_solid)
     fes     : add_implicit_coupling_new handles net precip (in L_solid basis)
               add_explicit_source(..., update_rates=False) adds dissolution to RHS only
     """
@@ -866,7 +934,7 @@ def fes_unified_reaction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         LHS,
         target_species="fes",
         source_species="ts2",
-        coeff=l_ts2 / mp.phi,  # implicit sink coeff in L_pw basis
+        coeff=l_ts2,  # implicit sink
         rate=net_precip_bulk,  # net rate in L_bulk for RATES conversion
         mp=mp,
         c=c,
@@ -877,10 +945,10 @@ def fes_unified_reaction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # ------------------------------------------------------------------
     # add_explicit_source correctly adds to RATES in each species' own basis
     add_explicit_source(
-        RHS, RATES, "ts2", s_bulk / mp.phi, update_rates=False
+        RHS, RATES, "ts2", s_bulk / mp.phi, update_rates=False, ctype="liquid"
     )  # L_pw basis
     add_explicit_source(
-        RHS, RATES, "fe2_total", s_bulk / mp.phi, update_rates=False
+        RHS, RATES, "fe2_total", s_bulk / mp.phi, update_rates=False, ctype="solid"
     )  # L_bulk basis
 
     # Dissolution removes FeS: add to RHS only — RATES["fes"] already set by helper above
@@ -925,16 +993,21 @@ def fes_unified_reaction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             LHS,
             target_species="fes_32",
             source_species="ts2_32",
-            coeff=l_ts2_32 / mp.phi,
+            coeff=l_ts2_32,
             rate=net_precip_32,
             mp=mp,
             c=c,
         )
 
         # Explicit dissolution
-        add_explicit_source(RHS, RATES, "ts2_32", s_32_diss / mp.phi)
+        add_explicit_source(RHS, RATES, "ts2_32", s_32_diss, ctype="liquid")
         add_explicit_source(
-            RHS, RATES, "fes_32", -s_32_diss / (1.0 - mp.phi), update_rates=False
+            RHS,
+            RATES,
+            "fes_32",
+            -s_32_diss / (1.0 - mp.phi),
+            update_rates=False,
+            ctype="solid",
         )
 
 
@@ -948,7 +1021,8 @@ def get_total_delta(c, mp, index=-1):
 
     from diff_lib import get_delta
 
-    phi = mp.phi
+    phi_val = getattr(mp.phi, "value", mp.phi)
+    phi = phi_val[index] if hasattr(phi_val, "__getitem__") else phi_val
     f_s = 1.0 - phi
 
     # Liquid species are scaled by porosity (phi)
@@ -1025,3 +1099,152 @@ def fes_unified_reaction_2(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # We add this to RHS. To prevent negative FeS, use add_implicit_sink if preferred,
     # but here we keep it explicit to match your dissolution logic.
     add_explicit_source(RHS, RATES, "fes", -diss_fes_solid)
+
+
+def fes_unified_reaction_3(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """
+    Unified FeS Precipitation & Dissolution.
+
+    All rates are in natural model units throughout:
+      liquids  → mmol / L_porewater / s
+      solids   → mmol / L_solid / s
+    Phase conversions are delegated to helpers via ctype; no manual phi scaling.
+
+    Rate constant units assumed:
+      k.fes_isp  [mmol/L_pw/s]  — numerical stabilisation rate (precipitation regime)
+      k.fes_isd  [1/s]          — first-order dissolution rate constant (dissolution regime)
+
+    Rate reporting
+    ---------------
+    ts2        : 5a sink (implicit, via helper)  +  5c source (explicit dissolution)
+    fe2_total  : 5b sink (implicit cross, via helper)  +  5c source (explicit dissolution)
+    fes        : 5a source (implicit cross, via helper)  +  5c sink (explicit dissolution)
+    """
+    import numpy as np
+
+    # ------------------------------------------------------------------
+    # 1. Current state [model units]
+    # ------------------------------------------------------------------
+    fe2_val = c.fe2_total.value  # mmol/L_solid
+    fe2_pw_val = fe2_val * mp.fe2_pw_conc  # mmol/L_pw  (dissolved fraction)
+    ts2_val = c.ts2.value  # mmol/L_pw
+    hs_val = ts2_val * mp.hs_frac  # mmol/L_pw
+    fes_val = c.fes.value  # mmol/L_solid
+
+    # ------------------------------------------------------------------
+    # 2. Saturation index (dimensionless)
+    # ------------------------------------------------------------------
+    omega_den = k.hplus * k.fes_sp + 1e-30
+    omega = (fe2_pw_val * hs_val) / omega_den
+
+    # ------------------------------------------------------------------
+    # 3. Smooth regime flags & FeS availability limiter
+    # ------------------------------------------------------------------
+    sharpness = 100.0
+    is_precip = 0.5 * (1.0 + np.tanh(sharpness * (omega - 1.0)))
+    is_diss = 1.0 - is_precip
+    fes_limiter = fes_val / (fes_val + 1e-4)
+
+    # ------------------------------------------------------------------
+    # 4. Backward flux and implicit precipitation coefficient
+    # ------------------------------------------------------------------
+    # s_pw: dissolution + numerical stabilisation flux [mmol/L_pw/s].
+    # The dissolution term is k.fes_isd * fes_val [mmol/L_solid/s], converted
+    # to porewater units once via / mp.fac_s  (= (1-phi)/phi).
+    s_pw = (
+        k.fes_isp * is_precip + k.fes_isd * fes_limiter * is_diss * fes_val / mp.fac_s
+    )  # mmol/L_pw/s
+
+    # Implicit forward coefficient for ts2 [1/s, L_pw basis]
+    l_ts2 = (s_pw / omega_den) * fe2_pw_val * mp.hs_frac
+
+    # Net precipitation [mmol/L_pw/s]  (positive = net precipitation)
+    net_precip_pw = l_ts2 * ts2_val - s_pw
+
+    # ------------------------------------------------------------------
+    # 5a. Implicit precipitation: ts2 (liquid) → fes (solid)
+    # ------------------------------------------------------------------
+    add_implicit_coupling_new(
+        "liquid_2_solid",
+        CROSS,
+        RATES,
+        LHS,
+        target_species="fes",
+        source_species="ts2",
+        coeff=l_ts2,  # [1/s, L_pw basis]
+        rate=net_precip_pw,  # [mmol/L_pw/s]; helper converts to L_solid for RATES["fes"]
+        mp=mp,
+        c=c,
+    )
+
+    # ------------------------------------------------------------------
+    # 5b. Implicit consumption: ts2 (liquid) → fe2_total (solid, off-diagonal sink)
+    #     stoich_ratio=-1 because fe2_total is consumed, not produced.
+    #     add_lhs_sink=False because ts2's LHS diagonal was already claimed in 5a.
+    # ------------------------------------------------------------------
+    add_implicit_coupling_new(
+        "liquid_2_solid",
+        CROSS,
+        RATES,
+        LHS,
+        target_species="fe2_total",
+        source_species="ts2",
+        coeff=l_ts2,
+        rate=net_precip_pw,
+        mp=mp,
+        c=c,
+        add_lhs_sink=False,
+        stoich_ratio=-1.0,
+    )
+
+    # ------------------------------------------------------------------
+    # 5c. Explicit dissolution: FeS (solid) → ts2 (liquid) + fe2_total (solid)
+    #     Convert to solid basis once; pass each species its own natural units.
+    # ------------------------------------------------------------------
+    s_solid = s_pw * mp.fac_s  # mmol/L_solid/s  (= s_pw * phi/(1-phi))
+
+    add_explicit_source(RHS, RATES, "ts2", +s_pw, update_rates=False)  # mmol/L_pw/s
+    add_explicit_source(
+        RHS, RATES, "fe2_total", +s_solid, update_rates=False
+    )  # mmol/L_solid/s
+    add_explicit_source(
+        RHS, RATES, "fes", -s_solid, update_rates=False
+    )  # mmol/L_solid/s
+
+    # ------------------------------------------------------------------
+    # 6. Isotopes (32S) — same structure, no fractionation
+    # ------------------------------------------------------------------
+    if mp.isotopes:
+        ts2_32_val = c.ts2_32.value
+        fes_32_val = c.fes_32.value
+
+        f32_ts2 = ts2_32_val / (ts2_val + 1e-30)
+        f32_fes = fes_32_val / (fes_val + 1e-30)
+
+        # Isotope-weighted backward flux [mmol/L_pw/s]:
+        # stabilisation term releases porewater ratio, dissolution releases solid ratio
+        s_32_pw = (
+            k.fes_isp * is_precip * f32_ts2
+            + k.fes_isd * fes_limiter * is_diss * fes_val / mp.fac_s * f32_fes
+        )
+
+        l_ts2_32 = l_ts2  # no fractionation
+        net_precip_32 = l_ts2_32 * ts2_32_val - s_32_pw
+
+        add_implicit_coupling_new(
+            "liquid_2_solid",
+            CROSS,
+            RATES,
+            LHS,
+            target_species="fes_32",
+            source_species="ts2_32",
+            coeff=l_ts2_32,
+            rate=net_precip_32,
+            mp=mp,
+            c=c,
+        )
+
+        s_32_solid = s_32_pw * mp.fac_s  # mmol/L_solid/s
+
+        add_explicit_source(RHS, RATES, "ts2_32", +s_32_pw, update_rates=False)
+        add_explicit_source(RHS, RATES, "fes_32", -s_32_solid, update_rates=False)

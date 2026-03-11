@@ -16,7 +16,7 @@ def get_layout(df):
     Returns:
         dict: The plot description dictionary.
     """
-    from diff_lib import mmol_l_bulk_to_weight_percent
+    from diff_lib import solid_conc_to_wt_percent
 
     total_iron = df.c_fe2_total + df.c_fe3 + df.c_fes + df.c_fes2
     plt_desc = {
@@ -52,25 +52,25 @@ def get_layout(df):
             "left_ylabel": r"[mmol/l]",
             "right": [
                 [
-                    mmol_l_bulk_to_weight_percent(df.c_fes2, 32, 2.6),
+                    solid_conc_to_wt_percent(df.c_fes2, 32, 2.6, df.phi),
                     # df.c_fes2,
                     r"FeS$_2$ [wt% S]",
                     {"color": "black"},
                 ],
                 [
-                    mmol_l_bulk_to_weight_percent(df.c_fes, 32, 2.6),
+                    solid_conc_to_wt_percent(df.c_fes, 32, 2.6, df.phi),
                     # df.c_fes,
                     "FeS [wt% S]",
                     {"color": "C6"},
                 ],
                 [
-                    mmol_l_bulk_to_weight_percent(df.c_s0, 32, 2.6),
+                    solid_conc_to_wt_percent(df.c_s0, 32, 2.6, df.phi),
                     #     df.c_s0,
                     "S0 [wt% S]",
                     {"color": "C2"},
                 ],
                 [
-                    mmol_l_bulk_to_weight_percent(df.c_fes2, 32, 2.6),
+                    solid_conc_to_wt_percent(df.c_fes2, 32, 2.6, df.phi),
                     # df.c_fes2,
                     r"FeS$_2$ [wt% S]",
                     {"color": "black"},
@@ -79,19 +79,19 @@ def get_layout(df):
             "right_ylim": (0, 4),
             "right2": [
                 [
-                    mmol_l_bulk_to_weight_percent(df.c_fe3, 56, 2.6),
+                    solid_conc_to_wt_percent(df.c_fe3, 56, 2.6, df.phi),
                     # df.c_fe3,
                     r"Fe$^{3+}$ [wt% Fe]",
                     {"color": "C5"},
                 ],
                 [
-                    mmol_l_bulk_to_weight_percent(total_iron, 56, 2.6),
+                    solid_conc_to_wt_percent(total_iron, 56, 2.6, df.phi),
                     # df.c_fes2,
                     r"TFe [wt% Fe]",
                     {"color": "black", "linestyle": "dotted"},
                 ],
                 [
-                    mmol_l_bulk_to_weight_percent(df.c_fe2_total, 56, 2.6),
+                    solid_conc_to_wt_percent(df.c_fe2_total, 56, 2.6, df.phi),
                     # df.c_fes2,
                     r"Fe$^{2+}$ total [wt% Fe]",
                     {"color": "C8", "linestyle": "dotted"},

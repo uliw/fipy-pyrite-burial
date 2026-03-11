@@ -546,7 +546,7 @@ def calculate_k_iron_reduction(fe3, h2s):
     return k_values / (60 * 60 * 24 * 1e3)
 
 
-def weight_percent_to_mmol_l_bulk(wp, mw, d, phi):
+def wt_percent_to_solid_conc(wp, mw, d, phi):
     """
     Convert a weight‑percent (dry mass) of a solid component to its
     concentration in bulk solution (mmol L⁻¹, i.e. mol m⁻³).
@@ -592,19 +592,45 @@ def weight_percent_to_mmol_l_bulk(wp, mw, d, phi):
     return C_bulk
 
 
-def wt_percent_to_solid_conc(wp, mw, rho_s=2.65):
+def solid_conc_to_wt_percent(C_solid, mw: float, d: float, phi: float):
     """
-    wp   : weight percentage (e.g., 2.0 for 2%)
-    mw   : molecular weight (g/mol)
-    rho_s: grain density (g/cm^3)
+    Convert a concentration of a dissolved solid expressed in mol m⁻³ (numerically
+    equivalent to mmol L⁻¹) back to its weight‑percentage in the bulk material.
 
-    returns: mmol / L_solid
+    Parameters
+    ----------
+    C_solid : float or array‑like
+        Solid concentration in mol m⁻³ (identical numerically to mmol L⁻¹).
+    mw : float
+        Molecular weight of the solid component (g mol⁻¹).
+    d  : float
+        Grain density of the pure solid (g cm⁻³).
+    phi : float
+        Porosity of the bulk material (fraction, 0–1).
+
+    Returns
+    -------
+    wp : float or np.ndarray
+        Weight percentage of the component (0–100 %); same dtype/shape as ``C_solid``.
+
+    Notes
+    -----
+    Starting from
+        C_bulk = (d·(1‑phi)·wp/100·1e6) / mw,
+    we solve for wp:
+        wp = C_bulk * mw / (d·(1‑phi)·1e6) * 100.
     """
-    # (g_OM / 100g_dry) * (g_dry / cm3_solid) * (1000 cm3 / 1 L) * (1000 mmol / 1 mol) / (g/mol)
-    return (wp / 100) * rho_s * 1000 * 1000 / mw
+    # Ensure inputs are arrays for broadcasting; scalars will be broadcast as single‑element arrays
+    C_solid = np.asarray(C_solid, dtype=float)
+    phi = np.asarray(phi, dtype=float)
+
+    # Inverse relation derived from the forward conversion
+    wp = C_solid * mw / (d * (1.0 - phi) * 1e6) * 100.0
+
+    return wp
 
 
-def mmol_l_bulk_to_weight_percent(C_bulk, mw, d, phi):
+def solid_conc_to_wt_percent(C_bulk, mw, d, phi):
     """
     Convert a bulk concentration (mmol L⁻¹ ≡ mol m⁻³) back to weight
     percentage of the component in the dry solid matrix.
@@ -854,23 +880,59 @@ def make_grid2(
 # =============================================================================
 
 
-def add_implicit_sink(LHS, RATES, species, coeff, rate, c=None):
+def add_implicit_sink(
+    LHS, RATES, species, coeff, rate, ctype="liquid_2_liquid", mp=None, c=None
+):
     """
     Add an implicit consumption term to the LHS matrix.
-    LHS[species] -= coeff
-    RATES[species] -= rate   (caller is responsible for passing rate in species' own basis)
+    ctype indicates 'rate_phase_2_species_phase'.
+    If rate is solid but species is liquid, coeff is multiplied by (1-phi)/phi.
     """
-    LHS[species] = LHS[species] - coeff
+    if mp is None:
+        LHS[species] = LHS[species] - coeff
+        RATES[species] -= getattr(rate, "value", rate)
+        return
+
+    rate_is_liquid = ctype.startswith("liquid")
+    species_is_liquid = ctype.endswith("liquid")
+
+    rate_eff_phi = mp.phi if rate_is_liquid else (1.0 - mp.phi)
+    species_eff_phi = mp.phi if species_is_liquid else (1.0 - mp.phi)
+    phase_fac = rate_eff_phi / species_eff_phi
+
+    LHS[species] = LHS[species] - (coeff * phase_fac)
     RATES[species] -= getattr(rate, "value", rate)
 
 
-def add_explicit_source(RHS, RATES, species, rate, update_rates=True, c=None):
+def add_explicit_source(
+    RHS,
+    RATES,
+    species,
+    rate,
+    ctype="liquid_2_liquid",
+    mp=None,
+    update_rates=True,
+    c=None,
+):
     """
     Add a production term to the RHS vector.
-    RHS[species]   += rate
-    RATES[species] += rate   (skipped if update_rates=False, for manual RATES control)
+    ctype indicates 'rate_phase_2_species_phase'.
     """
-    RHS[species] = RHS[species] + rate
+    if mp is None:
+        RHS[species] = RHS[species] + rate
+        if update_rates:
+            RATES[species] += getattr(rate, "value", rate)
+        return
+
+    rate_is_liquid = ctype.startswith("liquid")
+    species_is_liquid = ctype.endswith("liquid")
+
+    rate_eff_phi = mp.phi if rate_is_liquid else (1.0 - mp.phi)
+    species_eff_phi = mp.phi if species_is_liquid else (1.0 - mp.phi)
+
+    phase_fac = rate_eff_phi / species_eff_phi
+
+    RHS[species] = RHS[species] + (rate * phase_fac)
     if update_rates:
         RATES[species] += getattr(rate, "value", rate)
 
@@ -930,30 +992,25 @@ def add_implicit_coupling_new(
     source_is_liquid = ctype.startswith("liquid")
     target_is_liquid = ctype.endswith("liquid")
 
+    # ---- Effective Porosity for Bulk Conversion ----
+    source_eff_phi = mp.phi if source_is_liquid else (1.0 - mp.phi)
+
+    # The implicit bulk coefficient
+    coeff_bulk = coeff * source_eff_phi
+
     # ---- Single conversion: species basis → bulk ----
     rate_val = getattr(rate, "value", rate)
-    rate_bulk = rate_val * mp.phi if source_is_liquid else rate_val * (1.0 - mp.phi)
-
-    # ---- Porosity factor for matrix cross-coupling coefficient ----
-    fac = {
-        "liquid_2_liquid": 1.0,
-        "liquid_2_solid": mp.fac_s,
-        "solid_2_solid": 1.0,
-        "solid_2_liquid": 1.0 / mp.fac_s,
-    }.get(ctype)
-
-    if fac is None:
-        raise ValueError(f"Unknown ctype: {ctype}")
+    rate_bulk = rate_val * source_eff_phi
 
     # ---- Cross-coupling (off-diagonal block) ----
     # Stored as (source_species, coefficient) and assembled into
-    # ImplicitSourceTerm(coeff=coeff*fac*stoich_ratio, var=c[source_species]) in the
+    # ImplicitSourceTerm(coeff=coeff_bulk*stoich_ratio, var=c[source_species]) in the
     # target's FiPy equation inside diagenetic_reactions().
-    CROSS[target_species].append((source_species, coeff * fac * stoich_ratio))
+    CROSS[target_species].append((source_species, coeff_bulk * stoich_ratio))
 
     # ---- Implicit sink on source (LHS diagonal — no RATES here) ----
     if add_lhs_sink:
-        LHS[source_species] = LHS[source_species] - coeff
+        LHS[source_species] = LHS[source_species] - coeff_bulk
 
         # ---- RATES reporting ----
         # Source: rate_val is already in source species' own basis — no conversion needed

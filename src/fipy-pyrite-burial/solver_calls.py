@@ -189,11 +189,22 @@ def _build_passive_eqs(
     species_struct = []
     passive_eqs = {}
 
+    # Ensure mp.phi is a CellVariable even if provided as a float
+    # We create it once outside the loop to avoid recreating it for each species
+    if not isinstance(mp.phi, CellVariable):
+        phi_var = CellVariable(mesh=mesh, value=mp.phi)
+        mp.phi = phi_var
+    else:
+        phi_var = mp.phi
+
     for name in species_list_partial:
         var = getattr(c, name)
         props = bc_map[name]
 
         species_struct.append({"name": name, "var": var})
+
+        # Effective porosity for conservative form
+        eff_phi = phi_var if props["type"] == "dissolved" else (1.0 - phi_var)
 
         # Diffusion coefficient (Molecular + Bio-diffusion)
         D_total = np.maximum(getattr(D_mol, name) + D_mol.D_bio, 1e-20)
@@ -202,19 +213,19 @@ def _build_passive_eqs(
         vel = mp.w - mp.advection if props["type"] == "dissolved" else mp.w
         u_var = CellVariable(mesh=mesh, value=vel, rank=1)
 
-        # Terms
-        conv_term = PowerLawConvectionTerm(coeff=u_var, var=var)
-        diff_term = DiffusionTerm(coeff=CellVariable(mesh=mesh, value=D_total), var=var)
+        # Terms with conservative phi handling
+        conv_term = PowerLawConvectionTerm(coeff=eff_phi * u_var, var=var)
+        diff_term = DiffusionTerm(coeff=eff_phi * CellVariable(mesh=mesh, value=D_total), var=var)
 
         # Irrigation (Sources/Sinks for dissolved species)
         irr_term = 0.0
         if props["type"] == "dissolved":
             irr_term = ImplicitSourceTerm(
-                coeff=CellVariable(mesh=mesh, value=-D_mol.D_irr), var=var
-            ) + CellVariable(mesh=mesh, value=D_mol.D_irr * props["top"])
+                coeff=eff_phi * CellVariable(mesh=mesh, value=-D_mol.D_irr), var=var
+            ) + eff_phi * CellVariable(mesh=mesh, value=D_mol.D_irr * props["top"])
 
         # Passive equation: Transient + Convection - Diffusion - Irrigation
-        passive_eqs[name] = TransientTerm(var=var) + conv_term - diff_term - irr_term
+        passive_eqs[name] = TransientTerm(coeff=eff_phi, var=var) + conv_term - diff_term - irr_term
 
     return species_struct, passive_eqs
 

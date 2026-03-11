@@ -15,7 +15,7 @@ if __name__ == "__main__":
     from diff_lib import (
         save_data,
         get_delta,
-        weight_percent_to_mmol_l_bulk,
+        wt_percent_to_solid_conc,
         save_state,
         # read_state,
     )
@@ -35,17 +35,16 @@ if __name__ == "__main__":
     # state_out = None
 
     p_dict = {
-        # "bc_fe3": weight_percent_to_mol(0.0001, 56, 2.6),
         "t_end": Q_("33 year").to("seconds").magnitude,
-        "max_steps": 10,  # max number of iterations
+        "max_steps": 2000,  # max number of iterations
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 hour").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
-        "process_monitor": "gui",  # gui | video | none
+        "process_monitor": "video",  # gui | video | none
         "plot_name": f"{experiment}",
         "isotopes": False,
         "report_step": 2,  # how often to update plot
-        "bc_fe3": weight_percent_to_mmol_l_bulk(1, 56, 2.6),
+        "bc_fe3": wt_percent_to_solid_conc(1, 56, 2.6, 0.65),
         "DB_depth": 0,
         "DB0": 4e-12 * 0,
         "tolerance": 1e-12,  # convergence criterion
@@ -70,7 +69,7 @@ if __name__ == "__main__":
         rn.elemental_sulfur_oxidation,
         rn.sulfide_mediated_iron_reduction,
         rn.fe2_oxidation,
-        rn.fes_unified_reaction,
+        # rn.fes_unified_reaction,
         # rn.fes_oxidation,
         # rn.pyrite_formation_s0,
         # rn.pyrite_formation_fes_ts2,
@@ -102,7 +101,7 @@ if __name__ == "__main__":
     df, fqfn = save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions)
 
     print(f"d34S = {rn.get_total_delta(c, mp):.2f}")
-    from diff_lib import mol_to_weight_percent
+    print(f"d34S = {rn.get_total_delta(c, mp):.2f}")
 
     total_iron = df.c_fe2_total + df.c_fe3 + df.c_fes + df.c_fes2
     print(f"total_iron diff = {total_iron.max() - total_iron.min():.2e}")

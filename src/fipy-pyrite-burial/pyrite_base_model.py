@@ -33,7 +33,7 @@ def pyrite_model(p_dict: dict, plot_queue=None):
         compute_sigmoidal_db,
         get_l_mass,
         # get_delta,
-        weight_percent_to_mmol_l_bulk,
+        wt_percent_to_solid_conc,
         compute_bio_irrigation_alpha,
         make_grid,
         make_grid2,
@@ -72,13 +72,13 @@ def pyrite_model(p_dict: dict, plot_queue=None):
             "hs_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
             "s0_ox_alpha": 1,  # sulfide oxidation enrichment factor in mUr
             "bc_o2": 0.20,  # mmmol/l
-            "bc_om": weight_percent_to_mmol_l_bulk(4, 12, 2.6),  # wt% C
+            "bc_om": wt_percent_to_solid_conc(4, 12, 2.6, 0.65),  # wt% C
             "bc_so4": 28.0,  # mmol/l
             "bc_ts2": 0.0,  # mmol/l # Total S2-
             "bc_s0": 0.0,  # mmol/l
             "bc_fe2": 0,  # wt% Fe2
             "bc_fe2_p": 0,  # wt% sorbed Fe2
-            "bc_fe3": weight_percent_to_mmol_l_bulk(0.5, 56, 2.6),  # wt% Fe
+            "bc_fe3": wt_percent_to_solid_conc(1, 56, 2.6, 0.65),  # wt% Fe
             "DB0": 4e-12 * 0,  # Bioturbation coefficient
             "DB_depth": 0,  # Bioturbation depth in m
             "BI0": 1e-6 * 0,  # should be < 1e-5
@@ -314,90 +314,3 @@ def pyrite_model(p_dict: dict, plot_queue=None):
         step,
         total_time,
     )
-
-
-# code stub to run pyrite model
-if __name__ == "__main__":
-    import pint
-    import plot_data_new
-    from diff_lib import (
-        save_data,
-        get_delta,
-        weight_percent_to_mmol_l_bulk,
-        save_state,
-        read_state,
-    )
-
-    ureg = pint.UnitRegistry()
-    Q_ = ureg.Quantity
-
-    experiment = "msr_h2s_ox_fe3_sorb_fe2_ox_fes"
-    state_in = "msr_h2s_ox_fe3_sorb_fe2_ox.npz"
-    state_out = f"statenpz"
-
-    p_dict = {
-        "bc_fe3": weight_percent_to_mmol_l_bulk(0.0001, 56, 2.6),
-        "bc_fe3": weight_percent_to_mmol_l_bulk(1, 56, 2.6),
-        "DB_depth": 0,
-        "DB0": 4e-12 * 0,
-        "relax": 0.8,  # use 0.1 with with coupled solver, and 0.8 with regular solver
-        "max_steps": 100,  # max number of iterations
-        "tolerance": 1e-9,  # convergence criterion
-        "dt_tolerance": 1e-4,  # convergence criterion for time stepping
-        # "state_data": state_in,  # read state data
-        # "plot_name": f"{experiment}.csv",
-        "dt_max": Q_("1000 year").to("seconds").magnitude,  # time step in years
-        "dt_min": Q_("100 year").to("seconds").magnitude,  # time step in years
-        "t_end": Q_("100 kyear").to("seconds").magnitude,
-        "steady_state": False,  # use non-steady solver
-        "initial_spacing": 0.01,  # meters
-        "reaction_zone_spacing": 0.001,  # meters
-        "max_spacing": 0.1,  # meters, None = no cap
-        "reaction_zone": (1e-2, 2e-1),  # in meters
-        "report_step": 10,  # how often to update plot
-    }
-    # p_dict = {"bc_fe3": 1000, "DB_depth": 0.1, "max_depth": 10.0}
-
-    (
-        mp,
-        c,
-        k,
-        species_list,
-        z,
-        D_mol,
-        diagenetic_reactions,
-        converged,
-        step,
-        total_time,
-    ) = pyrite_model(p_dict)
-
-    # -----------------------------------------------------------------------------
-    # 8. EXPORT DATA
-    # -----------------------------------------------------------------------------
-    df, fqfn = save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions)
-
-    phi = mp.phi  # FIXME: do we need to scale this?
-    s = phi * (df.c_so4.iloc[-1] + df.c_ts2.iloc[-1]) + (1 - phi) * (
-        df.c_s0.iloc[-1] + df.c_fes.iloc[-1] + 2 * df.c_fes2.iloc[-1]
-    )
-    s32 = phi * (df.c_so4_32.iloc[-1] + df.c_ts2_32.iloc[-1]) + (1 - phi) * (
-        df.c_s0_32.iloc[-1] + df.c_fes_32.iloc[-1] + df.c_fes2_32.iloc[-1]
-    )
-
-    d34s = get_delta(s, s32, mp.VCDT)
-    print(f"d34S = {d34s:0.2f}, d34S pyrite = {df.d_fes2.iloc[-1]:.2f}")
-
-    save_state(c, state_out)
-    # 9. PLOTTING
-    # -----------------------------------------------------------------------------
-    plt_desc = plot_data_new.load_layout_from_file(df, mp.layout_file)
-
-    plot_data_new.plot(
-        df,
-        mp.display_length,
-        fqfn.with_suffix(".pdf"),
-        show=False,
-        plot_description=plt_desc,
-        measured_data_path="goldhaber_unified.csv",
-    )
-    print("Plot generated.")
