@@ -546,28 +546,102 @@ def calculate_k_iron_reduction(fe3, h2s):
     return k_values / (60 * 60 * 24 * 1e3)
 
 
-def mol_to_weight_percent(c, mw, d):
-    """Convert from mol/m^3 to weight percent.
-
-    c: cocentration in mol/m^3
-    mw: molar weight of substance
-    d: density of sediment in gram/cm^3
-
-    returns: wt% between 0 to 100
+def weight_percent_to_mmol_l_bulk(wp, mw, d, phi):
     """
-    return 100 * c * mw / (d * 1e6)
+    Convert a weight‑percent (dry mass) of a solid component to its
+    concentration in bulk solution (mmol L⁻¹, i.e. mol m⁻³).
 
+    Parameters
+    ----------
+    wp : float or array‑like
+        Weight percentage of the component (0–100 %).
+    mw : float
+        Molecular weight of the component (g mol⁻¹).
+    d  : float
+        Grain density of the pure solid (g cm⁻³).
+    phi : float
+        Porosity of the bulk material (fraction, 0–1).
 
-def weight_percent_to_mol(wp, mw, d):
-    """Convert from weight % to mol/m^3
-    wp : weight percentage
-    mw: mol weight
-    d: density in gr/cm^3
+    Returns
+    -------
+    C_bulk : float or np.ndarray
+        Concentration in mol m⁻³ (identical numerically to mmol L⁻¹).
 
-    returns concentration in mol/m^3
+    Notes
+    -----
+    The conversion assumes a representative bulk volume of 1 m³.
+    1 m³ = 1 000 000 cm³, hence the factor 1e6 in the formula.
     """
+    # Ensure inputs are NumPy arrays for broadcasting (works also for scalars)
+    wp = np.asarray(wp, dtype=float)
+    phi = np.asarray(phi, dtype=float)
 
-    return wp * d * 1e4 / mw
+    # 1. Mass fraction (dimensionless)
+    w_frac = wp / 100.0
+
+    # 2. Bulk density of the pure component (g cm⁻³)
+    rho_bulk = d * (1.0 - phi)
+
+    # 3. Mass of the component per 1 m³ bulk volume (g)
+    #    1 m³ = 1 000 000 cm³
+    mass_per_m3 = rho_bulk * w_frac * 1.0e6  # g m⁻³
+
+    # 4. Convert mass to moles (mol m⁻³)
+    C_bulk = mass_per_m3 / mw  # mol m⁻³
+
+    return C_bulk
+
+
+def wt_percent_to_solid_conc(wp, mw, rho_s=2.65):
+    """
+    wp   : weight percentage (e.g., 2.0 for 2%)
+    mw   : molecular weight (g/mol)
+    rho_s: grain density (g/cm^3)
+
+    returns: mmol / L_solid
+    """
+    # (g_OM / 100g_dry) * (g_dry / cm3_solid) * (1000 cm3 / 1 L) * (1000 mmol / 1 mol) / (g/mol)
+    return (wp / 100) * rho_s * 1000 * 1000 / mw
+
+
+def mmol_l_bulk_to_weight_percent(C_bulk, mw, d, phi):
+    """
+    Convert a bulk concentration (mmol L⁻¹ ≡ mol m⁻³) back to weight
+    percentage of the component in the dry solid matrix.
+
+    Parameters
+    ----------
+    C_bulk : float or array‑like
+        Bulk concentration (mol m⁻³; same numerically as mmol L⁻¹).
+    mw : float
+        Molecular weight of the component (g mol⁻¹).
+    d  : float
+        Grain density of the pure solid (g cm⁻³).
+    phi : float
+        Porosity of the bulk material (fraction, 0–1).
+
+    Returns
+    -------
+    wp : float or np.ndarray
+        Weight percentage (0–100 %) of the component in the dry mass.
+    """
+    C_bulk = np.asarray(C_bulk, dtype=float)
+    phi = np.asarray(phi, dtype=float)
+
+    # 1. Bulk density of the pure solid (g cm⁻³)
+    rho_bulk = d * (1.0 - phi)
+
+    # 2. Mass of the component per 1 m³ bulk volume (g m⁻³)
+    #    mass = concentration × molecular weight
+    mass_per_m3 = C_bulk * mw  # g m⁻³
+
+    # 3. Convert mass per m³ to a mass fraction of the dry solid.
+    #    mass_per_m3 = rho_bulk * w_frac * 1e6   →  w_frac = mass / (rho_bulk·1e6)
+    w_frac = mass_per_m3 / (rho_bulk * 1.0e6)  # dimensionless
+
+    # 4. Finally express as weight percent (0–100 %)
+    wp = w_frac * 100.0
+    return wp
 
 
 def _get_executor():

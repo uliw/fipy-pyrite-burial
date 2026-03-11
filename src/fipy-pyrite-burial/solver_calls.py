@@ -313,6 +313,7 @@ def run_non_steady_state_solver_coupled(
     2. Runs a time loop where reaction terms are updated and solved.
     3. Adapts the time step using a PID-controlled logic.
     """
+    import numpy as np
     from reactions_new import get_total_delta
 
     start_wall = time.time()
@@ -427,6 +428,7 @@ def run_non_steady_state_solver_coupled(
                     f"Step {step:4d} | {time_str} | "
                     f"dt: {get_time_units(current_dt):.2f~P} | RMS Chg: {rms_change:.2e} | "
                     f"d34S = {get_total_delta(c, mp):.2f}"
+                    f"max Fe3+ {np.max(c.fe3.value):.2f}\n"
                 )
 
                 if plot_queue is not None:

@@ -1,7 +1,18 @@
-"""Define a reaction-transport model that computes pyrite precipitation.
+"""
+Define a reaction-transport model that computes pyrite precipitation.
 
-as a function of organic matter availability, including isotopes
-Model units are meter/second, mmol/liter, and meter
+as a function of organic matter availability, including isotopes. Model units are
+meter/second, concentrations are given mmol/liter (mol/m^3) and solids are expressed as
+concentration per unit of solid volume (mmol/L_solid).
+
+This keeps the physics of the "solid phase" independent of how much water is currently
+squeezing around it.  If the sediment compacts (porosity ϕ decreases), the amount of
+organic matter per gram of rock doesn't change, but the amount of organic matter per
+liter of bulk sediment does.  ​
+
+As such, a reaction between a liquid and a solid needs to be scaled
+
+f = k * [SO4] * (1 - phi)/phi * [OM]
 """
 
 
@@ -22,7 +33,7 @@ def pyrite_model(p_dict: dict, plot_queue=None):
         compute_sigmoidal_db,
         get_l_mass,
         # get_delta,
-        weight_percent_to_mol,
+        weight_percent_to_mmol_l_bulk,
         compute_bio_irrigation_alpha,
         make_grid,
         make_grid2,
@@ -61,13 +72,13 @@ def pyrite_model(p_dict: dict, plot_queue=None):
             "hs_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
             "s0_ox_alpha": 1,  # sulfide oxidation enrichment factor in mUr
             "bc_o2": 0.20,  # mmmol/l
-            "bc_om": weight_percent_to_mol(4, 12, 2.6),  # wt% C
+            "bc_om": weight_percent_to_mmol_l_bulk(4, 12, 2.6),  # wt% C
             "bc_so4": 28.0,  # mmol/l
             "bc_ts2": 0.0,  # mmol/l # Total S2-
             "bc_s0": 0.0,  # mmol/l
             "bc_fe2": 0,  # wt% Fe2
             "bc_fe2_p": 0,  # wt% sorbed Fe2
-            "bc_fe3": weight_percent_to_mol(0.5, 56, 2.6),  # wt% Fe
+            "bc_fe3": weight_percent_to_mmol_l_bulk(0.5, 56, 2.6),  # wt% Fe
             "DB0": 4e-12 * 0,  # Bioturbation coefficient
             "DB_depth": 0,  # Bioturbation depth in m
             "BI0": 1e-6 * 0,  # should be < 1e-5
@@ -312,7 +323,7 @@ if __name__ == "__main__":
     from diff_lib import (
         save_data,
         get_delta,
-        weight_percent_to_mol,
+        weight_percent_to_mmol_l_bulk,
         save_state,
         read_state,
     )
@@ -325,8 +336,8 @@ if __name__ == "__main__":
     state_out = f"statenpz"
 
     p_dict = {
-        "bc_fe3": weight_percent_to_mol(0.0001, 56, 2.6),
-        "bc_fe3": weight_percent_to_mol(1, 56, 2.6),
+        "bc_fe3": weight_percent_to_mmol_l_bulk(0.0001, 56, 2.6),
+        "bc_fe3": weight_percent_to_mmol_l_bulk(1, 56, 2.6),
         "DB_depth": 0,
         "DB0": 4e-12 * 0,
         "relax": 0.8,  # use 0.1 with with coupled solver, and 0.8 with regular solver

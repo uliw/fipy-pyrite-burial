@@ -961,3 +961,67 @@ def get_total_delta(c, mp, index=-1):
     )
 
     return get_delta(s, s32, mp.VCDT)
+
+
+def fes_unified_reaction_2(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """
+    Refactored FeS Precipitation & Dissolution.
+    Ensures 1:1 stoichiometry between Fe2_total (bulk) and FeS (solid).
+    """
+    import numpy as np
+
+    # 1. Concentrations & Phases
+    # fe2_total: mol/L_bulk
+    # ts2:       mol/L_porewater
+    # fes:       mol/L_solid
+    fe2_pw_val = c.fe2_total.value * mp.fe2_pw_conc  # mol/L_pw
+    ts2_val = c.ts2.value  # mol/L_pw
+    hs_val = ts2_val * mp.hs_frac  # mol/L_pw
+    fes_val = c.fes.value  # mol/L_solid
+
+    # 2. Saturation (Omega)
+    omega_den = k.hplus * k.fes_sp + 1e-30
+    omega = (fe2_pw_val * hs_val) / omega_den
+
+    # 3. Kinetic Switching
+    sharpness = 50.0
+    is_precip = 0.5 * (1.0 + np.tanh(sharpness * (omega - 1.0)))
+    is_diss = 1.0 - is_precip
+    fes_limiter = fes_val / (fes_val + 1e-6)
+
+    # 4. Rates in Bulk Units (mol/L_bulk/s)
+    # R_precip = k_p * phi * ([Fe2_pw] * [HS] / omega_den)
+    # R_diss   = k_d * (1-phi) * [FeS]
+
+    # Implicit multiplier for TS2 (units: 1/s in pw basis)
+    # We define it such that: Rate_bulk = (l_ts2_bulk * ts2)
+    l_ts2_bulk = (k.fes_isp * is_precip * fe2_pw_val * mp.hs_frac / omega_den) * mp.phi
+
+    # Explicit dissolution flux (units: mol/L_bulk/s)
+    s_bulk_diss = (k.fes_isd * is_diss * fes_limiter * fes_val) * (1.0 - mp.phi)
+
+    # 5. Apply to LHS / CROSS / RHS
+
+    # --- TS2 (mol/L_pw) ---
+    # d[TS2]/dt = - (l_ts2_bulk / phi) * [TS2] + (s_bulk_diss / phi)
+    coeff_ts2 = l_ts2_bulk / mp.phi
+    add_implicit_sink(LHS, RATES, "ts2", coeff_ts2, coeff_ts2 * ts2_val)
+    add_explicit_source(RHS, RATES, "ts2", s_bulk_diss / mp.phi)
+
+    # --- Fe2_total (mol/L_bulk) ---
+    # d[Fe2_total]/dt = - (l_ts2_bulk) * [TS2] + (s_bulk_diss)
+    # Note: This uses TS2 as the variable to drive the Fe2 sink.
+    CROSS["fe2_total"].append(("ts2", -l_ts2_bulk))
+    add_explicit_source(RHS, RATES, "fe2_total", s_bulk_diss)
+    RATES["fe2_total"] -= l_ts2_bulk * ts2_val  # Manually update rate for diagnostics
+
+    # --- FeS (mol/L_solid) ---
+    # d[FeS]/dt = + (l_ts2_bulk / (1-phi)) * [TS2] - (s_bulk_diss / (1-phi))
+    coeff_fes_cross = l_ts2_bulk / (1.0 - mp.phi)
+    CROSS["fes"].append(("ts2", coeff_fes_cross))
+
+    # Explicit dissolution sink for FeS
+    diss_fes_solid = s_bulk_diss / (1.0 - mp.phi)
+    # We add this to RHS. To prevent negative FeS, use add_implicit_sink if preferred,
+    # but here we keep it explicit to match your dissolution logic.
+    add_explicit_source(RHS, RATES, "fes", -diss_fes_solid)
