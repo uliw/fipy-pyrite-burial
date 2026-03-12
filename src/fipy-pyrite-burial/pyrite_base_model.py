@@ -1,7 +1,7 @@
 """
 Define a reaction-transport model that computes pyrite precipitation.
 
-as a function of organic matter availability, including isotopes. Model units are
+as a function of organic matter availability, including isotopes.  Model units are
 meter/second, concentrations are given mmol/liter (mol/m^3) and solids are expressed as
 concentration per unit of solid volume (mmol/L_solid).
 
@@ -13,6 +13,7 @@ liter of bulk sediment does.  ​
 As such, a reaction between a liquid and a solid needs to be scaled
 
 f = k * [SO4] * (1 - phi)/phi * [OM]
+
 """
 
 
@@ -101,14 +102,11 @@ def pyrite_model(p_dict: dict, plot_queue=None):
             "max_spacing": 0.1,  # meters, None = no cap
             "state_data": "state_data.npz",
             "title": None,  # defaults to current time
+            "start_time": 0,  # i.e., when starting from a previous state
         }
     )
 
     mp.update(p_dict)
-    _k1, k = get_reaction_constants(mp.phi, mp.pH)
-    k = data_container(k)
-    mp.bc_so4_32 = get_l_mass(mp.bc_so4, mp.so4_d, mp.VCDT)
-    mp.bc_ts2_32 = get_l_mass(mp.bc_ts2, 0.0, mp.VCDT)  # Assume 0 delta for bc_h2s
 
     # -----------------------------------------------------------------------------
     # 2. MESH GENERATION (Variable Grid)
@@ -122,6 +120,12 @@ def pyrite_model(p_dict: dict, plot_queue=None):
         mp.reaction_zone,
     )
     mp.grid_points = len(z)
+
+    mp.phi = CellVariable(name="porosity", mesh=mesh, value=mp.phi)
+    _k1, k = get_reaction_constants(mp.phi.value, mp.pH)
+    k = data_container(k)
+    mp.bc_so4_32 = get_l_mass(mp.bc_so4, mp.so4_d, mp.VCDT)
+    mp.bc_ts2_32 = get_l_mass(mp.bc_ts2, 0.0, mp.VCDT)  # Assume 0 delta for bc_h2s
 
     # -----------------------------------------------------------------------------
     # 3. VARIABLES & DIFFUSION PROFILES
@@ -162,27 +166,21 @@ def pyrite_model(p_dict: dict, plot_queue=None):
     # Note: All of these assume that porosity does not change with time!
 
     # Porosity correction factor
-    mp.fac_s = mp.phi / (1.0 - mp.phi)
+    mp.fac_s = mp.phi.value / (1.0 - mp.phi.value)
 
-    # Fe2 sorption fraction. Since sorption is faster than transport
-    # we treat it as instantenous, i.e. it is just a function of
-    # concentration
-    # K_ads = k.fe2_p_eq  # 696
+    # Fe2 sorption fraction. Since sorption is faster than transport we treat it as
+    # instantenous, i.e. it is just a function of concentration K_ads = k.fe2_p_eq which
+    # is unitless (Conc_solid_vol / Conc_liquid_vol)
+    # Fe_tot is mmol / L_solid
+    # k.fe2_p_eqv is (mmol/L_solid) / (mmol/L_pw)
+    # The 'volume ratio' term
+    vol_ratio = mp.phi.value / (1.0 - mp.phi.value)
 
-    # Check Units of K_ads!
-    # If K_ads is dimensionless (Conc_solid_vol / Conc_liquid_vol):
-    #   Capacity = phi + (1-phi)*K_ads
-    # If K_ads is (Conc_solid_mass / Conc_liquid_vol) [L/kg]:
-    #   Capacity = phi + (1-phi)*rho*K_ads
-    R_factor = mp.phi + (1.0 - mp.phi) * k.fe2_p_eq
-
-    # Calculate Fe2+ Fractions
-    mp.f_diss = mp.phi / R_factor
-    mp.f_sorb = (1.0 - mp.phi) * k.fe2_p_eq / R_factor
-
-    # 2. Concentration Factors (Use these in Diagenetic Reactions)
-    # [Fe2_pw] = [Fe2_total] * mp.f_pw_conc
-    mp.fe2_pw_conc = 1.0 / R_factor
+    # fraction of Fe2+ in porewater mmol/L_pw
+    mp.f_diss = 1 / (k.fe2_p_eq + vol_ratio)
+    mp.fe2_pw_conc = mp.f_diss
+    # fraction of Fe2+ in sediment as (mmol / L_solid)
+    mp.f_sorb = k.fe2_p_eq * mp.f_diss
 
     # calculate H2S/HS- speciation
     pKa1 = 7.0
@@ -217,14 +215,14 @@ def pyrite_model(p_dict: dict, plot_queue=None):
     D_mol.o2 = (
         (0.2604 + 0.006363 * ((T_profile + 273.15) / 1))
         * 1e-9
-        / (1 - np.log(mp.phi**2))
+        / (1 - np.log(mp.phi.value**2))
     )
 
     # -- Bioturbation and Irrigation Profiles (Robust Sigmoid) --
     D_mol.D_irr = compute_bio_irrigation_alpha(z, mp.BI0, mp.BI_depth)
     D_mol.D_bio = compute_sigmoidal_db(z, mp.DB0, mp.DB_depth, 0.1)
     # lumped modeling of Fe2 liq and Fe2 adsorbed
-    D_mol.fe2_total = 1 / (1 + k.fe2_p_eq) * D_mol.fe2
+    D_mol.fe2_total = D_mol.fe2 * mp.f_diss
 
     # -----------------------------------------------------------------------------
     # 4. BOUNDARY CONDITIONS

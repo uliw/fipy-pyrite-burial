@@ -39,33 +39,43 @@ def get_reaction_constants(phi, pH):
         ],  # FeS + H2S -> FeS2, at 10C -> notes.org
         "hplus": [10 ** (-pH), "mol/l", "mol/m^3"],
         # Oxidation reactions after Velde at eal 2016
-        "hs_ox": [1e7 * phi, "cm^3/(umol*year)", "m^3/(mol*second)"],
+        "hs_ox": [1e7, "cm^3/(umol*year)", "m^3/(mol*second)", "phi"],
         "fe3_hs": [
-            494 * (1 - phi),
+            494,
             "cm^3/(umol*year)",
             "m^3/(mol*second)",
+            "1-phi",
         ],  # check with halevy
-        "fes_ox": [1e7 * (1 - phi), "cm^3/(umol*year)", "m^3/(mol*second)"],
-        "fe2_ox": [1e7 * phi, "cm^3/(umol*year)", "m^3/(mol*second)"],
-        "fe2p_ox": [1e7 * (1 - phi), "cm^3/(umol*year)", "m^3/(mol*second)"],
-        "s0_ox": [4e7 * phi, "cm^3/(umol*year)", "m^3/(mol*second)"],
+        "fes_ox": [1e7, "cm^3/(umol*year)", "m^3/(mol*second)", "1-phi"],
+        "fe2_ox": [1e7, "cm^3/(umol*year)", "m^3/(mol*second)", "phi"],
+        "fe2p_ox": [1e7, "cm^3/(umol*year)", "m^3/(mol*second)", "1-phi"],
+        "s0_ox": [4e7, "cm^3/(umol*year)", "m^3/(mol*second)", "phi"],
         # Iron sulfide reactions after Velde at eal 2016
         "fes_isp": [
-            (1 - phi) * 1e4,
+            1e4,
             "umol/((cm^3*year))",
             "mol/(m^3 *second)",
+            "1-phi",
         ],  # FeS precipitation
-        "fes_isd": [(1 - phi) * 3, "1/year", "1/second"],  # FeS dissolution
+        "fes_isd": [3, "1/year", "1/second", "1-phi"],  # FeS dissolution
         "fes_sp": [  # FeS equilibrium constant
-            (1 - phi) * 10**-3.5,
+            10**-3.5,
             "mol/l",
-            "mol/m^3 ",
+            "mol/m^3",
+            "1-phi",
         ],  # FeS Saturation constant
     }
 
     k_values: dict = {}
     for k, v in velde.items():
-        k_values[k] = Q_(f"{v[0]} {v[1]}").to(f"{v[2]}").magnitude
+        base_val = Q_(f"{v[0]} {v[1]}").to(f"{v[2]}").magnitude
+        if len(v) > 3:
+            if v[3] == "phi":
+                k_values[k] = base_val * phi
+            elif v[3] == "1-phi":
+                k_values[k] = base_val * (1.0 - phi)
+        else:
+            k_values[k] = base_val
 
     return velde, k_values
 

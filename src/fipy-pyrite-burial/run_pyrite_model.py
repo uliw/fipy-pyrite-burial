@@ -35,12 +35,12 @@ if __name__ == "__main__":
     # state_out = None
 
     p_dict = {
-        "t_end": Q_("33 year").to("seconds").magnitude,
-        "max_steps": 2000,  # max number of iterations
+        "t_end": Q_("1 kyear").to("seconds").magnitude,
+        "max_steps": 20,  # max number of iterations
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 hour").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
-        "process_monitor": "video",  # gui | video | none
+        "process_monitor": "none",  # gui | video | none
         "plot_name": f"{experiment}",
         "isotopes": False,
         "report_step": 2,  # how often to update plot
@@ -69,7 +69,7 @@ if __name__ == "__main__":
         rn.elemental_sulfur_oxidation,
         rn.sulfide_mediated_iron_reduction,
         rn.fe2_oxidation,
-        # rn.fes_unified_reaction,
+        rn.fes_unified_reaction_5,
         # rn.fes_oxidation,
         # rn.pyrite_formation_s0,
         # rn.pyrite_formation_fes_ts2,

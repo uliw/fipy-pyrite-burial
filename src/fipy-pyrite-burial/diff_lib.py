@@ -82,7 +82,9 @@ def diff_coeff(T, m0, m1, phi):
     phi: porosity in percent
     m0, m1: parameter as from table X in Boudreau 1996
     """
-    return (m0 + m1 * T) * 1e-10 / (1 - np.log(phi**2))
+    # If phi is a FiPy CellVariable, use its .value for numpy math
+    phi_val = getattr(phi, "value", phi)
+    return (m0 + m1 * T) * 1e-10 / (1 - np.log(phi_val**2))
 
 
 def get_delta(c, li, r):
@@ -579,8 +581,10 @@ def wt_percent_to_solid_conc(wp, mw, d, phi):
     # 1. Mass fraction (dimensionless)
     w_frac = wp / 100.0
 
+    phi_val = getattr(phi, "value", phi)
+
     # 2. Bulk density of the pure component (g cm⁻³)
-    rho_bulk = d * (1.0 - phi)
+    rho_bulk = d * (1.0 - phi_val)
 
     # 3. Mass of the component per 1 m³ bulk volume (g)
     #    1 m³ = 1 000 000 cm³
@@ -655,7 +659,8 @@ def solid_conc_to_wt_percent(C_bulk, mw, d, phi):
     phi = np.asarray(phi, dtype=float)
 
     # 1. Bulk density of the pure solid (g cm⁻³)
-    rho_bulk = d * (1.0 - phi)
+    phi_val = getattr(phi, "value", phi)
+    rho_bulk = d * (1.0 - phi_val)
 
     # 2. Mass of the component per 1 m³ bulk volume (g m⁻³)
     #    mass = concentration × molecular weight
@@ -896,8 +901,9 @@ def add_implicit_sink(
     rate_is_liquid = ctype.startswith("liquid")
     species_is_liquid = ctype.endswith("liquid")
 
-    rate_eff_phi = mp.phi if rate_is_liquid else (1.0 - mp.phi)
-    species_eff_phi = mp.phi if species_is_liquid else (1.0 - mp.phi)
+    phi_val = getattr(mp.phi, "value", mp.phi)
+    rate_eff_phi = phi_val if rate_is_liquid else (1.0 - phi_val)
+    species_eff_phi = phi_val if species_is_liquid else (1.0 - phi_val)
     phase_fac = rate_eff_phi / species_eff_phi
 
     LHS[species] = LHS[species] - (coeff * phase_fac)
@@ -927,8 +933,9 @@ def add_explicit_source(
     rate_is_liquid = ctype.startswith("liquid")
     species_is_liquid = ctype.endswith("liquid")
 
-    rate_eff_phi = mp.phi if rate_is_liquid else (1.0 - mp.phi)
-    species_eff_phi = mp.phi if species_is_liquid else (1.0 - mp.phi)
+    phi_val = getattr(mp.phi, "value", mp.phi)
+    rate_eff_phi = phi_val if rate_is_liquid else (1.0 - phi_val)
+    species_eff_phi = phi_val if species_is_liquid else (1.0 - phi_val)
 
     phase_fac = rate_eff_phi / species_eff_phi
 
@@ -993,7 +1000,8 @@ def add_implicit_coupling_new(
     target_is_liquid = ctype.endswith("liquid")
 
     # ---- Effective Porosity for Bulk Conversion ----
-    source_eff_phi = mp.phi if source_is_liquid else (1.0 - mp.phi)
+    phi_val = getattr(mp.phi, "value", mp.phi)
+    source_eff_phi = phi_val if source_is_liquid else (1.0 - phi_val)
 
     # The implicit bulk coefficient
     coeff_bulk = coeff * source_eff_phi
@@ -1017,7 +1025,7 @@ def add_implicit_coupling_new(
         RATES[source_species] -= rate_val
 
     # Target: convert bulk → target species' own basis, apply stoichiometry
-    target_rate = rate_bulk / mp.phi if target_is_liquid else rate_bulk / (1.0 - mp.phi)
+    target_rate = rate_bulk / phi_val if target_is_liquid else rate_bulk / (1.0 - phi_val)
     RATES[target_species] += target_rate * stoich_ratio
 
 

@@ -215,7 +215,9 @@ def _build_passive_eqs(
 
         # Terms with conservative phi handling
         conv_term = PowerLawConvectionTerm(coeff=eff_phi * u_var, var=var)
-        diff_term = DiffusionTerm(coeff=eff_phi * CellVariable(mesh=mesh, value=D_total), var=var)
+        diff_term = DiffusionTerm(
+            coeff=eff_phi * CellVariable(mesh=mesh, value=D_total), var=var
+        )
 
         # Irrigation (Sources/Sinks for dissolved species)
         irr_term = 0.0
@@ -225,7 +227,9 @@ def _build_passive_eqs(
             ) + eff_phi * CellVariable(mesh=mesh, value=D_mol.D_irr * props["top"])
 
         # Passive equation: Transient + Convection - Diffusion - Irrigation
-        passive_eqs[name] = TransientTerm(coeff=eff_phi, var=var) + conv_term - diff_term - irr_term
+        passive_eqs[name] = (
+            TransientTerm(coeff=eff_phi, var=var) + conv_term - diff_term - irr_term
+        )
 
     return species_struct, passive_eqs
 
@@ -357,7 +361,7 @@ def run_non_steady_state_solver_coupled(
     )
 
     step = 0
-    total_time = 0.0
+    total_time = mp.start_time
     status = "Maximum steps or simulation time reached"
     max_change = 0.0
 
