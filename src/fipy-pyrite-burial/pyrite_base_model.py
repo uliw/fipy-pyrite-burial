@@ -122,7 +122,7 @@ def pyrite_model(p_dict: dict, plot_queue=None):
     mp.grid_points = len(z)
 
     mp.phi = CellVariable(name="porosity", mesh=mesh, value=mp.phi)
-    _k1, k = get_reaction_constants(mp.phi.value, mp.pH)
+    _k1, k = get_reaction_constants(mp.pH)
     k = data_container(k)
     mp.bc_so4_32 = get_l_mass(mp.bc_so4, mp.so4_d, mp.VCDT)
     mp.bc_ts2_32 = get_l_mass(mp.bc_ts2, 0.0, mp.VCDT)  # Assume 0 delta for bc_h2s
