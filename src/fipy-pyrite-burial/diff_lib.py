@@ -888,23 +888,18 @@ def make_grid2(
 def add_implicit_sink(
     LHS, RATES, species, coeff, rate, ctype="liquid_2_liquid", mp=None, c=None
 ):
+    """Add an implicit consumption term to the LHS matrix.
+
+    Incoming ``coeff`` and ``rate`` are in **bulk** units.  The FiPy transport
+    equation already carries ``eff_phi`` on its transient / convection /
+    diffusion terms, so reaction source terms are passed through in bulk
+    without further division.
+
+    ``ctype`` is retained for documentation (indicates rate_phase_2_species_phase).
     """
-    Add an implicit consumption term to the LHS matrix.
-    ctype indicates 'rate_phase_2_species_phase'.
-    Assuming incoming `coeff` and `rate` are in bulk units, we divide by the species' phase volume.
-    """
-    if mp is None:
-        LHS[species] = LHS[species] - coeff
-        RATES[species] -= getattr(rate, "value", rate)
-        return
+    LHS[species] = LHS[species] - coeff
+    RATES[species] -= getattr(rate, "value", rate)
 
-    species_is_liquid = ctype.endswith("liquid")
-
-    phi_val = getattr(mp.phi, "value", mp.phi)
-    species_eff_phi = phi_val if species_is_liquid else (1.0 - phi_val)
-
-    LHS[species] = LHS[species] - (coeff / species_eff_phi)
-    RATES[species] -= getattr(rate, "value", rate) / species_eff_phi
 
 def add_explicit_source(
     RHS,
@@ -916,25 +911,15 @@ def add_explicit_source(
     update_rates=True,
     c=None,
 ):
+    """Add a production term to the RHS vector.
+
+    Incoming ``rate`` is in **bulk** units and is passed through without
+    division.  See ``add_implicit_sink`` for rationale.
     """
-    Add a production term to the RHS vector.
-    ctype indicates 'rate_phase_2_species_phase'.
-    Assuming incoming `rate` is in bulk units, we divide by the species' phase volume.
-    """
-    if mp is None:
-        RHS[species] = RHS[species] + rate
-        if update_rates:
-            RATES[species] += getattr(rate, "value", rate)
-        return
-
-    species_is_liquid = ctype.endswith("liquid")
-
-    phi_val = getattr(mp.phi, "value", mp.phi)
-    species_eff_phi = phi_val if species_is_liquid else (1.0 - phi_val)
-
-    RHS[species] = RHS[species] + (rate / species_eff_phi)
+    RHS[species] = RHS[species] + rate
     if update_rates:
-        RATES[species] += getattr(rate, "value", rate) / species_eff_phi
+        RATES[species] += getattr(rate, "value", rate)
+
 
 def add_implicit_coupling_new(
     ctype,
@@ -950,34 +935,24 @@ def add_implicit_coupling_new(
     add_lhs_sink=True,
     stoich_ratio=1.0,
 ):
+    """Add a coupled implicit source term with optional stoichiometry.
+
+    Incoming ``coeff`` and ``rate`` are in **bulk** units.  No phi-division
+    is applied; the FiPy transport equation already carries the phase volume
+    on its LHS.
+
+    ``ctype`` is retained for documentation (source_phase_2_target_phase).
     """
-    Add a coupled implicit source term with porosity correction and optional stoichiometry.
-
-    Assuming incoming `coeff` and `rate` are in bulk units, they are converted into
-    phase-specific sink and source terms.
-    """
-    source_is_liquid = ctype.startswith("liquid")
-    target_is_liquid = ctype.endswith("liquid")
-
-    phi_val = getattr(mp.phi, "value", mp.phi)
-    source_eff_phi = phi_val if source_is_liquid else (1.0 - phi_val)
-    target_eff_phi = phi_val if target_is_liquid else (1.0 - phi_val)
-
-    # Cross-coupling coefficient for target RHS
-    cross_coeff = (coeff / target_eff_phi) * stoich_ratio
+    cross_coeff = coeff * stoich_ratio
     CROSS[target_species].append((source_species, cross_coeff))
 
     rate_val = getattr(rate, "value", rate)
-    source_rate = rate_val / source_eff_phi
 
     if add_lhs_sink:
-        sink_coeff = coeff / source_eff_phi
-        LHS[source_species] = LHS[source_species] - sink_coeff
-        RATES[source_species] -= source_rate
+        LHS[source_species] = LHS[source_species] - coeff
+        RATES[source_species] -= rate_val
 
-    # Target: convert bulk → target species' own basis, apply stoichiometry
-    target_rate = (rate_val / target_eff_phi) * stoich_ratio
-    RATES[target_species] += target_rate
+    RATES[target_species] += rate_val * stoich_ratio
 
 
 def add_implicit_coupling(

@@ -36,13 +36,13 @@ if __name__ == "__main__":
 
     p_dict = {
         "t_end": Q_("1 kyear").to("seconds").magnitude,
-        "max_steps": 50,  # max number of iterations
+        "max_steps": 4000,  # max number of iterations
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 hour").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
         "process_monitor": "video",  # gui | video | none
         "plot_name": f"{experiment}",
-        "isotopes": False,
+        "isotopes": True,
         "report_step": 2,  # how often to update plot
         "w": Q_("0.2 cm/yr").to("m/s").m,  # sedimentation rate in m/s
         "bc_fe3": Q_("12 umol/(cm^2 * year)")

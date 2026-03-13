@@ -382,15 +382,15 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     # 1. Fe3 Sink - SOLID (Linear)
     # Rate = k * [H2S] * [Fe3]
-    coeff_coupling_fe2 = k.fe3_hs * c.ts2 * mp.hs_frac
+    coeff_coupling_fe2 = k.fe3_hs * c.ts2 * mp.hs_frac * lim["inhib_o2"]
 
     add_implicit_coupling_new(
-        "solid_2_solid",
+        "solid_2_liquid",
         CROSS,
         RATES,
         LHS,
-        "fe2_total",  # target
-        "fe3",  # source
+        "fe2_total",  # target (liquid)
+        "fe3",  # source (solid)
         coeff_coupling_fe2,  # implicit coefficient
         coeff_coupling_fe2 * c.fe3,  # explicit rate
         mp,
@@ -399,7 +399,7 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     # 4. Elemental sulfur - Solid (Coupled to TS2)
     # Rate = 0.5 * k * [Fe3] * [H2S] * mp.hs_frac
-    coeff_ts2 = k.fe3_hs * c.fe3 * mp.hs_frac * 0.5
+    coeff_ts2 = k.fe3_hs * c.fe3 * mp.hs_frac * 0.5 * lim["inhib_o2"]
     add_implicit_coupling_new(
         "liquid_2_solid",
         CROSS,
@@ -477,9 +477,6 @@ def fe2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     rate_base = k.fe2_ox * c.fe2_total * c.o2
 
-    # Fe2+ Sink - Liquid
-    coeff_fe2 = k.fe2_ox * c.o2
-
     # O2 Sink (1/4) - LIQUID
     coeff_o2 = k.fe2_ox * c.fe2_total * 0.25
     add_implicit_sink(
@@ -493,15 +490,14 @@ def fe2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         c=c,
     )
 
-    # Fe3 Source (1.0x) - SOLID
-    # Couple to Fe2 total which 670 parts solid and 1 poart liquid
+    # Fe3 Source (1.0x) - SOLID, coupled to Fe2_total (liquid)
     add_implicit_coupling_new(
-        "solid_2_solid",
+        "liquid_2_solid",
         CROSS,
         RATES,
         LHS,
-        "fe3",  # product
-        "fe2_total",  # source
+        "fe3",  # product (solid)
+        "fe2_total",  # source (liquid)
         k.fe2_ox * c.o2,  # coefficient
         rate_base,  # rate for reporting
         mp,
@@ -583,10 +579,10 @@ def pyrite_formation_s0(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     This is a bit tricky as we have two different S atoms into the same
     target (FeS2)
     """
-    # S0 Sink to Solid so no porosity scaling
+    # S0 Sink - SOLID
     coeff_s0 = k.fes_s0 * c.fes
     add_implicit_sink(
-        LHS, RATES, "s0", coeff_s0, coeff_s0 * c.s0, ctype="solid_2_liquid", mp=mp, c=c
+        LHS, RATES, "s0", coeff_s0, coeff_s0 * c.s0, ctype="solid", mp=mp, c=c
     )
 
     # FeS to FeS2 SOLID, Rate = k * FeS * S0.
@@ -840,7 +836,7 @@ def fes_precipitation_clip(c, k, mp, dt, RATES):
     rate_report = x_precip / dt
 
     RATES["ts2"][mask] -= rate_report
-    RATES["fe2_total"][mask] -= rate_report * phi_val[mask]
+    RATES["fe2_total"][mask] -= rate_report
     RATES["fes"][mask] += rate_report * fac_s[mask]
 
     # ---------------------------------------------------------
@@ -863,7 +859,7 @@ def fes_precipitation_clip(c, k, mp, dt, RATES):
     # 6. Update Bulk State Variables
     # ---------------------------------------------------------
     c.ts2.value[mask] -= x_precip
-    c.fe2_total.value[mask] -= x_precip * phi_val[mask]
+    c.fe2_total.value[mask] -= x_precip
     c.fes.value[mask] += x_precip * fac_s[mask]
 
     return RATES
@@ -930,9 +926,9 @@ def fes_unified_reaction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # ------------------------------------------------------------------
     # 5a. ts2 → fes  (implicit precipitation via helper)
     # ------------------------------------------------------------------
-    # Helper correctly reports:
-    #   RATES["ts2"]  -= net_precip_bulk / phi      [L_pw basis]
-    #   RATES["fes"]  += net_precip_bulk * phi/(1-phi)  [L_solid basis]
+    # Helper passes through bulk units:
+    #   RATES["ts2"]  -= net_precip_bulk
+    #   RATES["fes"]  += net_precip_bulk
     add_implicit_coupling_new(
         "liquid_2_solid",
         CROSS,
@@ -949,27 +945,24 @@ def fes_unified_reaction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # ------------------------------------------------------------------
     # 5b. Explicit dissolution sources — ts2 and fe2_total
     # ------------------------------------------------------------------
-    # add_explicit_source correctly adds to RATES in each species' own basis
     add_explicit_source(
-        RHS, RATES, "ts2", s_bulk / phi_val, update_rates=False, ctype="liquid"
-    )  # L_pw basis
+        RHS, RATES, "ts2", s_bulk, update_rates=False, ctype="liquid"
+    )
     add_explicit_source(
-        RHS, RATES, "fe2_total", s_bulk / phi_val, update_rates=False, ctype="solid"
-    )  # L_bulk basis
+        RHS, RATES, "fe2_total", s_bulk, update_rates=False, ctype="liquid"
+    )
 
     # Dissolution removes FeS: add to RHS only — RATES["fes"] already set by helper above
     add_explicit_source(
-        RHS, RATES, "fes", -s_bulk / (1.0 - phi_val), update_rates=False, ctype="solid"
+        RHS, RATES, "fes", -s_bulk, update_rates=False, ctype="solid"
     )
 
     # ------------------------------------------------------------------
     # 5c. fe2_total cross-coupling to ts2 (off-diagonal sink)
     # ------------------------------------------------------------------
-    # Replace independent self-sink with cross-coupling: fe2 consumption is
-    # driven by ts2 concentration, preventing numerical drift.
-    # CROSS entry: ImplicitSourceTerm(coeff=-l_ts2, var=c.ts2) → off-diagonal sink
-    CROSS["fe2_total"].append(("ts2", -l_ts2 / phi_val))
-    RATES["fe2_total"] -= getattr(net_precip_bulk, "value", net_precip_bulk) / phi_val
+    # fe2 consumption is driven by ts2 concentration (off-diagonal)
+    CROSS["fe2_total"].append(("ts2", -l_ts2))
+    RATES["fe2_total"] -= getattr(net_precip_bulk, "value", net_precip_bulk)
 
     # ------------------------------------------------------------------
     # 6. Isotopes (32S)
@@ -1013,7 +1006,7 @@ def fes_unified_reaction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             RHS,
             RATES,
             "fes_32",
-            -s_32_diss / (1.0 - phi_val),
+            -s_32_diss,
             update_rates=False,
             ctype="solid",
         )
@@ -1129,7 +1122,7 @@ def fes_unified_reaction_5(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 5c. fe2_total: same structure, stoich=-1 (consumed by precipitation)
     # ------------------------------------------------------------------
     add_implicit_coupling_new(
-        "liquid_2_solid",
+        "liquid_2_liquid",
         CROSS,
         RATES,
         LHS,
@@ -1143,7 +1136,7 @@ def fes_unified_reaction_5(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         stoich_ratio=-1.0,
     )
     add_explicit_source(
-        RHS, RATES, "fe2_total", k_eff * ts2_eq, update_rates=False, ctype="solid"
+        RHS, RATES, "fe2_total", k_eff * ts2_eq, update_rates=False, ctype="liquid"
     )
 
     # ------------------------------------------------------------------
