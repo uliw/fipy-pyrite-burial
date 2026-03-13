@@ -275,13 +275,14 @@ def write_to_queue_async(
         "fes2": "fes2_32",
     }
 
-    for base, iso in isotope_map.items():
-        if f"c_{base}" in data and f"c_{iso}" in data:
-            s_total = data[f"c_{base}"]
-            if base == "fes2":
-                s_total = 2.0 * s_total
-            s32 = data[f"c_{iso}"]
-            data[f"d_{base}"] = diff_lib.get_delta(s_total, s32, mp_params.VCDT)
+    if mp.isotopes:
+        for base, iso in isotope_map.items():
+            if f"c_{base}" in data and f"c_{iso}" in data:
+                s_total = data[f"c_{base}"]
+                if base == "fes2":
+                    s_total = 2.0 * s_total
+                s32 = data[f"c_{iso}"]
+                data[f"d_{base}"] = diff_lib.get_delta(s_total, s32, mp_params.VCDT)
 
     data["w"] = np.ones(len(z)) * mp_params.w
     data["phi"] = np.ones(len(z)) * mp_params.phi

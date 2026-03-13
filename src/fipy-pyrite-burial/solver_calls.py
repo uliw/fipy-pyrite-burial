@@ -364,6 +364,7 @@ def run_non_steady_state_solver_coupled(
     total_time = mp.start_time
     status = "Maximum steps or simulation time reached"
     max_change = 0.0
+    title_str = ""
 
     try:
         while total_time < mp.t_end and step < mp.max_steps:

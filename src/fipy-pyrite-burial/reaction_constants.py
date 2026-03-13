@@ -9,9 +9,7 @@ we would never precipitate FeS unless H2S > 1 mmol/l
 
 def get_reaction_constants(pH):
     """convert reaction_constants into model units.
-    Note: Velde et al report relative to bulk volume.
-    so mass/(volume * time) needs to be multiplied by 1/phi
-    and vice verso.
+    Constants returned are relative to bulk volume.
     """
     import pint
 
@@ -41,14 +39,14 @@ def get_reaction_constants(pH):
         # Oxidation reactions after Velde at eal 2016
         "hs_ox": [1e7, "cm^3/(umol*year)", "m^3/(mol*second)"],
         "fe3_hs": [
-            494 ,
+            494,
             "cm^3/(umol*year)",
             "m^3/(mol*second)",
         ],  # check with halevy
-        "fes_ox": [1e7 , "cm^3/(umol*year)", "m^3/(mol*second)"],
-        "fe2_ox": [1e7 , "cm^3/(umol*year)", "m^3/(mol*second)"],
+        "fes_ox": [1e7, "cm^3/(umol*year)", "m^3/(mol*second)"],
+        "fe2_ox": [1e7, "cm^3/(umol*year)", "m^3/(mol*second)"],
         "fe2p_ox": [1e7, "cm^3/(umol*year)", "m^3/(mol*second)"],
-        "s0_ox": [4e7,  "cm^3/(umol*year)", "m^3/(mol*second)"],
+        "s0_ox": [4e7, "cm^3/(umol*year)", "m^3/(mol*second)"],
         # Iron sulfide reactions after Velde at eal 2016
         "fes_isp": [
             1e4,

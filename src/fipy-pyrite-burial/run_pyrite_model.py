@@ -36,7 +36,7 @@ if __name__ == "__main__":
 
     p_dict = {
         "t_end": Q_("1 kyear").to("seconds").magnitude,
-        "max_steps": 20,  # max number of iterations
+        "max_steps": 50,  # max number of iterations
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 hour").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
@@ -44,7 +44,12 @@ if __name__ == "__main__":
         "plot_name": f"{experiment}",
         "isotopes": False,
         "report_step": 2,  # how often to update plot
-        "bc_fe3": wt_percent_to_solid_conc(1, 56, 2.6, 0.65),
+        "w": Q_("0.2 cm/yr").to("m/s").m,  # sedimentation rate in m/s
+        "bc_fe3": Q_("12 umol/(cm^2 * year)")
+        .to("mol/(m^2 * second)")
+        .magnitude,  # mol C / (m²·s)
+        "bc_om": Q_("548 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
+        "phi": 0.8,
         "DB_depth": 0,
         "DB0": 4e-12 * 0,
         "tolerance": 1e-12,  # convergence criterion

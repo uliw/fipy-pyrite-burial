@@ -31,10 +31,9 @@ def get_layout(df):
             "xaxis": [df.z, "Depth [m]"],
             "left": [
                 [df.c_so4, "SO4", {"color": "C0"}],
-                # [df.c_s0, "S0", {"color": "C2"}],
                 [df.c_ts2, "TS$^{2-}$", {"color": "C1"}],
                 [df.c_o2, "O2", {"color": "C3"}],
-                [df.c_fe2, r"Fe$^{2+}$", {"color": "C8"}],
+                # [df.c_fe2, r"Fe$^{2+}$", {"color": "C8"}],
                 # [df.c_fe2_total, r"TFe$^{2+}$", {"color": "C8", "linestyle": "dotted"}],
                 # [
                 #    df.c_fe2_total + df.c_fe3 + df.c_fes + df.c_fes2,
@@ -69,12 +68,6 @@ def get_layout(df):
                     "S0 [wt% S]",
                     {"color": "C2"},
                 ],
-                [
-                    solid_conc_to_wt_percent(df.c_fes2, 32, 2.6, df.phi),
-                    # df.c_fes2,
-                    r"FeS$_2$ [wt% S]",
-                    {"color": "black"},
-                ],
             ],
             "right_ylim": (0, 4),
             "right2": [
@@ -85,16 +78,16 @@ def get_layout(df):
                     {"color": "C5"},
                 ],
                 [
+                    solid_conc_to_wt_percent(df.c_fe2_total, 56, 2.6, df.phi),
+                    # df.c_fes2,
+                    r"TFe$^{2+}$ [wt% Fe]",
+                    {"color": "C8"},
+                ],
+                [
                     solid_conc_to_wt_percent(total_iron, 56, 2.6, df.phi),
                     # df.c_fes2,
                     r"TFe [wt% Fe]",
                     {"color": "black", "linestyle": "dotted"},
-                ],
-                [
-                    solid_conc_to_wt_percent(df.c_fe2_total, 56, 2.6, df.phi),
-                    # df.c_fes2,
-                    r"Fe$^{2+}$ total [wt% Fe]",
-                    {"color": "C8", "linestyle": "dotted"},
                 ],
             ],
             "right2_ylim": (0, 3),

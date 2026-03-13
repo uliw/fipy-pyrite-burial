@@ -58,7 +58,7 @@ def pyrite_model(p_dict: dict, plot_queue=None):
         {
             "plot_name": "pyrite_model_fipy",
             "layout_file": "plot_layout.py",  # Plot layout file
-            "process_monitor": "video",  # gui | video | none
+            "process_monitor": "gui",  # gui | video | none
             "steady_state": False,  # assume steady state?
             "max_depth": 10.0,  # meters
             "display_length": 2,  # meters
@@ -73,13 +73,13 @@ def pyrite_model(p_dict: dict, plot_queue=None):
             "hs_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
             "s0_ox_alpha": 1,  # sulfide oxidation enrichment factor in mUr
             "bc_o2": 0.20,  # mmmol/l
-            "bc_om": wt_percent_to_solid_conc(4, 12, 2.6, 0.65),  # wt% C
             "bc_so4": 28.0,  # mmol/l
             "bc_ts2": 0.0,  # mmol/l # Total S2-
             "bc_s0": 0.0,  # mmol/l
             "bc_fe2": 0,  # wt% Fe2
             "bc_fe2_p": 0,  # wt% sorbed Fe2
-            "bc_fe3": wt_percent_to_solid_conc(1, 56, 2.6, 0.65),  # wt% Fe
+            "bc_om": Q_("548 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
+            "bc_fe3": Q_("12 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
             "DB0": 4e-12 * 0,  # Bioturbation coefficient
             "DB_depth": 0,  # Bioturbation depth in m
             "BI0": 1e-6 * 0,  # should be < 1e-5
@@ -246,9 +246,31 @@ def pyrite_model(p_dict: dict, plot_queue=None):
 
     for species_name, props in bc_map.items():
         var = getattr(c, species_name)
-        var.setValue(props["top"])
-        var.constrain(props["top"], mesh.facesLeft)
-        var.faceGrad.constrain(0.0, mesh.facesRight)
+
+        if props["type"] == "particulate":
+            # For particulate species, top is a flux.
+            # Robin BC: J_in = v_burial * C - D * dC/dx
+            # Therefore: dC/dx = (v_burial * C - J_in) / D
+            D_total = getattr(D_mol, species_name, 0.0) + D_mol.D_bio
+            if not isinstance(D_total, CellVariable):
+                D_total = CellVariable(mesh=mesh, value=D_total)
+
+            d_left = D_total.faceValue[mesh.facesLeft.value][0]
+            if d_left > 1e-20:
+                var.faceGrad.constrain(
+                    [(mp.w * var.faceValue - props["top"]) / D_total.faceValue],
+                    mesh.facesLeft,
+                )
+            else:
+                # Pure advection -> Dirichlet C = J / w
+                val = props["top"] / mp.w if mp.w > 0 else 0.0
+                var.setValue(val)
+                var.constrain(val, mesh.facesLeft)
+        else:
+            var.setValue(props["top"])
+            var.constrain(props["top"], mesh.facesLeft)
+
+        var.faceGrad.constrain([0.0], mesh.facesRight)
 
     if mp.state_data:
         print(f"Reading state from {mp.state_data}")
