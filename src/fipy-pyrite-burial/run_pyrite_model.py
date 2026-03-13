@@ -40,7 +40,7 @@ if __name__ == "__main__":
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 hour").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
-        "process_monitor": "none",  # gui | video | none
+        "process_monitor": "video",  # gui | video | none
         "plot_name": f"{experiment}",
         "isotopes": False,
         "report_step": 2,  # how often to update plot
@@ -54,7 +54,7 @@ if __name__ == "__main__":
         "DB0": 4e-12 * 0,
         "tolerance": 1e-12,  # convergence criterion
         "dt_tolerance": 1e-6,  # steady state threshold (stop simulation)
-        "dt_target_change": 1.0,  # target change per step (for dt adaptation)
+        "dt_target_change": 10.0,  # target change per step (for dt adaptation)
         "state_data": state_in,  # read state data
         "solver": "non_steady",  # use non-steady solver, non_steady or steady
         # "solver_backend": "LinearLUSolver",  # see solver_calls for options

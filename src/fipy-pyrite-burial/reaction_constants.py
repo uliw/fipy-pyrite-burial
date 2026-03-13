@@ -1,15 +1,16 @@
 """Convert reaction constants.
 
 Note, Velde et al likely have a typo in the FeS equilibrium constant
-Rickard (2006) defines two reactionm constants, one with Ksp = 3.5
+Rickard (2006) defines two reaction constants, one with Ksp = 3.5
 and the other with Ksp = - 3.5. Here we use the latter since otherwise
 we would never precipitate FeS unless H2S > 1 mmol/l
 """
 
 
 def get_reaction_constants(pH):
-    """convert reaction_constants into model units.
-    Constants returned are relative to bulk volume.
+    """convert reaction_constants into model units.  Constants returned are relative to
+    bulk volume, with the exception of fe2_p_eq which is a ratio of solid-volume
+    concentration and the porewater-volume concentration.
     """
     import pint
 

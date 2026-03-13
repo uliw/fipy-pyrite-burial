@@ -27,6 +27,7 @@ class LivePlotter:
         video_path: Optional[str] = None,
         fps: int = 15,
         title: Optional[str] = None,
+        gui: bool = True,
     ):
         self.layout_path = layout_path
         self.display_length = display_length
@@ -34,6 +35,7 @@ class LivePlotter:
         self.output_path = output_path
         self.video_path = video_path
         self.fps = fps
+        self.gui = gui
         # Use 'spawn' to avoid inheriting PETSc/MPI signal handlers and state
         self._ctx = mp.get_context("spawn")
         self._queue = self._ctx.Queue()
@@ -65,10 +67,10 @@ class LivePlotter:
 
         import matplotlib
 
-        if self.video_path:
-            matplotlib.use("Agg")  # Force Agg backend early
+        if self.gui:
+            matplotlib.use("TkAgg")
         else:
-            matplotlib.use("TkAgg")  # Force Agg backend early
+            matplotlib.use("Agg")
         import plot_data_new
         from matplotlib.animation import FFMpegWriter
 
@@ -181,12 +183,11 @@ class LivePlotter:
                             writer.grab_frame()
                         except Exception as ge:
                             print(f"[LivePlotter] Grab frame error: {ge}", flush=True)
-                    else:
+
+                    if self.gui:
                         try:
                             # Only setup GUI if not in video mode
-                            if not self.video_path:
-                                matplotlib.use("TkAgg")
-                                plt.ion()
+                            plt.ion()
                             fig.canvas.draw()
                             fig.canvas.flush_events()
                         except Exception as e:
@@ -221,8 +222,7 @@ class LivePlotter:
             print("[LivePlotter] Background process exiting.")
 
 
-def write_to_queue_async(
-    plot_queue: mp.Queue,
+def capture_state(
     mp_params: Any,
     c: Any,
     k: Any,
@@ -231,11 +231,9 @@ def write_to_queue_async(
     D_mol: Any,
     diagenetic_reactions: Any,
     current_dt: float,
-    title: str,
-) -> None:
+) -> dict[str, np.ndarray]:
     """
-    Simultaneously snaps model state and sends it to the plot_queue.
-    Replicates logic from diff_lib._save_data_to_disk but avoids disk I/O.
+    Capture the current state of the model as a dictionary of numpy arrays.
     """
     import diff_lib
     from reactions_new import equilibrium_reactions
@@ -275,17 +273,40 @@ def write_to_queue_async(
         "fes2": "fes2_32",
     }
 
-    if mp.isotopes:
-        for base, iso in isotope_map.items():
-            if f"c_{base}" in data and f"c_{iso}" in data:
-                s_total = data[f"c_{base}"]
-                if base == "fes2":
-                    s_total = 2.0 * s_total
-                s32 = data[f"c_{iso}"]
-                data[f"d_{base}"] = diff_lib.get_delta(s_total, s32, mp_params.VCDT)
+    for base, iso in isotope_map.items():
+        if f"c_{base}" in data and f"c_{iso}" in data:
+            s_total = data[f"c_{base}"]
+            if base == "fes2":
+                s_total = 2.0 * s_total
+            s32 = data[f"c_{iso}"]
+            data[f"d_{base}"] = diff_lib.get_delta(s_total, s32, mp_params.VCDT)
 
     data["w"] = np.ones(len(z)) * mp_params.w
-    data["phi"] = np.ones(len(z)) * mp_params.phi
+    data["phi"] = np.ones(len(z)) * (
+        mp_params.phi.value if hasattr(mp_params.phi, "value") else mp_params.phi
+    )
+
+    return data
+
+
+def write_to_queue_async(
+    plot_queue: mp.Queue,
+    mp_params: Any,
+    c: Any,
+    k: Any,
+    species_list: list[str],
+    z: Any,
+    D_mol: Any,
+    diagenetic_reactions: Any,
+    current_dt: float,
+    title: str,
+) -> None:
+    """
+    Simultaneously snaps model state and sends it to the plot_queue.
+    """
+    data = capture_state(
+        mp_params, c, k, species_list, z, D_mol, diagenetic_reactions, current_dt
+    )
 
     # 3. Send to queue (as a simple dict of numpy arrays, which is picklable)
     # Use put_nowait or a short timeout to avoid blocking the simulation if queue is full

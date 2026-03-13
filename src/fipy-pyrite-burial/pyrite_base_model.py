@@ -47,7 +47,9 @@ def pyrite_model(p_dict: dict, plot_queue=None):
 
     from reactions_new import diagenetic_reactions
     from reaction_constants import get_reaction_constants
-    from live_plot_lib import LivePlotter
+    from live_plot_lib import LivePlotter, capture_state
+    import plot_data_new
+    import pandas as pd
 
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
@@ -278,25 +280,26 @@ def pyrite_model(p_dict: dict, plot_queue=None):
 
     check_peclet_numbers(mesh, mp, D_mol, species_list_partial, bc_map)
 
-    # --- Setup LivePlotter ---
     plotter = None
     if plot_queue is None and mp.process_monitor != "none":
         output_path = f"{mp.plot_name}.pdf"
         import os
 
-        video_path = (
-            os.path.abspath(f"{mp.plot_name}.mp4")
-            if mp.process_monitor == "video"
-            else None
-        )
+        # For "gui", we also want video output
+        video_path = None
+        if mp.process_monitor in ["video", "gui"]:
+            video_path = os.path.abspath(f"{mp.plot_name}.mp4")
+
+        gui_enabled = mp.process_monitor == "gui"
 
         plotter = LivePlotter(
             layout_path=mp.layout_file,
             display_length=mp.display_length,
             output_path=output_path,
             video_path=video_path,
+            gui=gui_enabled,
         )
-        print(f"[Parent] Starting LivePlotter...", flush=True)
+        print(f"[Parent] Starting LivePlotter (gui={gui_enabled})...", flush=True)
         plotter.start()
         print(f"[Parent] LivePlotter started. Queue: {plotter.queue}", flush=True)
         plot_queue = plotter.queue
@@ -318,6 +321,28 @@ def pyrite_model(p_dict: dict, plot_queue=None):
 
     if plotter:
         plotter.stop()
+    elif mp.process_monitor == "none":
+        # Produce final plot even if monitoring was disabled
+        print(f"[Parent] Producing final PDF plot: {mp.plot_name}.pdf")
+        final_data = capture_state(
+            mp,
+            c,
+            k,
+            species_list_full,
+            z,
+            D_mol,
+            diagenetic_reactions,
+            current_dt=0.0,  # dt doesn't matter for final static plot
+        )
+        final_df = pd.DataFrame(final_data)
+        plt_desc = plot_data_new.load_layout_from_file(final_df, mp.layout_file)
+        plot_data_new.plot(
+            final_df,
+            mp.display_length,
+            outfile=f"{mp.plot_name}.pdf",
+            show=False,
+            plot_description=plt_desc,
+        )
 
     converged = "Yes" if step < mp.max_steps else "No"
     total_time = 0.0
