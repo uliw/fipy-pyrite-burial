@@ -250,9 +250,14 @@ def pyrite_model(p_dict: dict, plot_queue=None):
         var = getattr(c, species_name)
 
         if props["type"] == "particulate":
-            # For particulate species, top is a flux.
-            # Robin BC: J_in = v_burial * C - D * dC/dx
-            # Therefore: dC/dx = (v_burial * C - J_in) / D
+            # For particulate species, top is a flux in mol/(m²·s) bulk.
+            # The solver transport term is weighted by (1-φ), so the CellVariable
+            # must hold a solid-phase concentration: C_solid = J / (w * (1-φ)).
+            # Robin BC: J_in = (1-φ) * (v_burial * C_solid - D * dC_solid/dx)
+            # Therefore: dC_solid/dx = (v_burial * C_solid - J_in/(1-φ)) / D
+            phi_top = mp.phi.value[0]  # porosity at the top face
+            J_solid = props["top"] / (1.0 - phi_top)  # convert bulk flux → solid-phase flux
+
             D_total = getattr(D_mol, species_name, 0.0) + D_mol.D_bio
             if not isinstance(D_total, CellVariable):
                 D_total = CellVariable(mesh=mesh, value=D_total)
@@ -260,12 +265,12 @@ def pyrite_model(p_dict: dict, plot_queue=None):
             d_left = D_total.faceValue[mesh.facesLeft.value][0]
             if d_left > 1e-20:
                 var.faceGrad.constrain(
-                    [(mp.w * var.faceValue - props["top"]) / D_total.faceValue],
+                    [(mp.w * var.faceValue - J_solid) / D_total.faceValue],
                     mesh.facesLeft,
                 )
             else:
-                # Pure advection -> Dirichlet C = J / w
-                val = props["top"] / mp.w if mp.w > 0 else 0.0
+                # Pure advection -> Dirichlet C_solid = J_solid / w
+                val = J_solid / mp.w if mp.w > 0 else 0.0
                 var.setValue(val)
                 var.constrain(val, mesh.facesLeft)
         else:

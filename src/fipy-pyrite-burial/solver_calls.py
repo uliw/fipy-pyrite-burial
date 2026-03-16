@@ -440,11 +440,16 @@ def run_non_steady_state_solver_coupled(
                     title_str = time_str
                 else:
                     title_str = mp.title
+
+                phi = mp.phi
+                dz = np.diff(z)
+                fe_total_bulk = phi * c.fe2_total + (1 - phi) * (c.fe3 + c.fes + c.fes2)
+                m_fe = np.sum(dz * fe_total_bulk[:-1].value)
                 print(
                     f"Step {step:4d} | {time_str} | "
                     f"dt: {get_time_units(current_dt):.2f~P} | RMS Chg: {rms_change:.2e} | "
-                    f"d34S = {get_total_delta(c, mp):.2f}"
-                    f"max Fe3+ {np.max(c.fe3.value):.2f}\n"
+                    f"d34S = {get_total_delta(c, mp):.2f} "
+                    f"Total Fe {m_fe:.2e}\n"
                 )
 
                 if plot_queue is not None:

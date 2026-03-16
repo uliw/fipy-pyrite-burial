@@ -16,9 +16,16 @@ def get_layout(df):
     Returns:
         dict: The plot description dictionary.
     """
-    from diff_lib import solid_conc_to_wt_percent
+    from diff_lib import solid_conc_to_wt_percent, liquid_conc_to_wt_percent
 
-    total_iron = df.c_fe2_total + df.c_fe3 + df.c_fes + df.c_fes2
+    phi = df.phi
+    # fe2 is treated as a liquid. As such we
+    fe2 = liquid_conc_to_wt_percent(df.c_fe2_total, 56, 2.6, phi)
+    fe3 = solid_conc_to_wt_percent(df.c_fe3, 56, 2.6, phi)
+    fes = solid_conc_to_wt_percent(df.c_fes, 56, 2.6, phi)
+    fes2 = solid_conc_to_wt_percent(df.c_fes2, 56, 2.6, phi)
+    total_iron = fe2 + fe3 + fes + fes2
+
     plt_desc = {
         "first_subplot": {
             # "show_grid_options": {
@@ -78,14 +85,22 @@ def get_layout(df):
                     {"color": "C5"},
                 ],
                 [
-                    solid_conc_to_wt_percent(df.c_fe2_total, 56, 2.6, df.phi),
-                    # df.c_fes2,
+                    # fe2_total is a liquid in the model
+                    fe2,
                     r"TFe$^{2+}$ [wt% Fe]",
                     {"color": "C8"},
                 ],
                 [
-                    solid_conc_to_wt_percent(total_iron, 56, 2.6, df.phi),
-                    # df.c_fes2,
+                    # we use porosity correction already above
+                    # solid_conc_to_wt_percent(total_iron, 56, 2.6, 1),
+                    fes2,
+                    r"FeS$_2$ [wt% Fe]",
+                    {"color": "C7"},
+                ],
+                [
+                    # we use porosity correction already above
+                    # solid_conc_to_wt_percent(total_iron, 56, 2.6, 1),
+                    total_iron,
                     r"TFe [wt% Fe]",
                     {"color": "black", "linestyle": "dotted"},
                 ],

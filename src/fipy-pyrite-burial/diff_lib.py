@@ -596,45 +596,147 @@ def wt_percent_to_solid_conc(wp, mw, d, phi):
     return C_bulk
 
 
-def solid_conc_to_wt_percent(C_solid, mw: float, d: float, phi: float):
+def solid_conc_to_wt_percent(C_solid, mw, d, phi):
     """
-    Convert a concentration of a dissolved solid expressed in mol m⁻³ (numerically
-    equivalent to mmol L⁻¹) back to its weight‑percentage in the bulk material.
+    Convert a concentration that is expressed per unit solid volume
+    (mmol L⁻¹ solid) to a weight‑percent of the dry sediment matrix.
 
     Parameters
     ----------
     C_solid : float or array‑like
-        Solid concentration in mol m⁻³ (identical numerically to mmol L⁻¹).
+        Concentration per unit solid volume (mmol L⁻¹ of solid).
+        Numerically this is equivalent to mol m⁻³ of solid because
+        1 mmol L⁻¹ = 1 mol m⁻³.
     mw : float
-        Molecular weight of the solid component (g mol⁻¹).
-    d  : float
-        Grain density of the pure solid (g cm⁻³).
+        Molecular weight of the component (g mol⁻¹).
+    d : float
+        Grain (particle) density of the pure solid (g cm⁻³).
     phi : float
-        Porosity of the bulk material (fraction, 0–1).
+        Porosity of the bulk sediment (fraction, 0 ≤ phi ≤ 1).
 
     Returns
     -------
-    wp : float or np.ndarray
-        Weight percentage of the component (0–100 %); same dtype/shape as ``C_solid``.
+    wt_percent : float or np.ndarray
+        Weight percentage of the component in the *dry* sediment
+        (0 – 100 %).  If `phi == 1` (no solid) the function returns
+        `np.nan` because a weight‑percent is undefined.
 
     Notes
     -----
-    Starting from
-        C_bulk = (d·(1‑phi)·wp/100·1e6) / mw,
-    we solve for wp:
-        wp = C_bulk * mw / (d·(1‑phi)·1e6) * 100.
+    The conversion follows the steps:
+
+    1. Convert solid‑phase concentration to bulk‑phase concentration:
+       C_bulk = C_solid * (1‑phi)   [mol m⁻³ bulk].
+
+    2. Mass of solute per bulk volume:
+       m_sol = C_bulk * mw          [g m⁻³].
+
+    3. Dry bulk density of the sediment:
+       rho_dry = d * (1‑phi) * 1e6  [g m⁻³].
+
+    4. Weight fraction = m_sol / rho_dry, then *100 for wt %.
+
+    Because the factor (1‑phi) appears in both numerator and denominator,
+    it cancels analytically, leaving a result that is independent of porosity.
+    The implementation keeps the full expression for clarity and to
+    guard against accidental misuse.
     """
-    # Ensure inputs are arrays for broadcasting; scalars will be broadcast as single‑element arrays
+    # -----------------------------------------------------------------
+    # 1. Input handling / validation
+    # -----------------------------------------------------------------
     C_solid = np.asarray(C_solid, dtype=float)
-    phi = np.asarray(phi, dtype=float)
 
-    # Inverse relation derived from the forward conversion
-    wp = C_solid * mw / (d * (1.0 - phi) * 1e6) * 100.0
+    # -----------------------------------------------------------------
+    # 2. Core calculation
+    # -----------------------------------------------------------------
+    # (a) Bulk concentration (mol m⁻³)
+    C_bulk = C_solid * (1.0 - phi)
 
-    return wp
+    # (b) Mass of solute per bulk volume (g m⁻³)
+    m_sol = C_bulk * mw  # because 1 mmol L⁻¹ = 1 mol m⁻³
+
+    # (c) Dry bulk density (g m⁻³)
+    rho_dry = d * (1.0 - phi) * 1e6  # 1 g cm⁻³ = 1 × 10⁶ g m⁻³
+
+    # (d) Weight percent
+    wt_percent = (m_sol / rho_dry) * 100.0
+
+    return wt_percent
 
 
-def solid_conc_to_wt_percent(C_bulk, mw, d, phi):
+def liquid_conc_to_wt_percent(C_pw, mw, d, phi):
+    """
+    Convert a dissolved‑species concentration expressed as
+    mmol L⁻¹ of pore‑water to a weight‑percentage of the dry sediment
+    (wt % dry‑mass).
+
+    Parameters
+    ----------
+    C_pw : float or array‑like
+        Pore‑water concentration (mmol L⁻¹).  Numerically this is the
+        same as mol m⁻³ because 1 mmol L⁻¹ = 1 mol m⁻³.
+    mw : float
+        Molecular weight of the dissolved component (g mol⁻¹).
+    d : float
+        Grain (particle) density of the pure solid (g cm⁻³).  Typical
+        values for quartz‑rich sediments are ≈2.65 g cm⁻³.
+    phi : float
+        Porosity of the bulk material (fraction, 0 ≤ phi ≤ 1).
+
+    Returns
+    -------
+    wt_percent : float or np.ndarray
+        Weight percentage of the component in the *dry* sediment
+        (0 – 100 %).  If phi == 0 the function returns 0 because no
+        pore‑water (and thus no dissolved iron) can exist.
+
+    Notes
+    -----
+    The conversion proceeds as
+
+    1. **Moles of solute per bulk volume**
+       `n_bulk = C_pw * phi`   (mol m⁻³)
+
+       (`C_pw` is per pore‑water volume, so we multiply by the
+       fraction of the bulk that is water.)
+
+    2. **Mass of solute per bulk volume**
+       `m_solute = n_bulk * mw`   (g m⁻³)
+
+    3. **Mass of dry solids per bulk volume**
+       The dry‑bulk density ρ_bulk = d · (1 – phi)   (g cm⁻³)
+       Convert to g m⁻³: `rho_bulk = d * (1 - phi) * 1e6`
+
+    4. **Weight percent**
+       `wt% = (m_solute / rho_bulk) * 100`
+
+    The function is fully vectorised (accepts NumPy arrays) and
+    performs basic input validation.
+    """
+    # -----------------------------------------------------------------
+    # 1. Input validation
+    # -----------------------------------------------------------------
+    C_pw = np.asarray(C_pw, dtype=float)
+
+    # -----------------------------------------------------------------
+    # 2. Core calculation
+    # -----------------------------------------------------------------
+    # (a) moles of solute per bulk volume (mol m⁻³)
+    n_bulk = C_pw * phi  # because 1 mmol L⁻¹ = 1 mol m⁻³
+
+    # (b) grams of solute per bulk volume (g m⁻³)
+    m_solute = n_bulk * mw  # g m⁻³
+
+    # (c) dry‑bulk density (g m⁻³)
+    rho_bulk = d * (1.0 - phi) * 1e6  # 1 g cm⁻³ = 1 × 10⁶ g m⁻³
+
+    # (d) weight percent
+    wt_percent = (m_solute / rho_bulk) * 100.0
+
+    return wt_percent
+
+
+def solid_conc_to_wt_percent_old(C_bulk, mw, d, phi):
     """
     Convert a bulk concentration (mmol L⁻¹ ≡ mol m⁻³) back to weight
     percentage of the component in the dry solid matrix.
