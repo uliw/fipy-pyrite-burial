@@ -30,16 +30,16 @@ if __name__ == "__main__":
 
     experiment = "pyrite_model_fipy"
     # state_in = "statenpz.npz"
-    state_in = None
+    state_in = "anoxic_state.npz"
     state_out = "state.npz"
     # state_out = None
 
     p_dict = {
         "t_end": Q_("1 kyear").to("seconds").magnitude,
-        "max_steps": 66,  # max number of iterations
+        "max_steps": 400,  # max number of iterations
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 hour").to("seconds").magnitude,  # initial dt
-        "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
+        "dt_max": Q_("1 month").to("seconds").magnitude,  # time step in years
         "process_monitor": "gui",  # gui | video | none
         "plot_name": f"{experiment}",
         "isotopes": False,

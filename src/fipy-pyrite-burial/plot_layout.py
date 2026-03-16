@@ -79,8 +79,8 @@ def get_layout(df):
             "right_ylim": (0, 4),
             "right2": [
                 [
-                    solid_conc_to_wt_percent(df.c_fe3, 56, 2.6, df.phi),
-                    # df.c_fe3,
+                    # solid_conc_to_wt_percent(df.c_fe3, 56, 2.6, df.phi),
+                    fe3,
                     r"Fe$^{3+}$ [wt% Fe]",
                     {"color": "C5"},
                 ],
@@ -105,7 +105,7 @@ def get_layout(df):
                     {"color": "black", "linestyle": "dotted"},
                 ],
             ],
-            "right2_ylim": (0, 3),
+            "right2_ylim": (0, 1),
         },
         "second_subplot": {
             "xaxis": [df.z, "Depth [m]"],
