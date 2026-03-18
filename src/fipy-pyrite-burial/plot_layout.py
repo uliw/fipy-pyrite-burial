@@ -105,7 +105,7 @@ def get_layout(df):
                     {"color": "black", "linestyle": "dotted"},
                 ],
             ],
-            "right2_ylim": (0, 3), 
+            "right2_ylim": (0, 1),
         },
         "second_subplot": {
             "xaxis": [df.z, "Depth [m]"],

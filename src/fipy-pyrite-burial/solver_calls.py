@@ -329,7 +329,7 @@ def run_non_steady_state_solver_coupled(
     3. Adapts the time step using a PID-controlled logic.
     """
     import numpy as np
-    from reactions_new import get_total_delta
+    from diff_lib import get_total_delta
 
     start_wall = time.time()
     solver = _get_solver(mp)

@@ -877,15 +877,17 @@ def fes_unified_reaction_5(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     Rate constant units:
       k.fes_isp  [1/s, L_pw]   — approach rate in precipitation regime
       k.fes_isd  [1/s, L_solid] — first-order dissolution rate constant
+
+    Concentration units are in mmol/L porewater, and mmol/L solid
     """
     import numpy as np
 
     # ------------------------------------------------------------------
     # 1. Current state
     # ------------------------------------------------------------------
-    fe2_pw_val = c.fe2_total.value * mp.f_diss  #  # mmol/L_pw
-
+    fe2_pw_val = c.fe2_total.value * mp.f_diss + 1e-20  #  # mmol/L_pw
     ts2_val = c.ts2.value  # mmol/L_pw
+    hs_val = c.ts2.value * mp.hs_frac
     fes_val = c.fes.value  # mmol/L_solid
     fes_limiter = fes_val / (fes_val + 1e-4)
 
@@ -893,15 +895,15 @@ def fes_unified_reaction_5(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 2. Saturation and equilibrium ts2
     # ------------------------------------------------------------------
     omega_den = k.hplus * k.fes_sp + 1e-30
-    omega = (fe2_pw_val * ts2_val * mp.hs_frac) / omega_den
+    omega = (fe2_pw_val * hs_val) / omega_den
 
     # ts2 value at which the system is exactly at saturation [mmol/L_pw]
-    ts2_eq = omega_den / (fe2_pw_val * mp.hs_frac + 1e-30)
+    hs_eq = omega_den / (fe2_pw_val * mp.hs_frac + 1e-30)
 
     # Fe2+ availability limiter — precipitation requires both reactants.
     # K_half = fe2_eq = Fe2+ at saturation for current ts2.
     # This keeps k_rxn * ts2_eq bounded as fe2 → 0.
-    fe2_eq = omega_den / (ts2_val * mp.hs_frac + 1e-30)
+    fe2_eq = omega_den / (hs_val + 1e-30)
     fe2_limiter = fe2_pw_val / (fe2_pw_val + fe2_eq + 1e-30)
 
     # ------------------------------------------------------------------
@@ -921,7 +923,7 @@ def fes_unified_reaction_5(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     k_rxn = k_eff * mp.hs_frac * fe2_limiter
 
     # Net rate [mmol/L_pw/s], positive = net precipitation
-    net_rate_pw = k_rxn * (ts2_val - ts2_eq)
+    net_rate_pw = k_rxn * (hs_val - hs_eq)
 
     # ------------------------------------------------------------------
     # 5a. ts2: implicit sink + explicit equilibrium target
@@ -929,7 +931,7 @@ def fes_unified_reaction_5(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # ------------------------------------------------------------------
     add_implicit_sink(LHS, RATES, "ts2", k_rxn, net_rate_pw, ctype="liquid")
     add_explicit_source(
-        RHS, RATES, "ts2", k_rxn * ts2_eq, update_rates=False, ctype="liquid"
+        RHS, RATES, "ts2", k_rxn * hs_eq, update_rates=False, ctype="liquid"
     )
 
     # ------------------------------------------------------------------
@@ -954,28 +956,24 @@ def fes_unified_reaction_5(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     fes_diss_rate = np.maximum(-net_rate_pw, 0.0)
 
     # Precipitation: implicit coupling fe2_total → fes
-    precip_driving = np.maximum(ts2_val - ts2_eq, 0.0)
+    precip_driving = np.maximum(ts2_val - hs_eq, 0.0)
     coeff_fe2 = k_rxn_base * mp.f_diss * precip_driving
-    add_implicit_coupling_new(
-        "liquid_2_solid",
-        CROSS,
-        RATES,
+
+    k_fe2_diag = np.maximum(net_rate_pw, 0.0) / fe2_pw_val  # precipitation sink
+    fe2_source = np.maximum(-net_rate_pw, 0.0)  # dissolution source
+    add_implicit_sink(
         LHS,
-        target_species="fes",
-        source_species="fe2_total",
-        coeff=coeff_fe2,
-        rate=fes_precip_rate,
-        mp=mp,
-        c=c,
-        add_lhs_sink=True,  # sink fe2_total AND source fes
+        RATES,
+        "fe2_total",
+        k_fe2_diag,
+        np.maximum(net_rate_pw, 0.0),
+        ctype="liquid",
     )
+    add_explicit_source(RHS, RATES, "fe2_total", fe2_source, ctype="liquid")
 
     # Dissolution: explicit (driven by FeS, not fe2_total)
     add_explicit_source(
         RHS, RATES, "fes", -fes_diss_rate, update_rates=True, ctype="solid"
-    )
-    add_explicit_source(
-        RHS, RATES, "fe2_total", fes_diss_rate, ctype="liquid"
     )
 
     # ------------------------------------------------------------------
@@ -991,7 +989,7 @@ def fes_unified_reaction_5(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         # Equilibrium isotope ratio: precip regime tracks porewater,
         # dissolution regime releases solid ratio
         f32_eq = is_precip * f32_ts2 + is_diss * f32_fes
-        ts2_32_eq = ts2_eq * f32_eq
+        ts2_32_eq = hs_eq * f32_eq
 
         net_rate_32 = k_rxn * (ts2_32_val - ts2_32_eq)
 
@@ -1016,150 +1014,3 @@ def fes_unified_reaction_5(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         add_explicit_source(
             RHS, RATES, "fes_32", -k_rxn * ts2_32_eq, update_rates=False, ctype="solid"
         )
-
-
-def fes_unified_reaction_4(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    import numpy as np
-
-    # ------------------------------------------------------------------
-    # 1. Current state [model units]
-    # ------------------------------------------------------------------
-    fe2_val    = c.fe2_total.value
-    fe2_pw_val = fe2_val * mp.fe2_pw_conc
-    ts2_val    = c.ts2.value
-    hs_val     = ts2_val * mp.hs_frac
-    fes_val    = c.fes.value
-
-    # ------------------------------------------------------------------
-    # 2. Saturation index
-    # ------------------------------------------------------------------
-    omega_den = k.hplus * k.fes_sp + 1e-30
-    omega     = (fe2_pw_val * hs_val) / omega_den
-
-    # ------------------------------------------------------------------
-    # 3. Smooth regime flags & FeS availability limiter
-    # ------------------------------------------------------------------
-    sharpness   = 100.0
-    is_precip   = 0.5 * (1.0 + np.tanh(sharpness * (omega - 1.0)))
-    is_diss     = 1.0 - is_precip
-    fes_limiter = fes_val / (fes_val + 1e-4)
-
-    # ------------------------------------------------------------------
-    # 4. Rate coefficients [natural model units]
-    # ------------------------------------------------------------------
-    l_ts2  = (k.fes_isp * is_precip / omega_den) * fe2_pw_val * mp.hs_frac  # [1/s, L_pw]
-    k_diss = k.fes_isd * fes_limiter * is_diss                               # [1/s, L_solid]
-
-    # ------------------------------------------------------------------
-    # 5a. Implicit precipitation: ts2 (liquid) → fes (solid)
-    # ------------------------------------------------------------------
-    add_implicit_coupling_new(
-        "liquid_2_solid",
-        CROSS, RATES, LHS,
-        target_species="fes",
-        source_species="ts2",
-        coeff=l_ts2,
-        rate=l_ts2 * ts2_val,   # FIX: was l_ts2 * c.fes
-        mp=mp, c=c,
-    )
-
-    # ------------------------------------------------------------------
-    # 5b. Implicit precipitation sink on fe2_total (off-diagonal, no double-sink)
-    # ------------------------------------------------------------------
-    add_implicit_coupling_new(
-        "liquid_2_solid",
-        CROSS, RATES, LHS,
-        target_species="fe2_total",
-        source_species="ts2",
-        coeff=l_ts2,
-        rate=l_ts2 * ts2_val,   # FIX: was l_ts2 * c.fes
-        mp=mp, c=c,
-        add_lhs_sink=False,
-        stoich_ratio=-1.0,
-    )
-
-    # ------------------------------------------------------------------
-    # 5c. Implicit dissolution: fes (solid) → ts2 (liquid) + fe2_total (solid)
-    # ------------------------------------------------------------------
-    add_implicit_coupling_new(
-        "solid_2_liquid",
-        CROSS, RATES, LHS,
-        target_species="ts2",
-        source_species="fes",
-        coeff=k_diss,
-        rate=k_diss * fes_val,
-        mp=mp, c=c,
-        add_lhs_sink=True,    # registers -k_diss on fes LHS diagonal
-    )
-    add_implicit_coupling_new(
-        "solid_2_solid",
-        CROSS, RATES, LHS,
-        target_species="fe2_total",
-        source_species="fes",
-        coeff=k_diss,
-        rate=k_diss * fes_val,
-        mp=mp, c=c,
-        add_lhs_sink=False,
-    )
-
-    # ------------------------------------------------------------------
-    # 6. Isotopes (32S) — mirrors 5a/5b/5c exactly, no fractionation
-    # ------------------------------------------------------------------
-    if mp.isotopes:
-        ts2_32_val = c.ts2_32.value
-        fes_32_val = c.fes_32.value
-
-        f32_ts2 = ts2_32_val / (ts2_val + 1e-30)
-        f32_fes = fes_32_val / (fes_val + 1e-30)
-
-        l_ts2_32  = l_ts2                           # no fractionation
-        k_diss_32 = k_diss * f32_fes                # dissolution releases solid isotope ratio
-
-        # 6a. Implicit precipitation: ts2_32 → fes_32
-        add_implicit_coupling_new(
-            "liquid_2_solid",
-            CROSS, RATES, LHS,
-            target_species="fes_32",
-            source_species="ts2_32",
-            coeff=l_ts2_32,
-            rate=l_ts2_32 * ts2_32_val,
-            mp=mp, c=c,
-        )
-
-        # 6b. Implicit dissolution: fes_32 → ts2_32
-        add_implicit_coupling_new(
-            "solid_2_liquid",
-            CROSS, RATES, LHS,
-            target_species="ts2_32",
-            source_species="fes_32",
-            coeff=k_diss_32,
-            rate=k_diss_32 * fes_32_val,
-            mp=mp, c=c,
-            add_lhs_sink=True,
-        )
-        
-
-def get_total_delta(c, mp, index=-1):
-    """Get total delta that is being buried.
-
-    Calculate the total amount of S and S32 that leaves the system through the lower
-    boundary. Note that we have to count the mass of FeS2 since it has 2 S, however,
-    FeS2_32 is already corrected, so we do not mutiply it.
-    """
-    from diff_lib import get_delta
-
-    phi_val = getattr(mp.phi, "value", mp.phi)
-    phi = phi_val[index] if hasattr(phi_val, "__getitem__") else phi_val
-    f_s = 1.0 - phi
-
-    # Liquid species are scaled by porosity (phi)
-    # Solid species are scaled by solid fraction (1-phi)
-    s = phi * (c.so4.value[index] + c.ts2.value[index]) + f_s * (
-        c.s0.value[index] + c.fes.value[index] + 2 * c.fes2.value[index]
-    )
-    s32 = phi * (c.so4_32.value[index] + c.ts2_32.value[index]) + f_s * (
-        c.s0_32.value[index] + c.fes_32.value[index] + c.fes2_32.value[index]
-    )
-
-    return get_delta(s, s32, mp.VCDT)
-

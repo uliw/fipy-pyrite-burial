@@ -982,6 +982,31 @@ def make_grid2(
     return mesh, z_centers
 
 
+def get_total_delta(c, mp, index=-1):
+    """Get total delta that is being buried.
+
+    Calculate the total amount of S and S32 that leaves the system through the lower
+    boundary. Note that we have to count the mass of FeS2 since it has 2 S, however,
+    FeS2_32 is already corrected, so we do not mutiply it.
+    """
+    from diff_lib import get_delta
+
+    phi_val = getattr(mp.phi, "value", mp.phi)
+    phi = phi_val[index] if hasattr(phi_val, "__getitem__") else phi_val
+    f_s = 1.0 - phi
+
+    # Liquid species are scaled by porosity (phi)
+    # Solid species are scaled by solid fraction (1-phi)
+    s = phi * (c.so4.value[index] + c.ts2.value[index]) + f_s * (
+        c.s0.value[index] + c.fes.value[index] + 2 * c.fes2.value[index]
+    )
+    s32 = phi * (c.so4_32.value[index] + c.ts2_32.value[index]) + f_s * (
+        c.s0_32.value[index] + c.fes_32.value[index] + c.fes2_32.value[index]
+    )
+
+    return get_delta(s, s32, mp.VCDT)
+
+
 # =============================================================================
 # HELPER FUNCTIONS (Matrix Math Abstraction)
 # =============================================================================

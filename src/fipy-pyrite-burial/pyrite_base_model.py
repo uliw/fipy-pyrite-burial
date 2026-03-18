@@ -256,7 +256,9 @@ def pyrite_model(p_dict: dict, plot_queue=None):
             # Robin BC: J_in = (1-φ) * (v_burial * C_solid - D * dC_solid/dx)
             # Therefore: dC_solid/dx = (v_burial * C_solid - J_in/(1-φ)) / D
             phi_top = mp.phi.value[0]  # porosity at the top face
-            J_solid = props["top"] / (1.0 - phi_top)  # convert bulk flux → solid-phase flux
+            J_solid = props["top"] / (
+                1.0 - phi_top
+            )  # convert bulk flux → solid-phase flux
 
             D_total = getattr(D_mol, species_name, 0.0) + D_mol.D_bio
             if not isinstance(D_total, CellVariable):

@@ -17,6 +17,7 @@ if __name__ == "__main__":
         get_delta,
         wt_percent_to_solid_conc,
         save_state,
+        get_total_delta,
         # read_state,
     )
 
@@ -31,13 +32,14 @@ if __name__ == "__main__":
     experiment = "pyrite_model_fipy"
     # state_in = "statenpz.npz"
     state_in = "anoxic_state.npz"
-    # state_in = None
+    state_in = None
     state_out = "state.npz"
     # state_out = None
 
     p_dict = {
-        "t_end": Q_("1 kyear").to("seconds").magnitude,
         "max_steps": 400,  # max number of iterations
+        "max_depth": 2.0,  # meters
+        "t_end": Q_("1 kyear").to("seconds").magnitude,
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 hour").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
@@ -53,13 +55,13 @@ if __name__ == "__main__":
         "phi": 0.8,
         "DB_depth": 0,
         "DB0": 4e-12 * 0,
-        "tolerance": 1e-12,  # convergence criterion
-        "dt_tolerance": 1e-6,  # steady state threshold (stop simulation)
+        "tolerance": 1e-6,  # convergence criterion
+        "dt_tolerance": 1e-12,  # steady state threshold (stop simulation)
         "dt_target_change": 10.0,  # target change per step (for dt adaptation)
         "state_data": state_in,  # read state data
         "solver": "non_steady",  # use non-steady solver, non_steady or steady
         # "solver_backend": "LinearLUSolver",  # see solver_calls for options
-        "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
+        # "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
         "solver_backend": "default",  # see solver_calls for options
         "initial_spacing": 0.01,  # meters
         "reaction_zone_spacing": 0.001,  # meters
@@ -75,7 +77,7 @@ if __name__ == "__main__":
         rn.elemental_sulfur_oxidation,
         rn.sulfide_mediated_iron_reduction,
         rn.fe2_oxidation,
-        rn.fes_unified_reaction_4,
+        rn.fes_unified_reaction_5,
         # rn.fes_oxidation,
         # rn.pyrite_formation_s0,
         # rn.pyrite_formation_fes_ts2,
@@ -106,8 +108,8 @@ if __name__ == "__main__":
     # -----------------------------------------------------------------------------
     df, fqfn = save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions)
 
-    print(f"d34S = {rn.get_total_delta(c, mp):.2f}")
-    print(f"d34S = {rn.get_total_delta(c, mp):.2f}")
+    print(f"d34S = {get_total_delta(c, mp):.2f}")
+    print(f"d34S = {get_total_delta(c, mp):.2f}")
 
     total_iron = df.c_fe2_total + df.c_fe3 + df.c_fes + df.c_fes2
     print(f"total_iron diff = {total_iron.max() - total_iron.min():.2e}")
