@@ -480,7 +480,7 @@ def _add_unified_legend(ax_main, right_axes, subplot_config):
         leg = target_ax.legend(
             final_lines,
             final_labels,
-            loc="upper right",
+            loc="upper left",
             frameon=True,
             framealpha=0.7,
             facecolor="white",

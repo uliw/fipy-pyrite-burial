@@ -31,13 +31,13 @@ if __name__ == "__main__":
 
     experiment = "pyrite_model_fipy"
     # state_in = "statenpz.npz"
-    state_in = "anoxic_state.npz"
+    state_in = "anoxic_state_2m.npz"
     state_in = None
     state_out = "state.npz"
     # state_out = None
 
     p_dict = {
-        "max_steps": 400,  # max number of iterations
+        "max_steps": 200,  # max number of iterations
         "max_depth": 2.0,  # meters
         "t_end": Q_("1 kyear").to("seconds").magnitude,
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
@@ -66,7 +66,7 @@ if __name__ == "__main__":
         "initial_spacing": 0.01,  # meters
         "reaction_zone_spacing": 0.001,  # meters
         "max_spacing": 0.1,  # meters, None = no cap
-        "reaction_zone": (1e-2, 2e-1),  # in meters
+        "reaction_zone": (1e-2, 1),  # in meters
     }
 
     # add reactions as needed
@@ -77,7 +77,7 @@ if __name__ == "__main__":
         rn.elemental_sulfur_oxidation,
         rn.sulfide_mediated_iron_reduction,
         rn.fe2_oxidation,
-        rn.fes_unified_reaction_5,
+        rn.fes_unified_reaction_6,
         # rn.fes_oxidation,
         # rn.pyrite_formation_s0,
         # rn.pyrite_formation_fes_ts2,

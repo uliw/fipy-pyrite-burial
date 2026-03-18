@@ -54,7 +54,7 @@ def get_reaction_constants(pH):
             "umol/((cm^3*year))",
             "mol/(m^3 *second)",
         ],  # FeS precipitation
-        "fes_isd": [3 * 0, "1/year", "1/second"],  # FeS dissolution
+        "fes_isd": [3, "1/year", "1/second"],  # FeS dissolution
         "fes_sp": [  # FeS equilibrium constant
             10**-3.5,
             "mol/l",

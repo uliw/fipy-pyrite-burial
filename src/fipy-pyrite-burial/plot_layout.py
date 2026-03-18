@@ -19,12 +19,17 @@ def get_layout(df):
     from diff_lib import solid_conc_to_wt_percent, liquid_conc_to_wt_percent
 
     phi = df.phi
-    # fe2 is treated as a liquid. As such we
-    fe2 = liquid_conc_to_wt_percent(df.c_fe2_total, 56, 2.6, phi)
-    fe3 = solid_conc_to_wt_percent(df.c_fe3, 56, 2.6, phi)
-    fes = solid_conc_to_wt_percent(df.c_fes, 56, 2.6, phi)
-    fes2 = solid_conc_to_wt_percent(df.c_fes2, 56, 2.6, phi)
-    total_iron = fe2 + fe3 + fes + fes2
+    fe2_s = liquid_conc_to_wt_percent(df.c_fe2_total, 32, 2.6, phi)
+    fe3_s = solid_conc_to_wt_percent(df.c_fe3, 32, 2.6, phi)
+    fes_s = solid_conc_to_wt_percent(df.c_fes, 32, 2.6, phi)
+    s0_s = solid_conc_to_wt_percent(df.c_fes, 32, 2.6, phi)
+
+    fes2_s = solid_conc_to_wt_percent(df.c_fes2, 32, 2.6, phi)
+    fe2_fe = liquid_conc_to_wt_percent(df.c_fe2_total, 56, 2.6, phi)
+    fe3_fe = solid_conc_to_wt_percent(df.c_fe3, 56, 2.6, phi)
+    fes_fe = solid_conc_to_wt_percent(df.c_fes, 56, 2.6, phi)
+    fes2_fe = solid_conc_to_wt_percent(df.c_fes2, 56, 2.6, phi)
+    total_iron = fe2_fe + fe3_fe + fes_fe + fes2_fe
 
     plt_desc = {
         "first_subplot": {
@@ -40,16 +45,7 @@ def get_layout(df):
                 [df.c_so4, "SO4", {"color": "C0"}],
                 [df.c_ts2, "TS$^{2-}$", {"color": "C1"}],
                 [df.c_o2, "O2", {"color": "C3"}],
-                # [df.c_fe2, r"Fe$^{2+}$", {"color": "C8"}],
-                # [df.c_fe2_total, r"TFe$^{2+}$", {"color": "C8", "linestyle": "dotted"}],
-                # [
-                #    df.c_fe2_total + df.c_fe3 + df.c_fes + df.c_fes2,
-                #    r"Total Iron$",
-                #    {"color": "C9"},
-                # ],
-                # [df.c_fes2, r"FeS$_{2}$", {"color": "C7"}],
-                # [df.c_fe3, r"Fe$_{3}^{+}$", {"color": "C5"}],
-                # [df.c_fes, "FeS", {"color": "C6"}],
+                [df.c_fe2, r"Fe$^{2+}_{liq}$", {"color": "C8"}],
             ],
             "yscale": "log",
             "xscale": "log",
@@ -58,54 +54,32 @@ def get_layout(df):
             "left_ylabel": r"[mmol/l]",
             "right": [
                 [
-                    solid_conc_to_wt_percent(df.c_fes2, 32, 2.6, df.phi),
-                    # df.c_fes2,
+                    fes2_s,
                     r"FeS$_2$ [wt% S]",
                     {"color": "black"},
                 ],
                 [
-                    solid_conc_to_wt_percent(df.c_fes, 32, 2.6, df.phi),
-                    # df.c_fes,
-                    "FeS [wt% S]",
+                    fes_s * 10,
+                    r"10 $\times$ FeS [wt% S]",
                     {"color": "C6"},
                 ],
                 [
-                    solid_conc_to_wt_percent(df.c_s0, 32, 2.6, df.phi),
-                    #     df.c_s0,
+                    s0_s,
                     "S0 [wt% S]",
                     {"color": "C2"},
                 ],
             ],
             "right_ylim": (0, 4),
+            "right_ylabel": "[wt% S]",
             "right2": [
                 [
-                    # solid_conc_to_wt_percent(df.c_fe3, 56, 2.6, df.phi),
-                    fe3,
+                    fe3_fe,
                     r"Fe$^{3+}$ [wt% Fe]",
                     {"color": "C5"},
                 ],
-                [
-                    # fe2_total is a liquid in the model
-                    fe2,
-                    r"TFe$^{2+}$ [wt% Fe]",
-                    {"color": "C8"},
-                ],
-                [
-                    # we use porosity correction already above
-                    # solid_conc_to_wt_percent(total_iron, 56, 2.6, 1),
-                    fes2,
-                    r"FeS$_2$ [wt% Fe]",
-                    {"color": "C7"},
-                ],
-                [
-                    # we use porosity correction already above
-                    # solid_conc_to_wt_percent(total_iron, 56, 2.6, 1),
-                    total_iron,
-                    r"TFe [wt% Fe]",
-                    {"color": "black", "linestyle": "dotted"},
-                ],
             ],
             "right2_ylim": (0, 1),
+            "right2_ylabel": "[wt% Fe]",
         },
         "second_subplot": {
             "xaxis": [df.z, "Depth [m]"],
@@ -116,9 +90,9 @@ def get_layout(df):
                 # [df.f_poc, "f_poc", {"color": "C4"}],
                 [df.f_s0, "f_s0", {"color": "C2"}],
                 [df.f_fe3, "f_fe3", {"color": "C5"}],
-                [df.f_fes, "f_fes", {"color": "C6"}],
                 [df.f_fes2, "f_fes2", {"color": "C7"}],
                 [df.f_fe2_total, "f_fe2_total", {"color": "C8"}],
+                [df.f_fes, "f_fes", {"color": "C6"}],
                 # [df.f_fe2_p, "f_fe2+p", {"color": "C9"}],
                 # # [df.D_bio, "D_bio", {"color": "C8"}],
             ],
