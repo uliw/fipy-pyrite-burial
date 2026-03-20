@@ -53,30 +53,15 @@ def get_layout(df):
             "xlim": (1e-2, None),
             "left_ylabel": r"[mmol/l]",
             "right": [
-                [
-                    fes2_s,
-                    r"FeS$_2$ [wt% S]",
-                    {"color": "black"},
-                ],
-                [
-                    fes_s * 10,
-                    r"10 $\times$ FeS [wt% S]",
-                    {"color": "C6"},
-                ],
-                [
-                    s0_s,
-                    "S0 [wt% S]",
-                    {"color": "C2"},
-                ],
+                [5 * fes2_s, r"5 * FeS$_2$ [wt% S]", {"color": "black"}],
+                [fes_s * 10, r"10 $\times$ FeS [wt% S]", {"color": "C6"}],
+                [s0_s, "S0 [wt% S]", {"color": "C2"}],
             ],
             "right_ylim": (0, 4),
             "right_ylabel": "[wt% S]",
             "right2": [
-                [
-                    fe3_fe,
-                    r"Fe$^{3+}$ [wt% Fe]",
-                    {"color": "C5"},
-                ],
+                [fe3_fe, r"Fe$^{3+}$ [wt% Fe]", {"color": "C5"}],
+                [total_iron, r"TFe [wt% Fe]", {"color": "C8", "linestyle": "dotted"}],
             ],
             "right2_ylim": (0, 1),
             "right2_ylabel": "[wt% Fe]",

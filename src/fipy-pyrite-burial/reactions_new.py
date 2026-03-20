@@ -867,159 +867,6 @@ def fes_unified_reaction_5(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     Unified FeS Precipitation & Dissolution — large-dt stable.
 
-    FeS precipitation: k.fes_isp * ([Fe2+][HS-]/([H+]k.fes_sp) -1)
-    FeS dissolution: k_fes_isd * [FeS](1 - [Fe2+][HS-]/([H+]k.fes_sp))
-
-    Forward and backward fluxes are algebraically unified via a single effective
-    rate coefficient k_eff and equilibrium target ts2_eq. The ts2 equation
-    relaxes toward ts2_eq and cannot overshoot it for any timestep size.
-
-    Rate constant units:
-      k.fes_isp  [1/s, L_pw]   — approach rate in precipitation regime
-      k.fes_isd  [1/s, L_solid] — first-order dissolution rate constant
-
-    Concentration units are in mmol/L porewater, and mmol/L solid
-    """
-    import numpy as np
-
-    # ------------------------------------------------------------------
-    # 1. Current state
-    # ------------------------------------------------------------------
-    fe2_pw_val = c.fe2_total.value * mp.f_diss + 1e-20  #  # mmol/L_pw
-    ts2_val = c.ts2.value  # mmol/L_pw
-    hs_val = c.ts2.value * mp.hs_frac
-    fes_val = c.fes.value  # mmol/L_solid
-    fes_limiter = fes_val / (fes_val + 1e-4)
-
-    # ------------------------------------------------------------------
-    # 2. Saturation and equilibrium ts2
-    # ------------------------------------------------------------------
-    omega_den = k.hplus * k.fes_sp + 1e-30
-    omega = (fe2_pw_val * hs_val) / omega_den
-
-    # ts2 value at which the system is exactly at saturation [mmol/L_pw]
-    hs_eq = omega_den / (fe2_pw_val * mp.hs_frac + 1e-30)
-
-    # Fe2+ availability limiter — precipitation requires both reactants.
-    # K_half = fe2_eq = Fe2+ at saturation for current ts2.
-    # This keeps k_rxn * ts2_eq bounded as fe2 → 0.
-    fe2_eq = omega_den / (hs_val + 1e-30)
-    fe2_limiter = fe2_pw_val / (fe2_pw_val + fe2_eq + 1e-30)
-
-    # ------------------------------------------------------------------
-    # 3. Smooth regime flags
-    # ------------------------------------------------------------------
-    sharpness = 100.0
-    is_precip = 0.5 * (1.0 + np.tanh(sharpness * (omega - 1.0)))
-    is_diss = 1.0 - is_precip
-
-    # ------------------------------------------------------------------
-    # 4. Unified rate coefficient [1/s, L_pw basis]
-    #    k_d converted from L_solid to L_pw via / fac_s = phi/(1-phi)
-    # ------------------------------------------------------------------
-    k_eff = k.fes_isp * is_precip + k.fes_isd * fes_limiter * is_diss
-
-    # Only the HS- fraction of ts2 drives the reaction
-    k_rxn = k_eff * mp.hs_frac * fe2_limiter
-
-    # Net rate [mmol/L_pw/s], positive = net precipitation
-    net_rate_pw = k_rxn * (hs_val - hs_eq)
-
-    # ------------------------------------------------------------------
-    # 5a. ts2: implicit sink + explicit equilibrium target
-    #     Guarantees ts2_new → ts2_eq as dt → ∞, no overshoot possible
-    # ------------------------------------------------------------------
-    add_implicit_sink(LHS, RATES, "ts2", k_rxn, net_rate_pw, ctype="liquid")
-    add_explicit_source(
-        RHS, RATES, "ts2", k_rxn * hs_eq, update_rates=False, ctype="liquid"
-    )
-
-    # ------------------------------------------------------------------
-    # 5b+5c. FeS and Fe2+: coupled via fe2_total with bounded coefficient.
-    #
-    #   k_rxn = k_eff * hs_frac * fe2_pw / (fe2_pw + fe2_eq)
-    #         = [k_eff * hs_frac / (fe2_pw + fe2_eq)] * fe2_pw
-    #         =  k_rxn_base * fe2_pw
-    #
-    #   net_rate = k_rxn_base * fe2_pw * (ts2 - ts2_eq)
-    #            = [k_rxn_base * f_diss * max(ts2 - ts2_eq, 0)] * fe2_total
-    #            =  coeff_fe2 * fe2_total
-    #
-    #   coeff_fe2 is bounded: denominator is (fe2_pw + fe2_eq) which
-    #   stays finite even when fe2 → 0.  add_lhs_sink=True gives both
-    #   the Fe2+ diagonal sink and the FeS cross-coupling source from
-    #   the same coefficient, guaranteeing iron conservation.
-    # ------------------------------------------------------------------
-    k_rxn_base = k_eff * mp.hs_frac / (fe2_pw_val + fe2_eq + 1e-30)
-
-    fes_precip_rate = np.maximum(net_rate_pw, 0.0)
-    fes_diss_rate = np.maximum(-net_rate_pw, 0.0)
-
-    # Precipitation: implicit coupling fe2_total → fes
-    precip_driving = np.maximum(ts2_val - hs_eq, 0.0)
-    coeff_fe2 = k_rxn_base * mp.f_diss * precip_driving
-
-    k_fe2_diag = np.maximum(net_rate_pw, 0.0) / fe2_pw_val  # precipitation sink
-    fe2_source = np.maximum(-net_rate_pw, 0.0)  # dissolution source
-    add_implicit_sink(
-        LHS,
-        RATES,
-        "fe2_total",
-        k_fe2_diag,
-        np.maximum(net_rate_pw, 0.0),
-        ctype="liquid",
-    )
-    add_explicit_source(RHS, RATES, "fe2_total", fe2_source, ctype="liquid")
-
-    # Dissolution: explicit (driven by FeS, not fe2_total)
-    add_explicit_source(
-        RHS, RATES, "fes", -fes_diss_rate, update_rates=True, ctype="solid"
-    )
-
-    # ------------------------------------------------------------------
-    # 6. Isotopes (32S) — identical structure
-    # ------------------------------------------------------------------
-    if mp.isotopes:
-        ts2_32_val = c.ts2_32.value
-        fes_32_val = c.fes_32.value
-
-        f32_ts2 = ts2_32_val / (ts2_val + 1e-30)
-        f32_fes = fes_32_val / (fes_val + 1e-30)
-
-        # Equilibrium isotope ratio: precip regime tracks porewater,
-        # dissolution regime releases solid ratio
-        f32_eq = is_precip * f32_ts2 + is_diss * f32_fes
-        ts2_32_eq = hs_eq * f32_eq
-
-        net_rate_32 = k_rxn * (ts2_32_val - ts2_32_eq)
-
-        add_implicit_sink(LHS, RATES, "ts2_32", k_rxn, net_rate_32, ctype="liquid")
-        add_explicit_source(
-            RHS, RATES, "ts2_32", k_rxn * ts2_32_eq, update_rates=False, ctype="liquid"
-        )
-
-        add_implicit_coupling_new(
-            "liquid_2_solid",
-            CROSS,
-            RATES,
-            LHS,
-            target_species="fes_32",
-            source_species="ts2_32",
-            coeff=k_rxn,
-            rate=net_rate_32,
-            mp=mp,
-            c=c,
-            add_lhs_sink=False,
-        )
-        add_explicit_source(
-            RHS, RATES, "fes_32", -k_rxn * ts2_32_eq, update_rates=False, ctype="solid"
-        )
-
-
-def fes_unified_reaction_6(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """
-    Unified FeS Precipitation & Dissolution — large-dt stable.
-
     FeS precipitation: k.fes_isp * ([Fe2+][HS-]/([H+]k.fes_sp) - 1)
     FeS dissolution:   k.fes_isd * [FeS] * (1 - [Fe2+][HS-]/([H+]k.fes_sp))
 
@@ -1187,4 +1034,353 @@ def fes_unified_reaction_6(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             fes_diss_rate_pw * f32_fes,
             update_rates=False,
             ctype="liquid",
+        )
+
+
+def fes_unified_reaction_6(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """
+    Unified FeS Precipitation & Dissolution — large-dt stable.
+
+    FeS precipitation: k.fes_isp * ([Fe2+][HS-]/([H+]k.fes_sp) - 1)
+    FeS dissolution:   k.fes_isd * [FeS] * (1 - [Fe2+][HS-]/([H+]k.fes_sp))
+
+    The ts2 equation relaxes toward ts2_eq and cannot overshoot it for any
+    timestep size. FeS dissolution is implicit w.r.t. fes, preventing negative
+    concentrations in cells with small fes_val.
+
+    Rate constant units:
+      k.fes_isp  [1/s, L_pw]     — approach rate in precipitation regime
+      k.fes_isd  [1/s, L_solid]  — first-order dissolution rate constant
+
+    Concentrations: mmol/L_pw (liquid), mmol/L_solid (solid)
+    """
+    import numpy as np
+
+    # ------------------------------------------------------------------
+    # 1. Current state
+    # ------------------------------------------------------------------
+    fe2_pw_val = c.fe2_total.value * mp.f_diss + 1e-20  # mmol/L_pw
+    ts2_val = c.ts2.value  # mmol/L_pw
+    hs_val = ts2_val * mp.hs_frac  # mmol/L_pw
+    fes_val = c.fes.value  # mmol/L_solid
+    fes_limiter = fes_val / (fes_val + 1e-4)
+
+    # ------------------------------------------------------------------
+    # 2. Saturation and equilibrium targets
+    # ------------------------------------------------------------------
+    omega_den = k.hplus * k.fes_sp + 1e-30
+    omega = (fe2_pw_val * hs_val) / omega_den
+
+    # hs_eq: HS- concentration at exact saturation given current fe2_pw
+    hs_eq = omega_den / (fe2_pw_val * mp.hs_frac + 1e-30)
+
+    # fe2_eq: Fe2+ at saturation for current ts2 — used to bound coeff as fe2 → 0
+    fe2_eq = omega_den / (hs_val + 1e-30)
+    fe2_limiter = fe2_pw_val / (fe2_pw_val + fe2_eq + 1e-30)
+
+    # ------------------------------------------------------------------
+    # 3. Smooth regime flags
+    # ------------------------------------------------------------------
+    sharpness = 100.0
+    is_precip = 0.5 * (1.0 + np.tanh(sharpness * (omega - 1.0)))
+    is_diss = 1.0 - is_precip
+
+    # ------------------------------------------------------------------
+    # 4. Rate coefficients
+    # ------------------------------------------------------------------
+    # Keep precipitation and dissolution terms separate so k_d_term is
+    # available as the implicit FeS dissolution coefficient (bounded by
+    # fes_limiter, so k_d_term → 0 as fes_val → 0 — no blow-up risk)
+    k_p_term = k.fes_isp * is_precip  # [1/s, L_pw]
+    k_d_term = k.fes_isd * fes_limiter * is_diss  # [1/s, L_solid] — kept for fes sink
+    k_d_term_pw = k_d_term / mp.fac_s  # [1/s, L_pw] = k_d × (1-phi)/phi
+
+    k_eff = k_p_term + k_d_term_pw  # [1/s, L_pw] — consistent basis
+    k_rxn = k_eff * mp.hs_frac * fe2_limiter  # [1/s, L_pw]
+
+    net_rate_pw = k_rxn * (hs_val - hs_eq)  # [mmol/L_pw/s] — correct
+    fes_precip_rate = np.maximum(net_rate_pw, 0.0)  # [mmol/L_pw/s]
+    fes_diss_rate_pw = np.maximum(-net_rate_pw, 0.0)  # [mmol/L_pw/s]
+    fes_diss_rate_solid = fes_diss_rate_pw * mp.fac_s  # [mmol/L_solid/s]
+
+    # ------------------------------------------------------------------
+    # 5a. ts2: implicit sink + explicit equilibrium target
+    #     Guarantees ts2_new → hs_eq as dt → ∞, no overshoot possible
+    # ------------------------------------------------------------------
+    add_implicit_sink(LHS, RATES, "ts2", k_rxn, net_rate_pw, ctype="liquid")
+    add_explicit_source(
+        RHS, RATES, "ts2", k_rxn * hs_eq, update_rates=False, ctype="liquid"
+    )
+
+    # ------------------------------------------------------------------
+    # 5b. fe2_total: implicit sink (precip) + explicit source (dissolution)
+    # ------------------------------------------------------------------
+    # Self-implicit: rate = k_rxn × hs_val, expressed as coeff × fe2_total
+    # fe2_new = fe2_old / (1 + k_fe2_self × dt) → asymptotes to 0, never crosses it
+    k_fe2_self = k_rxn * hs_val / (fe2_pw_val + 1e-30)  # [1/s, fe2_total basis]
+    add_implicit_sink(
+        LHS, RATES, "fe2_total", k_fe2_self, fes_precip_rate, ctype="liquid"
+    )
+    add_explicit_source(
+        RHS, RATES, "fe2_total", fes_diss_rate_pw, update_rates=True, ctype="liquid"
+    )
+
+    # ------------------------------------------------------------------
+    # 5c. fes: implicit precipitation (cross-coupled to ts2_new)
+    #          implicit dissolution (bounded by k_d_term)
+    # ------------------------------------------------------------------
+    # Precipitation: cross-couple to ts2 so fes receives ts2_new,
+    # matching exactly what the implicit ts2 sink removed
+    add_implicit_coupling_new(
+        "liquid_2_solid",
+        CROSS,
+        RATES,
+        LHS,
+        target_species="fes",
+        source_species="ts2",
+        coeff=k_rxn,
+        rate=np.maximum(net_rate_pw, 0.0),
+        mp=mp,
+        c=c,
+        add_lhs_sink=False,  # ts2 sink already added in 5a
+    )
+
+    # Dissolution: implicit via k_d_term — cannot go negative
+    # add_implicit_sink(LHS, RATES, "fes", k_d_term, fes_diss_rate, ctype="solid")
+    # fes sink: use k_d_term (L_solid) and rate in L_solid — consistent
+    add_implicit_sink(LHS, RATES, "fes", k_d_term, fes_diss_rate_solid, ctype="solid")
+
+    # ------------------------------------------------------------------
+    # 6. Isotopes (32S)
+    # ------------------------------------------------------------------
+    if mp.isotopes:
+        ts2_32_val = c.ts2_32.value
+        fes_32_val = c.fes_32.value
+
+        f32_ts2 = ts2_32_val / (ts2_val + 1e-30)
+        f32_fes = fes_32_val / (fes_val + 1e-30)
+
+        # Equilibrium isotope ratio:
+        #   precipitation regime: stabilisation term uses porewater ratio
+        #   dissolution regime:   solid releases its own ratio
+        f32_eq = is_precip * f32_ts2 + is_diss * f32_fes
+        ts2_32_eq = hs_eq * f32_eq
+
+        net_rate_32 = k_rxn * (ts2_32_val - ts2_32_eq)
+
+        # ts2_32: same asymptotic structure as bulk ts2
+        add_implicit_sink(LHS, RATES, "ts2_32", k_rxn, net_rate_32, ctype="liquid")
+        add_explicit_source(
+            RHS, RATES, "ts2_32", k_rxn * ts2_32_eq, update_rates=False, ctype="liquid"
+        )
+
+        # fes_32 precipitation: cross-coupled to ts2_32
+        add_implicit_coupling_new(
+            "liquid_2_solid",
+            CROSS,
+            RATES,
+            LHS,
+            target_species="fes_32",
+            source_species="ts2_32",
+            coeff=k_rxn,
+            rate=np.maximum(net_rate_32, 0.0),
+            mp=mp,
+            c=c,
+            add_lhs_sink=False,
+        )
+
+        add_implicit_sink(
+            LHS,
+            RATES,
+            "fes_32",
+            k_d_term * f32_fes,
+            fes_diss_rate_solid * f32_fes,
+            ctype="solid",
+        )
+        add_explicit_source(
+            RHS,
+            RATES,
+            "ts2_32",
+            fes_diss_rate_pw * f32_fes,
+            update_rates=False,
+            ctype="liquid",
+        )
+
+
+def fes_unified_reaction_7(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """
+    Unified FeS Precipitation & Dissolution — large-dt stable, iron-conservative.
+
+    FeS precipitation: k.fes_isp * ([Fe2+][HS-]/([H+]k.fes_sp) - 1)
+    FeS dissolution:   k.fes_isd * [FeS] * (1 - [Fe2+][HS-]/([H+]k.fes_sp))
+
+    Conservation strategy:
+      Precipitation:
+        - ts2: self-implicit sink, explicit hs_eq target → asymptotically bounded
+        - fes: cross-coupled to ts2_new → exact sync with ts2
+        - fe2: self-implicit sink → bounded, cannot go negative
+
+      Dissolution:
+        - fes: self-implicit via k_d_term → cannot go negative
+        - ts2: dissolution ALREADY handled by hs_eq target in 5a (no extra term needed)
+        - fe2: explicit source = k_d_term * fes_val / fac_s
+               bounded by fes_val and fes_limiter → no blow-up, O(dt²) conservation error
+
+    Rate constant units:
+      k.fes_isp  [1/s, L_pw]     — approach rate in precipitation regime
+      k.fes_isd  [1/s, L_solid]  — first-order dissolution rate constant
+
+    Concentrations: mmol/L_pw (liquid), mmol/L_solid (solid)
+    """
+    import numpy as np
+
+    # ------------------------------------------------------------------
+    # 1. Current state
+    # ------------------------------------------------------------------
+    fe2_pw_val = c.fe2_total.value * mp.f_diss + 1e-20  # mmol/L_pw
+    ts2_val = c.ts2.value  # mmol/L_pw
+    hs_val = ts2_val * mp.hs_frac  # mmol/L_pw
+    fes_val = c.fes.value  # mmol/L_solid
+    fes_limiter = fes_val / (fes_val + 1e-4)
+
+    # ------------------------------------------------------------------
+    # 2. Saturation and equilibrium targets
+    # ------------------------------------------------------------------
+    omega_den = k.hplus * k.fes_sp + 1e-30
+    omega = (fe2_pw_val * hs_val) / omega_den
+
+    # hs_eq: HS- at exact saturation given current fe2_pw
+    hs_eq = omega_den / (fe2_pw_val * mp.hs_frac + 1e-30)
+
+    # fe2_eq: Fe2+ at saturation for current ts2 — bounds coeff as fe2 → 0
+    fe2_eq = omega_den / (hs_val + 1e-30)
+    fe2_limiter = fe2_pw_val / (fe2_pw_val + fe2_eq + 1e-30)
+
+    # ------------------------------------------------------------------
+    # 3. Smooth regime flags
+    # ------------------------------------------------------------------
+    sharpness = 100.0
+    is_precip = 0.5 * (1.0 + np.tanh(sharpness * (omega - 1.0)))
+    is_diss = 1.0 - is_precip
+
+    # ------------------------------------------------------------------
+    # 4. Rate coefficients
+    # ------------------------------------------------------------------
+    k_p_term = k.fes_isp * is_precip  # [1/s, L_pw]
+    k_d_term = k.fes_isd * fes_limiter * is_diss  # [1/s, L_solid]
+    k_d_term_pw = k_d_term / mp.fac_s  # [1/s, L_pw]
+
+    k_eff = k_p_term + k_d_term_pw  # [1/s, L_pw] — consistent basis
+    k_rxn = k_eff * mp.hs_frac * fe2_limiter  # [1/s, L_pw]
+
+    # Net rate [mmol/L_pw/s], positive = net precipitation
+    net_rate_pw = k_rxn * (hs_val - hs_eq)
+    fes_precip_rate = np.maximum(net_rate_pw, 0.0)  # mmol/L_pw/s
+    fes_diss_rate_pw = np.maximum(-net_rate_pw, 0.0)  # mmol/L_pw/s
+    fes_diss_rate_solid = fes_diss_rate_pw * mp.fac_s  # mmol/L_solid/s
+
+    # ------------------------------------------------------------------
+    # 5a. ts2: implicit sink + explicit equilibrium target
+    #
+    #   The explicit target k_rxn * hs_eq serves dual purpose:
+    #     - precipitation regime: numerical stabilisation backward flux
+    #     - dissolution regime:   returns HS- to porewater as FeS dissolves
+    #
+    #   This means ts2 dissolution is ALREADY accounted for here.
+    #   No separate dissolution source term is needed for ts2.
+    # ------------------------------------------------------------------
+    add_implicit_sink(LHS, RATES, "ts2", k_rxn, net_rate_pw, ctype="liquid")
+    add_explicit_source(
+        RHS, RATES, "ts2", k_rxn * hs_eq, update_rates=False, ctype="liquid"
+    )
+
+    # ------------------------------------------------------------------
+    # 5b. fe2_total
+    #
+    #   Precipitation: self-implicit sink — bounded, cannot go negative
+    #   Dissolution:   explicit source = k_d_term * fes_val / fac_s
+    #                  bounded by fes_val (via fes_limiter in k_d_term)
+    #                  → no matrix blow-up, O(dt²) conservation error
+    #                  → zero error at steady state
+    # ------------------------------------------------------------------
+    k_fe2_self = k_rxn * hs_val / (fe2_pw_val + 1e-30)  # [1/s, L_pw]
+    add_implicit_sink(
+        LHS, RATES, "fe2_total", k_fe2_self, fes_precip_rate, ctype="liquid"
+    )
+
+    fe2_diss_source = k_d_term * fes_val / mp.fac_s  # mmol/L_pw/s, bounded
+    add_explicit_source(
+        RHS, RATES, "fe2_total", fe2_diss_source, update_rates=True, ctype="liquid"
+    )
+
+    # ------------------------------------------------------------------
+    # 5c. fes
+    #
+    #   Precipitation: cross-coupled to ts2_new — exact sync, no drift
+    #   Dissolution:   self-implicit via k_d_term — cannot go negative
+    # ------------------------------------------------------------------
+    add_implicit_coupling_new(
+        "liquid_2_solid",
+        CROSS,
+        RATES,
+        LHS,
+        target_species="fes",
+        source_species="ts2",
+        coeff=k_rxn,
+        rate=fes_precip_rate,  # L_pw basis
+        mp=mp,
+        c=c,
+        add_lhs_sink=False,  # ts2 sink added in 5a
+    )
+    add_implicit_sink(LHS, RATES, "fes", k_d_term, fes_diss_rate_solid, ctype="solid")
+
+    # ------------------------------------------------------------------
+    # 6. Isotopes (32S)
+    # ------------------------------------------------------------------
+    if mp.isotopes:
+        ts2_32_val = c.ts2_32.value
+        fes_32_val = c.fes_32.value
+
+        f32_ts2 = ts2_32_val / (ts2_val + 1e-30)
+        f32_fes = fes_32_val / (fes_val + 1e-30)
+
+        # Equilibrium isotope ratio:
+        #   precipitation regime: uses porewater ratio (stabilisation term)
+        #   dissolution regime:   uses solid ratio (real dissolution)
+        f32_eq = is_precip * f32_ts2 + is_diss * f32_fes
+        ts2_32_eq = hs_eq * f32_eq
+
+        net_rate_32 = k_rxn * (ts2_32_val - ts2_32_eq)
+
+        # ts2_32: same asymptotic structure as bulk ts2
+        # Dissolution of fes_32 is returned via the hs_eq target (f32_eq carries
+        # the solid ratio in the dissolution regime) — no separate term needed
+        add_implicit_sink(LHS, RATES, "ts2_32", k_rxn, net_rate_32, ctype="liquid")
+        add_explicit_source(
+            RHS, RATES, "ts2_32", k_rxn * ts2_32_eq, update_rates=False, ctype="liquid"
+        )
+
+        # fes_32 precipitation: cross-coupled to ts2_32
+        add_implicit_coupling_new(
+            "liquid_2_solid",
+            CROSS,
+            RATES,
+            LHS,
+            target_species="fes_32",
+            source_species="ts2_32",
+            coeff=k_rxn,
+            rate=np.maximum(net_rate_32, 0.0),
+            mp=mp,
+            c=c,
+            add_lhs_sink=False,
+        )
+
+        # fes_32 dissolution: self-implicit, bounded by fes_limiter
+        add_implicit_sink(
+            LHS,
+            RATES,
+            "fes_32",
+            k_d_term * f32_fes,
+            fes_diss_rate_solid * f32_fes,
+            ctype="solid",
         )

@@ -18,7 +18,7 @@ def get_reaction_constants(pH):
     Q_ = ureg.Quantity
 
     velde: dict = {
-        "poc_o2": [5e-10, "m^3/(mol*second)", "m^3/(mol*second)"],  # POC + O2 -> CO2
+        "poc_o2": [1e-11, "m^3/(mol*second)", "m^3/(mol*second)"],  # POC + O2 -> CO2
         "poc_so4": [1e-11, "m^3/(mol*second)", "m^3/(mol*second)"],  # POC + SO4 -> CO2
         "fe2_p_eq": [696, "dimensionless", "dimensionless"],  # sorbed vs Fe2+ Fe2+ liq.
         "fes2_ox": [
