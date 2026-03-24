@@ -78,7 +78,7 @@ if __name__ == "__main__":
         rn.sulfide_mediated_iron_reduction,
         rn.fe2_oxidation,
         rn.fes_precipitation,
-        rn.fes_dissolution3,
+        rn.fes_dissolution5,
         # rn.fes_unified_reaction_11,
         # rn.fes_oxidation,
         # rn.pyrite_formation_s0,
