@@ -95,6 +95,7 @@ def pyrite_model(p_dict: dict, plot_queue=None):
             "dt_max": Q_("100 years").to("seconds").magnitude,  # mad dt step in years
             "dt_min": Q_("1 second").to("seconds").magnitude,  # min dt in years
             "dt_init": Q_("1 year").to("seconds").magnitude,  # initial dt
+            "current_dt": 0.0,  # place holder 
             "t_end": Q_("10 kyear").to("seconds").magnitude,  # max model time
             "max_steps": 2000,  # max number of iterations
             "VCDT": 0.044162589,  # VCDT reference ratio

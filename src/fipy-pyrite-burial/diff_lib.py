@@ -1,5 +1,5 @@
 """
-Utility library for the /fastfd/ package.
+Utility library for the fipy package.
 
 This package provides a small collection of functions and a lightweight container class
 used throughout the Pyrite Burial model.
@@ -1010,8 +1010,6 @@ def get_total_delta(c, mp, index=-1):
 # =============================================================================
 # HELPER FUNCTIONS (Matrix Math Abstraction)
 # =============================================================================
-
-
 def add_implicit_sink(
     LHS, RATES, species, coeff, rate, ctype="liquid_2_liquid", mp=None, c=None
 ):
@@ -1048,6 +1046,32 @@ def add_explicit_source(
         RATES[species] += getattr(rate, "value", rate)
 
 
+
+def add_implicit_coupling(
+    CROSS, RATES, target_species, source_species, coeff, rate, c=None
+):
+    """
+    Add a coupled source term (legacy helper — prefer ``add_implicit_coupling_new``).
+
+    If d[Target]/dt = +coeff * [Source]
+    Then we add `ImplicitSourceTerm(coeff=coeff, var=Source)` to Target's equation.
+
+    CROSS[target].append( (source, coeff) )
+
+    This function does NOT add an implicit sink for the source species and does NOT
+    apply any porosity conversion to ``coeff``.  It is intended for situations where:
+      1. The source species sink has already been registered by a prior call (e.g.
+         ``add_implicit_sink`` or ``add_implicit_coupling_new``), and
+      2. Any required phase-conversion factor has been applied to ``coeff`` by the caller.
+
+    For new code, use ``add_implicit_coupling_new`` with ``add_lhs_sink=False`` instead,
+    which handles phase-conversion automatically.
+    """
+    CROSS[target_species].append((source_species, coeff))
+    # Note: Rates are accumulating scalar values for reporting, usually calculated explicitly before calling
+    RATES[target_species] += getattr(rate, "value", rate)
+
+    
 def add_implicit_coupling_new(
     ctype,
     CROSS,
@@ -1080,28 +1104,3 @@ def add_implicit_coupling_new(
         RATES[source_species] -= rate_val
 
     RATES[target_species] += rate_val * stoich_ratio
-
-
-def add_implicit_coupling(
-    CROSS, RATES, target_species, source_species, coeff, rate, c=None
-):
-    """
-    Add a coupled source term (legacy helper — prefer ``add_implicit_coupling_new``).
-
-    If d[Target]/dt = +coeff * [Source]
-    Then we add `ImplicitSourceTerm(coeff=coeff, var=Source)` to Target's equation.
-
-    CROSS[target].append( (source, coeff) )
-
-    This function does NOT add an implicit sink for the source species and does NOT
-    apply any porosity conversion to ``coeff``.  It is intended for situations where:
-      1. The source species sink has already been registered by a prior call (e.g.
-         ``add_implicit_sink`` or ``add_implicit_coupling_new``), and
-      2. Any required phase-conversion factor has been applied to ``coeff`` by the caller.
-
-    For new code, use ``add_implicit_coupling_new`` with ``add_lhs_sink=False`` instead,
-    which handles phase-conversion automatically.
-    """
-    CROSS[target_species].append((source_species, coeff))
-    # Note: Rates are accumulating scalar values for reporting, usually calculated explicitly before calling
-    RATES[target_species] += getattr(rate, "value", rate)

@@ -14,8 +14,8 @@ if __name__ == "__main__":
     import pint
     from diff_lib import (
         save_data,
-        get_delta,
-        wt_percent_to_solid_conc,
+        # get_delta,
+        # wt_percent_to_solid_conc,
         save_state,
         get_total_delta,
         # read_state,
@@ -37,16 +37,16 @@ if __name__ == "__main__":
     # state_out = None
 
     p_dict = {
-        "max_steps": 1000,  # max number of iterations
+        "max_steps": 2000,  # max number of iterations
         "max_depth": 2.0,  # meters
         "t_end": Q_("1 kyear").to("seconds").magnitude,
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
-        "process_monitor": "video",  # gui | video | none
+        "process_monitor": "gui",  # gui | video | none
         "plot_name": f"{experiment}",
         "isotopes": False,
-        "report_step": 2,  # how often to update plot
+        "report_step": 1,  # how often to update plot
         "w": Q_("0.2 cm/yr").to("m/s").m,  # sedimentation rate in m/s
         "bc_fe3": Q_("12 umol/(cm^2 * year)")
         .to("mol/(m^2 * second)")
@@ -55,7 +55,7 @@ if __name__ == "__main__":
         "phi": 0.8,
         "DB_depth": 0,
         "DB0": 4e-12 * 0,
-        "tolerance": 1e-6,  # convergence criterion
+        "tolerance": 1e-5,  # convergence criterion
         "dt_tolerance": 1e-12,  # steady state threshold (stop simulation)
         "dt_target_change": 10.0,  # target change per step (for dt adaptation)
         "state_data": state_in,  # read state data
@@ -77,8 +77,10 @@ if __name__ == "__main__":
         rn.elemental_sulfur_oxidation,
         rn.sulfide_mediated_iron_reduction,
         rn.fe2_oxidation,
-        rn.fes_unified_reaction_7,
-        rn.fes_oxidation,
+        rn.fes_precipitation,
+        rn.fes_dissolution3,
+        # rn.fes_unified_reaction_11,
+        # rn.fes_oxidation,
         # rn.pyrite_formation_s0,
         # rn.pyrite_formation_fes_ts2,
         # rn.pyrite_oxidation,

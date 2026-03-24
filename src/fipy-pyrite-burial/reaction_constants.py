@@ -18,8 +18,8 @@ def get_reaction_constants(pH):
     Q_ = ureg.Quantity
 
     velde: dict = {
-        "poc_o2": [1e-11, "m^3/(mol*second)", "m^3/(mol*second)"],  # POC + O2 -> CO2
-        "poc_so4": [1e-11, "m^3/(mol*second)", "m^3/(mol*second)"],  # POC + SO4 -> CO2
+        "poc_o2": [1e-10, "m^3/(mol*second)", "m^3/(mol*second)"],  # POC + O2 -> CO2
+        "poc_so4": [5e-11, "m^3/(mol*second)", "m^3/(mol*second)"],  # POC + SO4 -> CO2
         "fe2_p_eq": [696, "dimensionless", "dimensionless"],  # sorbed vs Fe2+ Fe2+ liq.
         "fes2_ox": [
             1e-10,
@@ -54,7 +54,7 @@ def get_reaction_constants(pH):
             "umol/((cm^3*year))",
             "mol/(m^3 *second)",
         ],  # FeS precipitation
-        "fes_isd": [3, "1/year", "1/second"],  # FeS dissolution
+        "fes_isd": [3e-3, "1/year", "1/second"],  # FeS dissolution
         "fes_sp": [  # FeS equilibrium constant
             10**-3.5,
             "mol/l",

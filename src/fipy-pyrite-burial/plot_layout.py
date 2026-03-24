@@ -22,7 +22,7 @@ def get_layout(df):
     fe2_s = liquid_conc_to_wt_percent(df.c_fe2_total, 32, 2.6, phi)
     fe3_s = solid_conc_to_wt_percent(df.c_fe3, 32, 2.6, phi)
     fes_s = solid_conc_to_wt_percent(df.c_fes, 32, 2.6, phi)
-    s0_s = solid_conc_to_wt_percent(df.c_fes, 32, 2.6, phi)
+    s0_s = solid_conc_to_wt_percent(df.c_s0, 32, 2.6, phi)
 
     fes2_s = solid_conc_to_wt_percent(df.c_fes2, 32, 2.6, phi)
     fe2_fe = liquid_conc_to_wt_percent(df.c_fe2_total, 56, 2.6, phi)
@@ -53,8 +53,8 @@ def get_layout(df):
             "xlim": (1e-2, None),
             "left_ylabel": r"[mmol/l]",
             "right": [
-                [5 * fes2_s, r"5 * FeS$_2$ [wt% S]", {"color": "black"}],
-                [fes_s * 10, r"10 $\times$ FeS [wt% S]", {"color": "C6"}],
+                [fes2_s, r"FeS$_2$ [wt% S]", {"color": "black"}],
+                [10 * fes_s, r"$\times$ FeS [wt% S]", {"color": "C6"}],
                 [s0_s, "S0 [wt% S]", {"color": "C2"}],
             ],
             "right_ylim": (0, 4),
@@ -62,6 +62,7 @@ def get_layout(df):
             "right2": [
                 [fe3_fe, r"Fe$^{3+}$ [wt% Fe]", {"color": "C5"}],
                 [total_iron, r"TFe [wt% Fe]", {"color": "C8", "linestyle": "dotted"}],
+                [fe2_fe, r"Fe2_sorb [wt% Fe]", {"color": "C8", "linestyle": "dotted"}],
             ],
             "right2_ylim": (0, 1),
             "right2_ylabel": "[wt% Fe]",

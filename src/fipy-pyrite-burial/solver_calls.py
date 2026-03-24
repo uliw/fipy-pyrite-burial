@@ -380,6 +380,7 @@ def run_non_steady_state_solver_coupled(
             # --- Solve Step (with automatic retry on failure) ---
             converged = False
             while not converged:
+                mp.current_dt = current_dt
                 try:
                     coupled_eq, _ = _assemble_coupled_equation(
                         mp,
