@@ -37,7 +37,7 @@ if __name__ == "__main__":
     # state_out = None
 
     p_dict = {
-        "max_steps": 2000,  # max number of iterations
+        "max_steps": 20000,  # max number of iterations
         "max_depth": 2.0,  # meters
         "t_end": Q_("1 kyear").to("seconds").magnitude,
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
@@ -45,8 +45,8 @@ if __name__ == "__main__":
         "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
         "process_monitor": "gui",  # gui | video | none
         "plot_name": f"{experiment}",
-        "isotopes": False,
-        "report_step": 1,  # how often to update plot
+        "isotopes": True,
+        "report_step": 2,  # how often to update plot
         "w": Q_("0.2 cm/yr").to("m/s").m,  # sedimentation rate in m/s
         "bc_fe3": Q_("12 umol/(cm^2 * year)")
         .to("mol/(m^2 * second)")
@@ -57,7 +57,7 @@ if __name__ == "__main__":
         "DB0": 4e-12 * 0,
         "tolerance": 1e-5,  # convergence criterion
         "dt_tolerance": 1e-12,  # steady state threshold (stop simulation)
-        "dt_target_change": 10.0,  # target change per step (for dt adaptation)
+        "dt_target_change": 10,  # target change per step (for dt adaptation)
         "state_data": state_in,  # read state data
         "solver": "non_steady",  # use non-steady solver, non_steady or steady
         # "solver_backend": "LinearLUSolver",  # see solver_calls for options
@@ -76,14 +76,9 @@ if __name__ == "__main__":
         rn.hs_oxidation,
         rn.elemental_sulfur_oxidation,
         rn.sulfide_mediated_iron_reduction,
-        rn.fe2_oxidation,
-        rn.fes_precipitation,
-        rn.fes_dissolution5,
-        # rn.fes_unified_reaction_11,
-        # rn.fes_oxidation,
-        # rn.pyrite_formation_s0,
-        # rn.pyrite_formation_fes_ts2,
-        # rn.pyrite_oxidation,
+        # rn.fe2_oxidation,
+        # rn.fes_precipitation,
+        # rn.fes_dissolution5,
     ]
 
     p_dict["instantenous_reactions"] = [

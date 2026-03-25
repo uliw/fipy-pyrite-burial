@@ -290,7 +290,8 @@ def _assemble_coupled_equation(
 
         # Wrap the diagonal reaction coefficient into a FiPy ImplicitSourceTerm
         lhs_coeff = res_tuple[0]
-        if hasattr(lhs_coeff, "shape") and lhs_coeff.shape != ():
+        # Ensure numpy arrays are wrapped in CellVariable for correct rank, but preserve FiPy expressions
+        if isinstance(lhs_coeff, np.ndarray) and lhs_coeff.shape != ():
             lhs_coeff = CellVariable(mesh=mesh, value=lhs_coeff)
 
         # Diagonal (self) implicit sink for this species
