@@ -687,3 +687,34 @@ print("Finished.")
 Give the direct LU a try first; it will probably finish a 500‑cell run in a few hundred milliseconds. If you still need to push the time step beyond the current adaptive limit, drop the LU and switch to the PETSc TS wrapper (BDF2). Either way you stay inside the FiPy framework and keep all your chemistry code unchanged. Happy modelling!
 
 *** 
+
+
+#+BEGIN_SRC jupyter-python
+pKa1 = 7.0
+pH = 7.5
+Ka1 = 10 ** (-pKa1)
+H = 10 ** (-pH)
+h2s_frac = H / (H + Ka1)
+hs_frac = Ka1 / (H + Ka1)
+k = 1.57e-05 # [m³/mol/s]
+f = 7.3e-6 # mmol/s
+dt = 60*60*24*7*13 # days
+dt = 9130162.173784565
+k_rxn = 1.27e-7
+fe2 = 146/696
+hs = 0.016293212371920246 * hs_frac
+
+print(f"f * dt = {k_rxn*fe2*dt:.2e} mmol/13 weeks")
+print(f"k *hs * fe2 * dt = {k*dt*fe2*hs:.2e}")
+print(f"fe2 = {fe2:.2e}")
+#+END_SRC
+
+#+RESULTS:
+: f * dt = 2.43e-01 mmol/13 weeks
+: k *hs * fe2 * dt = 3.72e-01
+: fe2 = 2.10e-01
+
+#+BEGIN_SRC jupyter-python  
+
+#+END_SRC
+

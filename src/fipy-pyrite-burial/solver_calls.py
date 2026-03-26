@@ -481,12 +481,12 @@ def run_non_steady_state_solver_coupled(
                     )
 
             # Steady State Check
-            if rms_change < mp.dt_tolerance:
-                print(
-                    f"Steady State Met: rms_change {rms_change:.2e} < tolerance {mp.dt_tolerance:.2e}"
-                )
-                status = "Steady State Converged"
-                break
+            # if rms_change < mp.dt_tolerance:
+            #     print(
+            #         f"Steady State Met: rms_change {rms_change:.2e} < tolerance {mp.dt_tolerance:.2e}"
+            #     )
+            #     status = "Steady State Converged"
+            #     break
 
     except KeyboardInterrupt:
         status = "Solver interrupted by user"

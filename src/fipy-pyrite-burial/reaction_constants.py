@@ -75,7 +75,7 @@ if __name__ == "__main__":
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
 
-    velde, k_values = get_reaction_constants(0.65, 7.5)
+    velde, k_values = get_reaction_constants(7.5)
     ureg = pint.UnitRegistry()
     for k, v in velde.items():
         n = Q_(f"{v[0]} {v[1]}").to(f"{v[2]}")
