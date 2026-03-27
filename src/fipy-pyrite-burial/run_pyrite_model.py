@@ -42,8 +42,9 @@ if __name__ == "__main__":
         "t_end": Q_("200 year").to("seconds").magnitude,
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
-        "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
+        "dt_max": Q_("1 month").to("seconds").magnitude,  # time step in years
         "process_monitor": "video",  # gui | video | none
+        "process_monitor": "none",  # gui | video | none
         "process_monitor": "gui",  # gui | video | none
         "plot_name": f"{experiment}",
         "isotopes": True,
@@ -63,12 +64,12 @@ if __name__ == "__main__":
         "state_data": state_in,  # read state data
         "solver": "non_steady",  # use non-steady solver, non_steady or steady
         # "solver_backend": "LinearLUSolver",  # see solver_calls for options
-        "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
         "solver_backend": "default",  # see solver_calls for options
+        "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
         "initial_spacing": 0.01,  # meters
         "reaction_zone_spacing": 0.001,  # meters
         "max_spacing": 0.1,  # meters, None = no cap
-        "reaction_zone": (1e-2, 1),  # in meters
+        "reaction_zone": (0.05, 0.8),  # in meters
     }
 
     # add reactions as needed
@@ -79,8 +80,8 @@ if __name__ == "__main__":
         rn.elemental_sulfur_oxidation,
         rn.sulfide_mediated_iron_reduction_1,
         rn.fe2_oxidation,
-        rn.fes_precipitation,
-        rn.fes_dissolution,
+        # rn.fes_precipitation,
+        # rn.fes_dissolution,
         # rn.fes_oxidation,
     ]
 

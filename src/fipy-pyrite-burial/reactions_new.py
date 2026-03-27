@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import numpy as np
-
+# import numpy as np
+from fipy.tools import numerix as np
 from fipy.variables.cellVariable import CellVariable
 
 from diff_lib import (
@@ -85,7 +85,8 @@ def diagenetic_reactions(mp, c, k, f):
 
     # Accumulators (The State)
     # LHS: Diagonal (Self) Coefficients (Implicit Sinks)
-    LHS = {s: np.zeros_like(c.so4.value) for s in species_list}
+    # LHS = {s: np.zeros_like(c.so4.value) for s in species_list}
+    LHS = {s: np.zeros_like(c.so4) for s in species_list}
 
     # CROSS: Off-Diagonal / Coupled Terms
     CROSS = {s: [] for s in species_list}
@@ -460,10 +461,12 @@ def sulfide_mediated_iron_reduction_1(c, k, lim, LHS, RHS, RATES, CROSS, mp):
       - exact stoichiometry between all species at any dt
       - fe3_implicit limiter in k_eff preserves diagonal dominance
     """
-    import numpy as np
+    #    import numpy as np
 
-    fe3_val = c.fe3.value
-    ts2_val = c.ts2.value
+    # fe3_val = c.fe3.value
+    # ts2_val = c.ts2.value
+    fe3_val = c.fe3
+    ts2_val = c.ts2
 
     # ------------------------------------------------------------------
     # 1. Rate coefficient in L_pw basis (ts2 is liquid master)
@@ -529,7 +532,8 @@ def sulfide_mediated_iron_reduction_1(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 6. Isotopes — ts2_32 cross-coupled to ts2_new
     # ------------------------------------------------------------------
     if mp.isotopes:
-        ts2_32_val = c.ts2_32.value
+        # ts2_32_val = c.ts2_32.value
+        ts2_32_val = c.ts2_32
         f32_ts2 = ts2_32_val / (ts2_val + 1e-30)
 
         add_implicit_sink(
@@ -921,11 +925,13 @@ def fes_precipitation_clip(c, k, mp, dt, RATES):
     Instantaneous equilibrium 'Clip' for FeS precipitation.
     Includes Solid-Phase Buffering!
     """
-    import numpy as np
+    #     import numpy as np
 
     # 1. Get concentrations
     fe_pw = c.fe2_total.value * mp.f_diss
     ts2_pw = c.ts2.value
+    fe_pw = c.fe2_total * mp.f_diss
+    ts2_pw = c.ts2
 
     # 2. Define Effective Ksp (CRITICAL FIX: Include hs_frac!)
     # True Equilibrium: [Fe_pw] * [HS] = K_sp * [H+]
@@ -1019,10 +1025,14 @@ def fes_precipitation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # ------------------------------------------------------------------
     # 1. Current state
     # ------------------------------------------------------------------
-    fe2_pw_val = c.fe2_total.value * mp.f_diss + 1e-20
-    ts2_val = c.ts2.value
+    # fe2_pw_val = c.fe2_total.value * mp.f_diss + 1e-20
+    # ts2_val = c.ts2.value
+    # hs_val = ts2_val * mp.hs_frac
+    # fes_val = c.fes.value
+    fe2_pw_val = c.fe2_total * mp.f_diss + 1e-20
+    ts2_val = c.ts2
     hs_val = ts2_val * mp.hs_frac
-    fes_val = c.fes.value
+    fes_val = c.fes
 
     # ------------------------------------------------------------------
     # 2. Quadratic bound
@@ -1073,7 +1083,8 @@ def fes_precipitation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     #   Δfe2 = Δts2 (both deplete by same amount)
     # ------------------------------------------------------------------
     CROSS["fe2_total"].append(("ts2", -k_rxn))
-    RATES["fe2_total"] -= getattr(precip_rate, "value", precip_rate)
+    # RATES["fe2_total"] -= getattr(precip_rate, "value", precip_rate)
+    RATES["fe2_total"] -= precip_rate
 
     add_explicit_source(
         RHS, RATES, "fe2_total", k_rxn * ts2_target, update_rates=False, ctype="liquid"
@@ -1107,7 +1118,8 @@ def fes_precipitation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 6. Isotopes (32S)
     # ------------------------------------------------------------------
     if mp.isotopes:
-        ts2_32_val = c.ts2_32.value
+        # ts2_32_val = c.ts2_32.value
+        ts2_32_val = c.ts2_32
         f32_ts2 = ts2_32_val / (ts2_val + 1e-30)
 
         ts2_32_target = ts2_target * f32_ts2
@@ -1159,10 +1171,15 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # ------------------------------------------------------------------
     # 1. Current state
     # ------------------------------------------------------------------
-    fe2_pw_val = c.fe2_total.value * mp.f_diss + 1e-20
-    ts2_val = c.ts2.value
+    # fe2_pw_val = c.fe2_total.value * mp.f_diss + 1e-20
+    # ts2_val = c.ts2.value
+    # hs_val = ts2_val * mp.hs_frac
+    # fes_val = c.fes.value
+    # fes_limiter = fes_val / (fes_val + 1e-4)
+    fe2_pw_val = c.fe2_total * mp.f_diss + 1e-20
+    ts2_val = c.ts2
     hs_val = ts2_val * mp.hs_frac
-    fes_val = c.fes.value
+    fes_val = c.fes
     fes_limiter = fes_val / (fes_val + 1e-4)
 
     # ------------------------------------------------------------------
@@ -1202,7 +1219,7 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     k_d_equil = Y_max * phi / (fes_val + 1e-30) / (mp.current_dt + 1e-30)
 
     # Apply both caps
-    k_d = np.minimum(k_d_raw, np.minimum(k_d_reservoir, k_d_equil))
+    k_d = np.minimum(k_d_raw.value, np.minimum(k_d_reservoir, k_d_equil.value))
 
     # ------------------------------------------------------------------
     # 4. Reporting
@@ -1249,7 +1266,8 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 6. Isotopes (32S)
     # ------------------------------------------------------------------
     if mp.isotopes:
-        fes_32_val = c.fes_32.value
+        # fes_32_val = c.fes_32.value
+        fes_32_val = c.fes_32
         f32_fes = fes_32_val / (fes_val + 1e-30)
 
         add_implicit_sink(

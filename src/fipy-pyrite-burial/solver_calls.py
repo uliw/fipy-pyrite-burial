@@ -4,7 +4,9 @@ from __future__ import annotations
 import time
 import traceback
 import math
-import numpy as np
+
+# import numpy as np
+from fipy.tools import numerix as np
 from functools import reduce
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
@@ -249,7 +251,8 @@ def _assemble_coupled_equation(
     Calculate reaction terms and assemble the full coupled equation system.
     """
     # 1. Handle Instantaneous Equilibrium
-    RATES_eq = {s: np.zeros_like(c.so4.value) for s in species_list_partial}
+    # RATES_eq = {s: np.zeros_like(c.so4.value) for s in species_list_partial}
+    RATES_eq = {s: np.zeros_like(c.so4) for s in species_list_partial}
     _, RATES_eq = equilibrium_reactions(mp, c, k, None, RATES_eq, current_dt)
 
     # 2. Get Kinetic Reaction Terms
@@ -329,7 +332,7 @@ def run_non_steady_state_solver_coupled(
     2. Runs a time loop where reaction terms are updated and solved.
     3. Adapts the time step using a PID-controlled logic.
     """
-    import numpy as np
+    #     import numpy as np
     from diff_lib import get_total_delta
 
     start_wall = time.time()
@@ -446,7 +449,7 @@ def run_non_steady_state_solver_coupled(
                 phi = mp.phi
                 dz = np.diff(z)
                 fe_total_bulk = phi * c.fe2_total + (1 - phi) * (c.fe3 + c.fes + c.fes2)
-                m_fe = np.sum(dz * fe_total_bulk[:-1].value)
+                m_fe = np.sum(dz * fe_total_bulk[:-1]).value
                 print(
                     f"Step {step:4d} | {time_str} | "
                     f"dt: {get_time_units(current_dt):.2f~P} | RMS Chg: {rms_change:.2e} | "

@@ -27,7 +27,8 @@ These helpers are primarily intended for modelling isotope diffusion and fractio
 processes in geological simulations.
 """
 
-import numpy as np
+# import numpy as np
+from fipy.tools import numerix as np
 from typing import Union
 from concurrent.futures import ThreadPoolExecutor
 
@@ -97,7 +98,7 @@ def get_delta(c, li, r):
     :return : delta
 
     """
-    import numpy
+    #    import numpy
 
     with np.errstate(divide="ignore", invalid="ignore"):
         # 1. Numerical Safeguards
@@ -152,7 +153,7 @@ def get_total_s_export(df, VCDT=0.044162589):
     """Calculate the total sulfur and delta34S at the bottom of the column.
     Uses the logic as defined in run_fipy.py.
     """
-    import numpy as np
+    #    import numpy as np
 
     phi = df.phi.iloc[-1]
     s = phi * (df.c_so4.iloc[-1] + df.c_h2s.iloc[-1]) + (1 - phi) * (
@@ -333,7 +334,8 @@ def make_grid(L, initial_spacing, max_spacing, r=1.05):
             z_centers: A numpy array of cell center coordinates.
     """
     from fipy import Grid1D
-    import numpy as np
+
+    #     import numpy as np
 
     if initial_spacing >= max_spacing:
         initial_spacing = max_spacing
@@ -934,7 +936,9 @@ def make_grid2(
             z_centers: A numpy array of cell center coordinates.
     """
     from fipy import Grid1D
-    import numpy as np
+
+    # import numpy as np
+    from fipy.tools import numerix as np
 
     rz_start, rz_end = reaction_zone
     dx_list = []
@@ -1023,7 +1027,8 @@ def add_implicit_sink(
     ``ctype`` is retained for documentation (indicates rate_phase_2_species_phase).
     """
     LHS[species] = LHS[species] - coeff
-    RATES[species] -= getattr(rate, "value", rate)
+    # RATES[species] -= getattr(rate, "value", rate)
+    RATES[species] -= rate
 
 
 def add_explicit_source(
@@ -1044,7 +1049,7 @@ def add_explicit_source(
     RHS[species] = RHS[species] + rate
     if update_rates:
         RATES[species] += getattr(rate, "value", rate)
-
+        RATES[species] += rate
 
 
 def add_implicit_coupling(
@@ -1069,9 +1074,10 @@ def add_implicit_coupling(
     """
     CROSS[target_species].append((source_species, coeff))
     # Note: Rates are accumulating scalar values for reporting, usually calculated explicitly before calling
-    RATES[target_species] += getattr(rate, "value", rate)
+    # RATES[target_species] += getattr(rate, "value", rate)
+    RATES[target_species] += rate
 
-    
+
 def add_implicit_coupling_new(
     ctype,
     CROSS,
@@ -1097,10 +1103,12 @@ def add_implicit_coupling_new(
     cross_coeff = coeff * stoich_ratio
     CROSS[target_species].append((source_species, cross_coeff))
 
-    rate_val = getattr(rate, "value", rate)
+    # rate_val = getattr(rate, "value", rate)
 
     if add_lhs_sink:
         LHS[source_species] = LHS[source_species] - coeff
-        RATES[source_species] -= rate_val
+        # RATES[source_species] -= rate_val
+        RATES[source_species] -= rate
 
-    RATES[target_species] += rate_val * stoich_ratio
+    # RATES[target_species] += rate_val * stoich_ratio
+    RATES[target_species] += rate
