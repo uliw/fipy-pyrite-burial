@@ -39,16 +39,16 @@ if __name__ == "__main__":
     p_dict = {
         "max_steps": 20000,  # max number of iterations
         "max_depth": 2.0,  # meters
-        "t_end": Q_("200 year").to("seconds").magnitude,
+        "t_end": Q_("5000 year").to("seconds").magnitude,
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 month").to("seconds").magnitude,  # time step in years
-        "process_monitor": "video",  # gui | video | none
         "process_monitor": "none",  # gui | video | none
         "process_monitor": "gui",  # gui | video | none
+        "process_monitor": "video",  # gui | video | none
         "plot_name": f"{experiment}",
         "isotopes": True,
-        "report_step": 1,  # how often to update plot
+        "report_step": 12,  # how often to update plot
         "w": Q_("0.2 cm/yr").to("m/s").m,  # sedimentation rate in m/s
         "bc_o2": 2.0,  # mmmol/l
         "bc_fe3": Q_("12 umol/(cm^2 * year)")
@@ -80,9 +80,11 @@ if __name__ == "__main__":
         rn.elemental_sulfur_oxidation,
         rn.sulfide_mediated_iron_reduction_1,
         rn.fe2_oxidation,
+        rn.fes_precipitation_terminal,
         # rn.fes_precipitation,
-        # rn.fes_dissolution,
-        # rn.fes_oxidation,
+        rn.fes_oxidation,
+        rn.pyrite_formation_s0,
+        rn.pyrite_formation_fes_ts2,
     ]
 
     p_dict["instantenous_reactions"] = [
