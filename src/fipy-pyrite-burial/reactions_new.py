@@ -463,8 +463,6 @@ def sulfide_mediated_iron_reduction_1(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     #    import numpy as np
 
-    # fe3_val = c.fe3.value
-    # ts2_val = c.ts2.value
     fe3_val = c.fe3
     ts2_val = c.ts2
 
@@ -476,7 +474,7 @@ def sulfide_mediated_iron_reduction_1(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         k.fe3_hs * mp.hs_frac * lim["inhib_o2"] * lim["fe3_implicit"]
     )  # suppresses coeff as fe3 → 0
 
-    coeff_ts2 = 0.5 * k_eff * fe3_val  # [1/s, L_pw] — ts2 master coeff
+    coeff_ts2 = 0.9 * k_eff * fe3_val  # [1/s, L_pw] — ts2 master coeff
 
     # ------------------------------------------------------------------
     # 2. ts2 self-implicit sink (master)
@@ -1159,6 +1157,68 @@ def fes_precipitation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             ctype="solid",
         )
 
+
+def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """
+    FeS precipitation as terminal solid phase. No dissolution.
+    Fe2 + HS- -> FeS
+
+    All bulk species and fes_32 driven by fe2_new.
+    ts2_32 has its own self-implicit sink with the same coefficient
+    as bulk ts2, preserving the isotope ratio during depletion.
+    """
+    fe2_pw_val = c.fe2_total * mp.f_diss + 1e-20
+    hs_val = c.ts2 * mp.hs_frac
+    fes_coeff = k.fes_ts2 * hs_val
+    hs_coeff = k.fes_ts2 * fe2_pw_val
+
+    # Fe2 sink + FeS source: CROSS to fe2_new
+    add_implicit_coupling_new(
+        "liquid_2_solid",
+        CROSS,
+        RATES,
+        LHS,
+        target_species="fes",
+        source_species="fe2_total",
+        coeff=fes_coeff,
+        rate=fes_coeff * fe2_pw_val,
+        mp=mp,
+        c=c,
+        add_lhs_sink=True,
+        stoich_ratio=1.0,
+    )
+
+    # TS2 sink: self-implicit
+    add_implicit_sink(LHS, RATES, "ts2", hs_coeff, hs_coeff * hs_val, ctype="liquid")
+
+    if mp.isotopes:
+        f32_ts2 = c.ts2_32 / (c.ts2 + 1e-30)
+
+        # fes_32: CROSS to fe2_new, scaled by porewater isotope ratio
+        # Driven by same fe2_new as bulk fes → fes_32/fes = f32_ts2
+        add_implicit_coupling_new(
+            "liquid_2_solid",
+            CROSS,
+            RATES,
+            LHS,
+            target_species="fes_32",
+            source_species="fe2_total",
+            coeff=fes_coeff * f32_ts2,
+            rate=fes_coeff * fe2_pw_val * f32_ts2,
+            mp=mp,
+            c=c,
+            add_lhs_sink=False,  # fe2 sink already registered above
+        )
+
+        # ts2_32: self-implicit sink, same coeff as bulk ts2
+        # ts2_32/ts2 ratio preserved because same coefficient
+        add_implicit_sink(
+            LHS, RATES, "ts2_32",
+            hs_coeff,
+            hs_coeff * c.ts2_32,
+            ctype="liquid",
+        )
+        
 
 def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
