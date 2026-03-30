@@ -1218,7 +1218,6 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             hs_coeff * c.ts2_32,
             ctype="liquid",
         )
-        
 
 def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
@@ -1347,4 +1346,113 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             c=c,
             add_lhs_sink=False,
             stoich_ratio=1.0,
+        )
+
+def fes_dissolution_2(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """
+    FeS dissolution — equilibrium-capped, hard regime gate.
+
+    All rates in natural model units (mmol/L_pw or mmol/L_solid).
+    Porosity conversions are handled transparently by helpers via ctype.
+
+    Hard cutoff at omega < omega_crit prevents any overlap with the
+    precipitation function.
+    """
+    # ------------------------------------------------------------------
+    # 1. Current state
+    # ------------------------------------------------------------------
+    fe2_pw_val  = c.fe2_total * mp.f_diss + 1e-20   # mmol/L_pw
+    ts2_val     = c.ts2                               # mmol/L_pw
+    hs_val      = ts2_val * mp.hs_frac                # mmol/L_pw
+    fes_val     = c.fes                               # mmol/L_solid
+    fes_limiter = fes_val / (fes_val + 1e-4)
+
+    # ------------------------------------------------------------------
+    # 2. Regime gate — hard cutoff, no overlap with precipitation
+    # ------------------------------------------------------------------
+    omega_den  = k.hplus * k.fes_sp + 1e-30
+    omega      = (fe2_pw_val * hs_val) / omega_den
+    omega_crit = 0.95
+    is_diss    = np.where(omega < omega_crit, 1.0, 0.0)
+
+    # ------------------------------------------------------------------
+    # 3. Dissolution coefficient — double cap
+    # ------------------------------------------------------------------
+    k_d_raw = k.fes_isd * fes_limiter * is_diss      # [1/s, L_solid basis]
+
+    # Cap 1: reservoir — dissolve at most f_max of FeS per timestep
+    f_max         = 0.5
+    # quick and dirty to get cell variable
+    k_d_reservoir = k_d_raw * 0 + f_max / (mp.current_dt + 1e-30)
+
+    # Cap 2: equilibrium — products cannot push omega above omega_crit.
+    #   Solve for Y [mmol/L_pw]: (fe2_pw + Y)(hs + Y*hs_frac) = target_product
+    #   Y*hs_frac*Y + (fe2_pw*hs_frac + hs)*Y + (fe2_pw*hs - target) = 0
+    target_product = omega_crit * omega_den
+    deficit        = np.maximum(target_product - fe2_pw_val * hs_val, 0.0)
+    B              = fe2_pw_val * mp.hs_frac + hs_val
+    discriminant   = B**2 + 4.0 * mp.hs_frac * deficit
+    Y_max          = np.maximum(
+                         (-B + np.sqrt(discriminant + 1e-30)) / (2.0 * mp.hs_frac + 1e-30),
+                         0.0)
+
+    # Y_max is in mmol/L_pw; convert to mmol/L_solid via fac_s = (1-phi)/phi,
+    # then divide by fes to get a [1/s] coefficient.
+    # fac_s converts: mmol/L_pw * fac_s = mmol/L_solid
+    k_d_equil = Y_max * mp.fac_s / (fes_val + 1e-30) / (mp.current_dt + 1e-30)
+
+    # Apply both caps
+    k_d = np.minimum(k_d_raw, np.minimum(k_d_reservoir, k_d_equil))
+
+    # ------------------------------------------------------------------
+    # 4. Dissolution rate [mmol/L_solid/s]
+    # ------------------------------------------------------------------
+    diss_rate_solid = k_d * fes_val
+
+    # print(f"f max = {np.max(diss_rate_solid.value):.2e}, f min = {np.min(diss_rate_solid.value):.2e}")
+
+    # ------------------------------------------------------------------
+    # 5a. fes sink + ts2 source
+    # ------------------------------------------------------------------
+    add_implicit_coupling_new(
+        "solid_2_liquid",
+        CROSS, RATES, LHS,
+        target_species="ts2",
+        source_species="fes",
+        coeff=k_d,
+        rate=diss_rate_solid,
+        mp=mp, c=c,
+        add_lhs_sink=True,
+    )
+
+    # ------------------------------------------------------------------
+    # 5b. fe2_total source (solid_2_liquid; fe2_total is a diffusing liquid)
+    # ------------------------------------------------------------------
+    add_implicit_coupling_new(
+        "solid_2_liquid",
+        CROSS, RATES, LHS,
+        target_species="fe2_total",
+        source_species="fes",
+        coeff=k_d,
+        rate=diss_rate_solid,
+        mp=mp, c=c,
+        add_lhs_sink=False,
+    )
+
+    # ------------------------------------------------------------------
+    # 6. Isotopes (32S) — no fractionation, k_d identical to bulk
+    # ------------------------------------------------------------------
+    if mp.isotopes:
+        fes_32_val   = c.fes_32
+        diss_32_solid = k_d * fes_32_val
+
+        add_implicit_coupling_new(
+            "solid_2_liquid",
+            CROSS, RATES, LHS,
+            target_species="ts2_32",
+            source_species="fes_32",
+            coeff=k_d,
+            rate=diss_32_solid,
+            mp=mp, c=c,
+            add_lhs_sink=True,
         )

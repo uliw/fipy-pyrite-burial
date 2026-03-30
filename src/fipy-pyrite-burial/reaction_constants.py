@@ -80,3 +80,5 @@ if __name__ == "__main__":
     for k, v in velde.items():
         n = Q_(f"{v[0]} {v[1]}").to(f"{v[2]}")
         print(f"{k} = {n.magnitude:.2e} [{n.units:~P}]")
+
+    print(f"k.fes_sp * k.hplus: {k_values['fes_sp'] * k_values['hplus']:.2e}")

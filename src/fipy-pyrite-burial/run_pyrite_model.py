@@ -37,18 +37,18 @@ if __name__ == "__main__":
     # state_out = None
 
     p_dict = {
-        "max_steps": 20000,  # max number of iterations
+        "max_steps": 80000,  # max number of iterations
         "max_depth": 2.0,  # meters
-        "t_end": Q_("5000 year").to("seconds").magnitude,
+        "t_end": Q_("10 kyr").to("seconds").magnitude,
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 month").to("seconds").magnitude,  # time step in years
-        "process_monitor": "none",  # gui | video | none
-        "process_monitor": "gui",  # gui | video | none
         "process_monitor": "video",  # gui | video | none
+        "process_monitor": "gui",  # gui | video | none
+        "process_monitor": "none",  # gui | video | none
         "plot_name": f"{experiment}",
         "isotopes": True,
-        "report_step": 12,  # how often to update plot
+        "report_step": 2,  # how often to update plot
         "w": Q_("0.2 cm/yr").to("m/s").m,  # sedimentation rate in m/s
         "bc_o2": 2.0,  # mmmol/l
         "bc_fe3": Q_("12 umol/(cm^2 * year)")
@@ -64,8 +64,8 @@ if __name__ == "__main__":
         "state_data": state_in,  # read state data
         "solver": "non_steady",  # use non-steady solver, non_steady or steady
         # "solver_backend": "LinearLUSolver",  # see solver_calls for options
-        "solver_backend": "default",  # see solver_calls for options
         "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
+        "solver_backend": "default",  # see solver_calls for options
         "initial_spacing": 0.01,  # meters
         "reaction_zone_spacing": 0.001,  # meters
         "max_spacing": 0.1,  # meters, None = no cap
@@ -82,9 +82,11 @@ if __name__ == "__main__":
         rn.fe2_oxidation,
         rn.fes_precipitation_terminal,
         # rn.fes_precipitation,
+        rn.fes_dissolution_2,
         rn.fes_oxidation,
         rn.pyrite_formation_s0,
         rn.pyrite_formation_fes_ts2,
+        rn.pyrite_oxidation,
     ]
 
     p_dict["instantenous_reactions"] = [
