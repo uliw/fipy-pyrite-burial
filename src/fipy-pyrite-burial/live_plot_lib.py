@@ -260,7 +260,8 @@ def capture_state(
 
     # Diffusion coefficients
     for d_name, d_val in D_mol.items():
-        data[d_name] = snap(d_val)
+        key = f"D_{d_name}" if d_name in species_list else d_name
+        data[key] = snap(d_val)
 
     # Isotopes
     isotope_map = {

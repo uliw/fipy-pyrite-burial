@@ -42,10 +42,10 @@ if __name__ == "__main__":
         "t_end": Q_("10 kyr").to("seconds").magnitude,
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
-        "dt_max": Q_("1 month").to("seconds").magnitude,  # time step in years
+        "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
         "process_monitor": "video",  # gui | video | none
-        "process_monitor": "gui",  # gui | video | none
         "process_monitor": "none",  # gui | video | none
+        "process_monitor": "gui",  # gui | video | none
         "plot_name": f"{experiment}",
         "isotopes": True,
         "report_step": 2,  # how often to update plot
@@ -78,7 +78,7 @@ if __name__ == "__main__":
         rn.sulfate_reduction,
         rn.hs_oxidation,
         rn.elemental_sulfur_oxidation,
-        rn.sulfide_mediated_iron_reduction_1,
+        rn.sulfide_mediated_iron_reduction_3,
         rn.fe2_oxidation,
         rn.fes_precipitation_terminal,
         # rn.fes_precipitation,

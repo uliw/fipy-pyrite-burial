@@ -397,7 +397,8 @@ def _save_data_to_disk(mp, c, k, species_list, z, D_mol, f_final):
 
     # 2. Save all items in D_mol (diffusion coefficients)
     for d_name, d_val in D_mol.items():
-        data[d_name] = get_v(d_val)
+        key = f"D_{d_name}" if d_name in species_list else d_name
+        data[key] = get_v(d_val)
 
     # 3. Calculate delta values for specific sulfur species
     # We prioritize common names (so4, h2s, fes, s0, fes2)
