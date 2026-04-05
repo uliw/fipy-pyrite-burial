@@ -35,6 +35,7 @@ class LivePlotter:
         self.output_path = output_path
         self.video_path = video_path
         self.fps = fps
+        self.codec = "libvpx-vp9",
         self.gui = gui
         # Use 'spawn' to avoid inheriting PETSc/MPI signal handlers and state
         self._ctx = mp.get_context("spawn")

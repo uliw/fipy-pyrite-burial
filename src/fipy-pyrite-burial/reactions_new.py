@@ -464,8 +464,8 @@ def sulfide_mediated_iron_reduction_1(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     #    import numpy as np
 
-    fe3_val = c.fe3
-    ts2_val = c.ts2
+    fe3_val = np.maximum(c.fe3, 0.0)
+    ts2_val = np.maximum(c.ts2, 0.0)
 
     # ------------------------------------------------------------------
     # 1. Rate coefficient in L_pw basis (ts2 is liquid master)
@@ -567,9 +567,9 @@ def sulfide_mediated_iron_reduction_2(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # ------------------------------------------------------------------
     # 1. Current state [model units]
     # ------------------------------------------------------------------
-    ts2_val = c.ts2  # mmol/L_pw
+    ts2_val = np.maximum(c.ts2, 0.0)  # mmol/L_pw
     hs_val = ts2_val * mp.hs_frac  # mmol/L_pw
-    fe3_val = c.fe3  # mmol/L_solid
+    fe3_val = np.maximum(c.fe3, 0.0)  # mmol/L_solid
 
     # ------------------------------------------------------------------
     # 2. Base rate coefficient [1/s, L_solid basis]
@@ -648,41 +648,51 @@ def sulfide_mediated_iron_reduction_3(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     0.5 HS- + Fe3+ -> 0.5 S0 + Fe2+
 
-    Fe3 is the driver species. Fe2 production is exactly stoichiometric
-    with Fe3 consumption for any dt.
-
-    ts2 uses a separate coefficient (fe3_val frozen) — hs_frac cancels
-    cleanly in the ts2 rate equation (see derivation below).
-
-    Rate = k * [HS-] * [Fe3]  with [HS-] = ts2 * hs_frac:
-      d[Fe3]/dt = -k * hs_frac * ts2 * fe3      → coeff_fe3 = k * hs_val  [1/s, L_solid]
-      d[Fe2]/dt = +k * hs_frac * ts2 * fe3      → stoich_ratio=+1 off fe3_new
-      d[ts2]/dt = -0.5 * k * ts2 * fe3          → coeff_ts2 = 0.5*k*fe3_val [1/s, L_pw]
-                  (hs_frac cancels: d[ts2] = d[HS-]/hs_frac)
-      d[S0]/dt  = +0.5 * k * hs_frac * ts2 * fe3 → stoich_ratio=+1 off ts2_new
+    The reaction is doubly-capped so that at most 70% of either fe3 or ts2
+    is consumed in a single timestep, guaranteeing perfect stoichiometry and
+    unconditional positivity. Coupling uses a single master implicit variable
+    (fe3) to ensure exact mass balance across all species.
     """
     # ------------------------------------------------------------------
-    # 1. Current state
+    # 1. Current state (use .value to avoid large expression trees)
     # ------------------------------------------------------------------
-    ts2_val = c.ts2  # mmol/L_pw
-    hs_val = ts2_val * mp.hs_frac  # mmol/L_pw
-    fe3_val = c.fe3  # mmol/L_solid
-
-    # ------------------------------------------------------------------
-    # 2. Rate coefficients
-    # ------------------------------------------------------------------
-    k_base = k.fe3_hs * lim["inhib_o2"] * lim["fe3_implicit"]
-
-    cap = c.ts2 * 0.0 + 0.7 / (mp.current_dt + 1e-30)
-
-    # fe3 driver coefficient [1/s, L_solid] — bimolecular hs_val frozen
-    coeff_fe3 = np.minimum(k_base * hs_val, cap)
-
-    # ts2 sink coefficient [1/s, L_pw] — fe3_val frozen, hs_frac cancels
-    coeff_ts2 = np.minimum(0.5 * k_base * fe3_val, cap)
+    ts2_val = np.maximum(getattr(c.ts2, "value", c.ts2), 0.0)
+    hs_frac_val = getattr(mp.hs_frac, "value", mp.hs_frac)
+    hs_val = ts2_val * hs_frac_val
+    fe3_val = np.maximum(getattr(c.fe3, "value", c.fe3), 0.0)
 
     # ------------------------------------------------------------------
-    # 3. Fe3 sink / Fe2 source — driven by fe3_new, exactly 1:1
+    # 2. Rate Calculation and Multi-Reactant Capping
+    # ------------------------------------------------------------------
+    k_base_val = (
+        getattr(k.fe3_hs, "value", k.fe3_hs)
+        * getattr(lim["inhib_o2"], "value", lim["inhib_o2"])
+        * getattr(lim["fe3_implicit"], "value", lim["fe3_implicit"])
+    )
+
+    # Uncapped reaction rate driven by fe3 consumption [mmol/L_solid/s]
+    rate_uncapped = k_base_val * hs_val * fe3_val
+
+    # Limit by fe3 depletion (at most 70% per timestep)
+    max_rate_fe3 = 0.7 * fe3_val / (mp.current_dt + 1e-30)
+
+    # Limit by ts2 depletion (0.5 mole ts2 consumed per 1 mole fe3)
+    # 0.5 * Rate * dt <= 0.7 * ts2 -> Rate <= 1.4 * ts2 / dt
+    max_rate_ts2 = 1.4 * ts2_val / (mp.current_dt + 1e-30)
+
+    # Actual capped rate 
+    rate_actual = np.minimum(rate_uncapped, np.minimum(max_rate_fe3, max_rate_ts2))
+
+    # Single master coefficient based on fe3 [1/s]
+    coeff_master = rate_actual / (fe3_val + 1e-30)
+
+    # ------------------------------------------------------------------
+    # 3. Fe3 sink (Master Variable) — EXACTLY 1:1
+    # ------------------------------------------------------------------
+    add_implicit_sink(LHS, RATES, "fe3", coeff_master, rate_actual, ctype="solid", mp=mp, c=c)
+
+    # ------------------------------------------------------------------
+    # 4. Fe2 source (Coupled to fe3_new) — EXACTLY 1:1
     # ------------------------------------------------------------------
     add_implicit_coupling_new(
         "solid_2_liquid",
@@ -691,53 +701,69 @@ def sulfide_mediated_iron_reduction_3(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         LHS,
         target_species="fe2_total",
         source_species="fe3",
-        coeff=coeff_fe3,
-        rate=coeff_fe3 * fe3_val,  # mmol/L_solid/s
+        coeff=coeff_master,
+        rate=rate_actual,
         mp=mp,
         c=c,
-        add_lhs_sink=True,
+        add_lhs_sink=False,
         stoich_ratio=1.0,
     )
 
     # ------------------------------------------------------------------
-    # 4. ts2 sink / s0 source — driven by ts2_new
+    # 5. ts2 sink (Coupled to fe3_new) — EXACTLY 0.5:1
+    # ------------------------------------------------------------------
+    # fe3 is the source_species in the CROSS coupling, meaning ts2 receives
+    # -0.5 * coeff_master * fe3_new on its RHS.
+    CROSS["ts2"].append(("fe3", -0.5 * coeff_master))
+    RATES["ts2"] -= 0.5 * rate_actual
+
+    # ------------------------------------------------------------------
+    # 6. s0 source (Coupled to fe3_new) — EXACTLY 0.5:1
     # ------------------------------------------------------------------
     add_implicit_coupling_new(
-        "liquid_2_solid",
+        "solid_2_solid",
         CROSS,
         RATES,
         LHS,
         target_species="s0",
-        source_species="ts2",
-        coeff=coeff_ts2,
-        rate=coeff_ts2 * ts2_val,  # mmol/L_pw/s
+        source_species="fe3",
+        coeff=coeff_master * 0.5,
+        rate=0.5 * rate_actual,
         mp=mp,
         c=c,
-        add_lhs_sink=True,
+        add_lhs_sink=False,
         stoich_ratio=1.0,
     )
 
     # ------------------------------------------------------------------
-    # 5. Isotopes (32S)
+    # 7. Isotopes (32S)
     # ------------------------------------------------------------------
     if mp.isotopes:
-        ts2_32_val = c.ts2_32.value
+        ts2_32_val = getattr(c.ts2_32, "value", c.ts2_32)
+        f32 = ts2_32_val / (ts2_val + 1e-30)
 
+        rate_32 = 0.5 * rate_actual * f32
+        coeff_32 = 0.5 * coeff_master * f32
+
+        # ts2_32 sink
+        CROSS["ts2_32"].append(("fe3", -coeff_32))
+        RATES["ts2_32"] -= rate_32
+
+        # s0_32 source
         add_implicit_coupling_new(
-            "liquid_2_solid",
+            "solid_2_solid",
             CROSS,
             RATES,
             LHS,
             target_species="s0_32",
-            source_species="ts2_32",
-            coeff=coeff_ts2,
-            rate=coeff_ts2 * ts2_32_val,
+            source_species="fe3",
+            coeff=coeff_32,
+            rate=rate_32,
             mp=mp,
             c=c,
-            add_lhs_sink=True,
+            add_lhs_sink=False,
             stoich_ratio=1.0,
         )
-
 
 def sulfide_speciation_clip(c, k, mp, dt, RATES):
     """Update reporting species (h2s, hs) based on total sulfide (ts2) and pH."""
@@ -1083,11 +1109,11 @@ def pyrite_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 6. Isotopes — so4_32 coupled to fes2_32, stoich=1.0 (mol-S basis)
     # ------------------------------------------------------------------
     if mp.isotopes:
-        f32_fes2 = c.fes2_32 / (c.fes2 + 1e-30)  # 32S fraction in pyrite
-
-        # Implicit coeff for fes2_32 sink, scaled by isotope fraction
-        coeff_fes2_32 = coeff_fes2 * f32_fes2  # drives so4_32 production
-
+        # No fractionation during pyrite oxidation: consume fes2_32
+        # proportionally to its abundance.  Use the same coefficient as the
+        # bulk (coeff_fes2), so the implicit sink is coeff_fes2 * fes2_32
+        # (linear).  Multiplying by f32_fes2 first would make it quadratic
+        # in fes2_32 and corrupt the remaining δ³⁴S.
         add_implicit_coupling_new(
             "solid_2_liquid",
             CROSS,
@@ -1095,8 +1121,8 @@ def pyrite_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             LHS,
             target_species="so4_32",
             source_species="fes2_32",
-            coeff=coeff_fes2_32,
-            rate=rate_fes2 * f32_fes2,
+            coeff=coeff_fes2,              # same as bulk — keeps sink linear
+            rate=coeff_fes2 * c.fes2_32,  # explicit rate uses _32 variable
             mp=mp,
             c=c,
             stoich_ratio=1.0,  # fes2_32 in mol-S, not mol-FeS2

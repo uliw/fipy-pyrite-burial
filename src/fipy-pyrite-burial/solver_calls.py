@@ -440,22 +440,25 @@ def run_non_steady_state_solver_coupled(
 
             # Reporting
             if step % mp.report_step == 0:  # Force reporting for debug
-                time_str = f" Time: {get_time_units(total_time):.2f~P}"
-                if mp.title is None:
-                    title_str = time_str
-                else:
-                    title_str = mp.title
-
                 phi = mp.phi
                 dz = np.diff(z)
                 fe_total_bulk = phi * c.fe2_total + (1 - phi) * (c.fe3 + c.fes + c.fes2)
                 m_fe = np.sum(dz * fe_total_bulk[:-1]).value
+                time_str = f" Time: {get_time_units(total_time):.0f~P}"
                 print(
                     f"Step {step:4d} | {time_str} | "
                     f"dt: {get_time_units(current_dt):.2f~P} | RMS Chg: {rms_change:.2e} | "
                     f"d34S = {get_total_delta(c, mp):.2f} "
                     f"Total Fe {m_fe:.2e}\n"
                 )
+                if mp.title is None:
+                    title_str = (
+                        time_str
+                        + r", $\delta^{34}$S = "
+                        + f"{get_total_delta(c, mp):.1f} [mUr]"
+                    )
+                else:
+                    title_str = mp.title
 
                 if plot_queue is not None:
                     write_to_queue_async(
@@ -484,11 +487,18 @@ def run_non_steady_state_solver_coupled(
                     )
 
             # Steady State Check
+            # if c.fe3[-10] < 70:
             if rms_change < mp.dt_tolerance:
                 print(
                     f"Steady State Met: rms_change {rms_change:.2e} < tolerance {mp.dt_tolerance:.2e}"
                 )
                 status = "Steady State Converged"
+                fe3_lost = c.fe3.value[0] - c.fe3.value[-1]
+                fe2_gained = c.fe2_total.value[-1] - c.fe2_total.value[0]
+                dt = get_time_units(mp.dt_max)
+                print(
+                    f"dt = {dt:~P.2f}, fe3_lost = {fe3_lost:.2f}, fe2_gained = {fe2_gained:.2f}"
+                )
                 break
 
     except KeyboardInterrupt:

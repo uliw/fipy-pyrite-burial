@@ -37,27 +37,27 @@ if __name__ == "__main__":
     # state_out = None
 
     p_dict = {
-        "max_steps": 80000,  # max number of iterations
-        "max_depth": 2.0,  # meters
+        "max_steps": 14000,  # max number of iterations
+        "max_depth": 4.0,  # meters
         "t_end": Q_("10 kyr").to("seconds").magnitude,
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
-        "process_monitor": "video",  # gui | video | none
         "process_monitor": "none",  # gui | video | none
         "process_monitor": "gui",  # gui | video | none
+        "process_monitor": "video",  # gui | video | none
         "plot_name": f"{experiment}",
         "isotopes": True,
         "report_step": 2,  # how often to update plot
         "w": Q_("0.2 cm/yr").to("m/s").m,  # sedimentation rate in m/s
-        "bc_o2": 2.0,  # mmmol/l
+        "bc_o2": 6,  # mmmol/l
         "bc_fe3": Q_("12 umol/(cm^2 * year)")
         .to("mol/(m^2 * second)")
         .magnitude,  # mol C / (m²·s)
         "bc_om": Q_("548 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
         "phi": 0.8,
-        "DB_depth": 0,
-        "DB0": 4e-12 * 0,
+        "DB_depth": 0.1,
+        "DB0": Q_("4 cm^2/year").to("m^2/second").magnitude,
         "tolerance": 1e-12,  # convergence criterion
         "dt_tolerance": 1e-12,  # steady state threshold (stop simulation)
         "dt_target_change": 10,  # target change per step (for dt adaptation)
