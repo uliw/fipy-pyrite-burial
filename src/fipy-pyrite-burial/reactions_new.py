@@ -374,278 +374,6 @@ def elemental_sulfur_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Fe3 iron reduction via HS-.
 
-     0.5 HS- + Fe3+ -> 0.5S0 + Fe2+
-
-    Notes:
-    - Halevy at al 2023 do not track Fe2+, explicitly, and postulate that
-      this reaction proceeds as 6/9 Fe3+ + HS- -> a/9 S0 + b/9 FeS + c/9 FeS2,
-      whereas here we try to model this explicitly.
-    - Here we use the half reaction 0.5 HS- + Fe3+ -> 0.5S0 + Fe2+
-      whereas Velde et al use 8 Fe3+ HS- -> 8 Fe2+ + SO4
-    - the model tracks Fe2+ total, which we treat as pseudo liquid
-    - [HS-] = Total S2- * mp.hs_frac
-    - fe3_limiter suppresses the coefficient when Fe3+ is depleted,
-      preventing amplification of numerical residuals by the large
-      ts2-dependent coefficient.
-    - Fe3 depletion limiter: caps the rate constant to ensure no more than 70%
-      of Fe3 is consumed per timestep (R * dt <= 0.7 * Fe3).
-    """
-    # Fe3 limiter: collapses the rate coefficient as fe3 → 0
-    # fe3_explicit = c.fe3 / (c.fe3 + 1e-3)
-    # fe3_implicit = 1.0 / (c.fe3 + 1e-3)
-
-    # 1. Base rate constant
-    k_eff = k.fe3_hs * mp.hs_frac * lim["inhib_o2"] * lim["fe3_implicit"]
-    hs_val = c.ts2 * mp.hs_frac
-
-    # 2. Add limiter for Fe3 depletion: R * dt <= 0.7 * Fe3
-    # R = k_eff * ts2 * fe3  =>  k_eff * ts2 * dt <= 0.7
-    k_limited = np.minimum(
-        k_eff, 0.7 / (hs_val * mp.current_dt + 1e-20)
-    )  #   * lim["inhib_o2"]
-
-    # 3. Fe3 Sink / Fe2 Source (CROSS to fe3_new)
-    # Rate = k * [HS-] * fe3_limiter * [Fe3]_new
-    coeff_coupling_fe2 = k_limited * c.ts2
-
-    add_implicit_coupling_new(
-        "solid_2_liquid",
-        CROSS,
-        RATES,
-        LHS,
-        "fe2_total",  # target (liquid)
-        "fe3",  # source (solid)
-        coeff_coupling_fe2,
-        coeff_coupling_fe2 * c.fe3,
-        mp,
-        c=c,
-    )
-
-    # 4. TS2 Sink / S0 Source (CROSS to ts2_new)
-    # Rate = 0.5 * k * [Fe3] * fe3_limiter * [HS-]_new
-    coeff_ts2 = 0.5 * k_limited * c.fe3
-
-    add_implicit_coupling_new(
-        "liquid_2_solid",
-        CROSS,
-        RATES,
-        LHS,
-        "s0",
-        "ts2",
-        coeff_ts2,
-        coeff_ts2 * c.ts2,
-        mp,
-        c=c,
-    )
-
-    if mp.isotopes:
-        add_implicit_coupling_new(
-            "liquid_2_solid",
-            CROSS,
-            RATES,
-            LHS,
-            "s0_32",
-            "ts2_32",
-            coeff_ts2,
-            coeff_ts2 * c.ts2_32,
-            mp,
-            c=c,
-        )
-
-
-def sulfide_mediated_iron_reduction_1(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """
-    0.5 HS- + Fe3+ -> 0.5 S0 + Fe2+
-
-    ts2 is the single master implicit variable.
-    fe3, fe2, and s0 all cross-coupled to ts2_new:
-      - exact stoichiometry between all species at any dt
-      - fe3_implicit limiter in k_eff preserves diagonal dominance
-    """
-    #    import numpy as np
-
-    fe3_val = np.maximum(c.fe3, 0.0)
-    ts2_val = np.maximum(c.ts2, 0.0)
-
-    # ------------------------------------------------------------------
-    # 1. Rate coefficient in L_pw basis (ts2 is liquid master)
-    #    k_eff already contains hs_frac and fe3_implicit limiter
-    # ------------------------------------------------------------------
-    k_eff = (
-        k.fe3_hs * mp.hs_frac * lim["inhib_o2"] * lim["fe3_implicit"]
-    )  # suppresses coeff as fe3 → 0
-
-    coeff_ts2 = 0.9 * k_eff * fe3_val  # [1/s, L_pw] — ts2 master coeff
-
-    # ------------------------------------------------------------------
-    # 2. ts2 self-implicit sink (master)
-    # ------------------------------------------------------------------
-    add_implicit_sink(LHS, RATES, "ts2", coeff_ts2, coeff_ts2 * ts2_val, ctype="liquid")
-
-    # ------------------------------------------------------------------
-    # 3. s0 source — cross-coupled to ts2_new (1:1, 0.5 absorbed in coeff)
-    # ------------------------------------------------------------------
-    add_implicit_coupling_new(
-        "liquid_2_solid",
-        CROSS,
-        RATES,
-        LHS,
-        target_species="s0",
-        source_species="ts2",
-        coeff=coeff_ts2,
-        rate=coeff_ts2 * ts2_val,
-        mp=mp,
-        c=c,
-        add_lhs_sink=False,
-        stoich_ratio=1.0,
-    )
-
-    # ------------------------------------------------------------------
-    # 4. fe3 sink — cross-coupled to ts2_new (2 fe3 per 1 ts2 consumed)
-    #    Negative off-diagonal: fe3 equation receives -2*coeff * ts2_new
-    #    Stable because fe3_implicit in k_eff → 0 as fe3 → 0,
-    #    bounding the off-diagonal magnitude automatically
-    # ------------------------------------------------------------------
-    CROSS["fe3"].append(("ts2", -2.0 * coeff_ts2))  # liquid→solid conversion
-    RATES["fe3"] -= 2.0 * coeff_ts2 * ts2_val  # reporting
-
-    # ------------------------------------------------------------------
-    # 5. fe2 source — cross-coupled to ts2_new (2 fe2 per 1 ts2 consumed)
-    # ------------------------------------------------------------------
-    add_implicit_coupling_new(
-        "liquid_2_liquid",
-        CROSS,
-        RATES,
-        LHS,
-        target_species="fe2_total",
-        source_species="ts2",
-        coeff=coeff_ts2,
-        rate=coeff_ts2 * ts2_val,
-        mp=mp,
-        c=c,
-        add_lhs_sink=False,
-        stoich_ratio=2.0,  # 2 Fe2+ per HS- consumed
-    )
-
-    # ------------------------------------------------------------------
-    # 6. Isotopes — ts2_32 cross-coupled to ts2_new
-    # ------------------------------------------------------------------
-    if mp.isotopes:
-        # ts2_32_val = c.ts2_32.value
-        ts2_32_val = c.ts2_32
-        f32_ts2 = ts2_32_val / (ts2_val + 1e-30)
-
-        add_implicit_sink(
-            LHS, RATES, "ts2_32", coeff_ts2, coeff_ts2 * ts2_32_val, ctype="liquid"
-        )
-
-        add_implicit_coupling_new(
-            "liquid_2_solid",
-            CROSS,
-            RATES,
-            LHS,
-            target_species="s0_32",
-            source_species="ts2_32",
-            coeff=coeff_ts2,
-            rate=coeff_ts2 * ts2_32_val,
-            mp=mp,
-            c=c,
-            add_lhs_sink=False,
-            stoich_ratio=1.0,
-        )
-
-
-def sulfide_mediated_iron_reduction_2(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """Fe3 iron reduction via HS-.
-
-    0.5 HS- + Fe3+ -> 0.5 S0 + Fe2+
-
-    All coefficients are capped directly on the matrix diagonal entry
-    (coeff * fe3_new), not on k_eff, so the 70% depletion limit is
-    guaranteed regardless of ts2 or hs_frac.
-    """
-    # ------------------------------------------------------------------
-    # 1. Current state [model units]
-    # ------------------------------------------------------------------
-    ts2_val = np.maximum(c.ts2, 0.0)  # mmol/L_pw
-    hs_val = ts2_val * mp.hs_frac  # mmol/L_pw
-    fe3_val = np.maximum(c.fe3, 0.0)  # mmol/L_solid
-
-    # ------------------------------------------------------------------
-    # 2. Base rate coefficient [1/s, L_solid basis]
-    #    lim["fe3_implicit"] = 1/(fe3 + 1e-3) for Michaelis-Menten style limiting
-    # ------------------------------------------------------------------
-    k_base = k.fe3_hs * lim["inhib_o2"] * lim["fe3_implicit"]
-
-    # ------------------------------------------------------------------
-    # 3. Coefficient on fe3_new [1/s] — capped directly so coeff*dt <= 0.7
-    #    This guarantees fe3 loses at most ~41% per timestep regardless of
-    #    ts2, hs_frac, or dt.
-    # ------------------------------------------------------------------
-    cap = c.fe3 * 0.0 + 0.7 / (mp.current_dt + 1e-30)
-
-    coeff_fe3 = np.minimum(k_base * hs_val, cap)  # [1/s]: k * [HS-], drives fe3_new
-
-    # ------------------------------------------------------------------
-    # 4. fe3 sink / fe2_total source  (stoich 1:1)
-    # ------------------------------------------------------------------
-    add_implicit_coupling_new(
-        "solid_2_liquid",
-        CROSS,
-        RATES,
-        LHS,
-        target_species="fe2_total",
-        source_species="fe3",
-        coeff=coeff_fe3,
-        rate=coeff_fe3 * fe3_val,  # mmol/L_solid/s
-        mp=mp,
-        c=c,
-        add_lhs_sink=True,
-    )
-
-    # ------------------------------------------------------------------
-    # 5. ts2 sink / s0 source  (stoich 0.5:1 — 0.5 HS- per Fe3+)
-    #    Coefficient on ts2_new uses fe3_val frozen at old timestep.
-    #    Cap ensures ts2 cannot be over-depleted either.
-    # ------------------------------------------------------------------
-    coeff_ts2 = np.minimum(k_base * fe3_val * 0.5, cap)  # [1/s, L_pw basis]
-
-    add_implicit_coupling_new(
-        "liquid_2_solid",
-        CROSS,
-        RATES,
-        LHS,
-        target_species="s0",
-        source_species="ts2",
-        coeff=coeff_ts2,
-        rate=coeff_ts2 * ts2_val,  # mmol/L_pw/s
-        mp=mp,
-        c=c,
-        add_lhs_sink=True,
-    )
-
-    # ------------------------------------------------------------------
-    # 6. Isotopes (32S)
-    # ------------------------------------------------------------------
-    if mp.isotopes:
-        add_implicit_coupling_new(
-            "liquid_2_solid",
-            CROSS,
-            RATES,
-            LHS,
-            target_species="s0_32",
-            source_species="ts2_32",
-            coeff=coeff_ts2,
-            rate=coeff_ts2 * c.ts2_32.value,
-            mp=mp,
-            c=c,
-            add_lhs_sink=True,
-        )
-
-
-def sulfide_mediated_iron_reduction_3(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """Fe3 iron reduction via HS-.
-
     0.5 HS- + Fe3+ -> 0.5 S0 + Fe2+
 
     The reaction is doubly-capped so that at most 70% of either fe3 or ts2
@@ -680,7 +408,7 @@ def sulfide_mediated_iron_reduction_3(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 0.5 * Rate * dt <= 0.7 * ts2 -> Rate <= 1.4 * ts2 / dt
     max_rate_ts2 = 1.4 * ts2_val / (mp.current_dt + 1e-30)
 
-    # Actual capped rate 
+    # Actual capped rate
     rate_actual = np.minimum(rate_uncapped, np.minimum(max_rate_fe3, max_rate_ts2))
 
     # Single master coefficient based on fe3 [1/s]
@@ -689,7 +417,9 @@ def sulfide_mediated_iron_reduction_3(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # ------------------------------------------------------------------
     # 3. Fe3 sink (Master Variable) — EXACTLY 1:1
     # ------------------------------------------------------------------
-    add_implicit_sink(LHS, RATES, "fe3", coeff_master, rate_actual, ctype="solid", mp=mp, c=c)
+    add_implicit_sink(
+        LHS, RATES, "fe3", coeff_master, rate_actual, ctype="solid", mp=mp, c=c
+    )
 
     # ------------------------------------------------------------------
     # 4. Fe2 source (Coupled to fe3_new) — EXACTLY 1:1
@@ -764,6 +494,7 @@ def sulfide_mediated_iron_reduction_3(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             add_lhs_sink=False,
             stoich_ratio=1.0,
         )
+
 
 def sulfide_speciation_clip(c, k, mp, dt, RATES):
     """Update reporting species (h2s, hs) based on total sulfide (ts2) and pH."""
@@ -1121,7 +852,7 @@ def pyrite_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             LHS,
             target_species="so4_32",
             source_species="fes2_32",
-            coeff=coeff_fes2,              # same as bulk — keeps sink linear
+            coeff=coeff_fes2,  # same as bulk — keeps sink linear
             rate=coeff_fes2 * c.fes2_32,  # explicit rate uses _32 variable
             mp=mp,
             c=c,
@@ -1434,136 +1165,6 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
 
 def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """
-    FeS dissolution — equilibrium-capped, hard regime gate.
-
-    Hard cutoff at omega < omega_crit prevents ANY overlap with
-    the precipitation function, eliminating the feedback loop where
-    dissolution CROSS draws from precipitation-boosted fes_new.
-    """
-    # ------------------------------------------------------------------
-    # 1. Current state
-    # ------------------------------------------------------------------
-    # fe2_pw_val = c.fe2_total.value * mp.f_diss + 1e-20
-    # ts2_val = c.ts2.value
-    # hs_val = ts2_val * mp.hs_frac
-    # fes_val = c.fes.value
-    # fes_limiter = fes_val / (fes_val + 1e-4)
-    fe2_pw_val = c.fe2_total * mp.f_diss + 1e-20
-    ts2_val = c.ts2
-    hs_val = ts2_val * mp.hs_frac
-    fes_val = c.fes
-    fes_limiter = fes_val / (fes_val + 1e-4)
-
-    # ------------------------------------------------------------------
-    # 2. Regime gate — HARD cutoff, no overlap with precipitation
-    #
-    #    omega_crit < 1.0 creates a dead zone where neither dissolution
-    #    nor precipitation is active.  Precipitation's smooth is_precip
-    #    is negligible below omega ≈ 0.98 (sharpness=100), so a cutoff
-    #    at 0.95 gives a clean gap.
-    # ------------------------------------------------------------------
-    omega_den = k.hplus * k.fes_sp + 1e-30
-    omega = (fe2_pw_val * hs_val) / omega_den
-    omega_crit = 0.95
-    is_diss = np.where(omega < omega_crit, 1.0, 0.0)
-
-    # ------------------------------------------------------------------
-    # 3. Dissolution coefficient — double cap
-    # ------------------------------------------------------------------
-    k_d_raw = k.fes_isd * fes_limiter * is_diss
-
-    # Cap 1: reservoir
-    f_max = 0.5
-    k_d_reservoir = f_max / (mp.current_dt + 1e-30)
-
-    # Cap 2: equilibrium — products cannot push Ω above omega_crit
-    #   (fe2 + Y)(hs + Y·hs_frac) = omega_crit · omega_den
-    #   This targets omega_crit, NOT omega=1, so dissolution stops
-    #   before reaching the precipitation zone.
-    target_product = omega_crit * omega_den
-    deficit = np.maximum(target_product - fe2_pw_val * hs_val, 0.0)
-    B = fe2_pw_val * mp.hs_frac + hs_val
-    discriminant = B**2 + 4.0 * mp.hs_frac * deficit
-    Y_max = (-B + np.sqrt(discriminant + 1e-30)) / (2.0 * mp.hs_frac + 1e-30)
-    Y_max = np.maximum(Y_max, 0.0)
-
-    phi = mp.fac_s / (1.0 + mp.fac_s)
-    k_d_equil = Y_max * phi / (fes_val + 1e-30) / (mp.current_dt + 1e-30)
-
-    # Apply both caps
-    k_d = np.minimum(k_d_raw.value, np.minimum(k_d_reservoir, k_d_equil.value))
-
-    # ------------------------------------------------------------------
-    # 4. Reporting
-    # ------------------------------------------------------------------
-    diss_rate = k_d * fes_val
-
-    # ------------------------------------------------------------------
-    # 5a+b. fes sink + fe2 source
-    # ------------------------------------------------------------------
-    add_implicit_coupling_new(
-        "solid_2_liquid",
-        CROSS,
-        RATES,
-        LHS,
-        target_species="fe2_total",
-        source_species="fes",
-        coeff=k_d,
-        rate=diss_rate,
-        mp=mp,
-        c=c,
-        add_lhs_sink=True,
-        stoich_ratio=1.0,
-    )
-
-    # ------------------------------------------------------------------
-    # 5c. ts2 — CROSS to fes_new
-    # ------------------------------------------------------------------
-    add_implicit_coupling_new(
-        "solid_2_liquid",
-        CROSS,
-        RATES,
-        LHS,
-        target_species="ts2",
-        source_species="fes",
-        coeff=k_d,
-        rate=diss_rate,
-        mp=mp,
-        c=c,
-        add_lhs_sink=False,
-        stoich_ratio=1.0,
-    )
-
-    # ------------------------------------------------------------------
-    # 6. Isotopes (32S)
-    # ------------------------------------------------------------------
-    if mp.isotopes:
-        # fes_32_val = c.fes_32.value
-        fes_32_val = c.fes_32
-        f32_fes = fes_32_val / (fes_val + 1e-30)
-
-        add_implicit_sink(
-            LHS, RATES, "fes_32", k_d * f32_fes, diss_rate * f32_fes, ctype="solid"
-        )
-
-        add_implicit_coupling_new(
-            "solid_2_liquid",
-            CROSS,
-            RATES,
-            LHS,
-            target_species="ts2_32",
-            source_species="fes_32",
-            coeff=k_d,
-            rate=diss_rate * f32_fes,
-            mp=mp,
-            c=c,
-            add_lhs_sink=False,
-            stoich_ratio=1.0,
-        )
-
-
-def fes_dissolution_2(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     FeS dissolution — equilibrium-capped, hard regime gate.
 

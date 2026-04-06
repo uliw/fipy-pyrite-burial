@@ -455,9 +455,9 @@ def run_non_steady_state_solver_coupled(
                 m_fe = np.sum(dz * fe_total_bulk[:-1]).value
                 time_str = f" Time: {get_time_units(total_time):.2f~P}"
                 _log(
-                    f"Step {step:4d} | {time_str} | "
-                    f"dt: {get_time_units(current_dt):.2f~P} | RMS Chg: {rms_change:.2e} | "
-                    f"d34S = {get_total_delta(c, mp):.2f} "
+                    f"Step {step:4d}, {time_str}, "
+                    f"dt: {get_time_units(current_dt):.2f~P}, RMS Chg: {rms_change:.2e}, "
+                    f"d34S = {get_total_delta(c, mp):.2f}, "
                     f"Total Fe {m_fe:.2e}"
                 )
                 if mp.title is None:
