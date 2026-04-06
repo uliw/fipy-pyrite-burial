@@ -323,7 +323,6 @@ def run_non_steady_state_solver_coupled(
     z: np.ndarray,
     plot_queue: Optional[Any] = None,
 ) -> Tuple[int, float]:
-    print("[Solver] Entering run_non_steady_state_solver_coupled", flush=True)
     """
     Solves the non-steady state ADR coupled system with advanced adaptive time stepping.
 
@@ -333,7 +332,7 @@ def run_non_steady_state_solver_coupled(
     3. Adapts the time step using a PID-controlled logic.
     """
     #     import numpy as np
-    from diff_lib import get_total_delta
+    from diff_lib import get_total_delta, save_state
 
     start_wall = time.time()
     solver = _get_solver(mp)
