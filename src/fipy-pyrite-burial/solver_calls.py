@@ -444,7 +444,7 @@ def run_non_steady_state_solver_coupled(
                 dz = np.diff(z)
                 fe_total_bulk = phi * c.fe2_total + (1 - phi) * (c.fe3 + c.fes + c.fes2)
                 m_fe = np.sum(dz * fe_total_bulk[:-1]).value
-                time_str = f" Time: {get_time_units(total_time):.0f~P}"
+                time_str = f" Time: {get_time_units(total_time):.2f~P}"
                 print(
                     f"Step {step:4d} | {time_str} | "
                     f"dt: {get_time_units(current_dt):.2f~P} | RMS Chg: {rms_change:.2e} | "

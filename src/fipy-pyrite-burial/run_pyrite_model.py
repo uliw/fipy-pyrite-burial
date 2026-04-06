@@ -27,72 +27,49 @@ if __name__ == "__main__":
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
 
-    # print statement moved to __main__ block
-
-    experiment = "pyrite_model_fipy"
-    # state_in = "statenpz.npz"
-    # state_in = "anoxic_state_2m.npz"
-    state_in = None
-    state_out = "state.npz"
-    # state_out = None
+    experiment = "pyrite"
+    state_out = f"{experiment}_state.npz"
 
     p_dict = {
-        "max_steps": 14000,  # max number of iterations
-        "max_depth": 4.0,  # meters
-        "t_end": Q_("10 kyr").to("seconds").magnitude,
-        "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
-        "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
-        "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
-        "process_monitor": "none",  # gui | video | none
-        "process_monitor": "gui",  # gui | video | none
+        "experiment": experiment,
+        "state_data": None,
         "process_monitor": "video",  # gui | video | none
-        "plot_name": f"{experiment}",
-        "isotopes": True,
-        "report_step": 2,  # how often to update plot
-        "w": Q_("0.2 cm/yr").to("m/s").m,  # sedimentation rate in m/s
-        "bc_o2": 6,  # mmmol/l
-        "bc_fe3": Q_("12 umol/(cm^2 * year)")
-        .to("mol/(m^2 * second)")
-        .magnitude,  # mol C / (m²·s)
-        "bc_om": Q_("548 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
-        "phi": 0.8,
-        "DB_depth": 0.1,
-        "DB0": Q_("4 cm^2/year").to("m^2/second").magnitude,
-        "tolerance": 1e-12,  # convergence criterion
-        "dt_tolerance": 1e-12,  # steady state threshold (stop simulation)
-        "dt_target_change": 10,  # target change per step (for dt adaptation)
-        "state_data": state_in,  # read state data
-        "solver": "non_steady",  # use non-steady solver, non_steady or steady
-        # "solver_backend": "LinearLUSolver",  # see solver_calls for options
-        "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
-        "solver_backend": "default",  # see solver_calls for options
-        "initial_spacing": 0.01,  # meters
-        "reaction_zone_spacing": 0.001,  # meters
-        "max_spacing": 0.1,  # meters, None = no cap
-        "reaction_zone": (0.05, 0.8),  # in meters
     }
-
-    # add reactions as needed
-    p_dict["diagenetic_reactions"] = [
-        rn.aerobic_respiration,
-        rn.sulfate_reduction,
-        rn.hs_oxidation,
-        rn.elemental_sulfur_oxidation,
-        rn.sulfide_mediated_iron_reduction_3,
-        rn.fe2_oxidation,
-        rn.fes_precipitation_terminal,
-        # rn.fes_precipitation,
-        rn.fes_dissolution_2,
-        rn.fes_oxidation,
-        rn.pyrite_formation_s0,
-        rn.pyrite_formation_fes_ts2,
-        rn.pyrite_oxidation,
-    ]
-
-    p_dict["instantenous_reactions"] = [
-        rn.fe2_sorption_clip,
-        # rn.sulfide_speciation_clip,
-    ]
+    # p_dict = {
+    #     "max_steps": 140,  # max number of iterations
+    #     "max_depth": 4.0,  # meters
+    #     "t_end": Q_("10 kyr").to("seconds").magnitude,
+    #     "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
+    #     "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
+    #     "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
+    #     "process_monitor": "none",  # gui | video | none
+    #     "process_monitor": "gui",  # gui | video | none
+    #     "process_monitor": "video",  # gui | video | none
+    #     "plot_name": f"{experiment}",
+    #     "isotopes": True,
+    #     "report_step": 2,  # how often to update plot
+    #     "w": Q_("0.2 cm/yr").to("m/s").m,  # sedimentation rate in m/s
+    #     "bc_o2": 6,  # mmmol/l
+    #     "bc_fe3": Q_("12 umol/(cm^2 * year)")
+    #     .to("mol/(m^2 * second)")
+    #     .magnitude,  # mol C / (m²·s)
+    #     "bc_om": Q_("548 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
+    #     "phi": 0.8,
+    #     "DB_depth": 0.1,
+    #     "DB0": Q_("4 cm^2/year").to("m^2/second").magnitude,
+    #     "tolerance": 1e-12,  # convergence criterion
+    #     "dt_tolerance": 1e-12,  # steady state threshold (stop simulation)
+    #     "dt_target_change": 10,  # target change per step (for dt adaptation)
+    #     "state_data": state_in,  # read state data
+    #     "solver": "non_steady",  # use non-steady solver, non_steady or steady
+    #     # "solver_backend": "LinearLUSolver",  # see solver_calls for options
+    #     "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
+    #     "solver_backend": "default",  # see solver_calls for options
+    #     "initial_spacing": 0.01,  # meters
+    #     "reaction_zone_spacing": 0.001,  # meters
+    #     "max_spacing": 0.1,  # meters, None = no cap
+    #     "reaction_zone": (0.05, 0.8),  # in meters
+    # }
 
     print("Starting run_pyrite_model.py...", flush=True)
     (
@@ -106,7 +83,7 @@ if __name__ == "__main__":
         converged,
         step,
         total_time,
-    ) = pyrite_model(p_dict)
+    ) = pyrite_model(p_dict, experiment=experiment)
 
     # -----------------------------------------------------------------------------
     # 8. EXPORT DATA

@@ -17,7 +17,7 @@ f = k * [SO4] * (1 - phi)/phi * [OM]
 """
 
 
-def pyrite_model(p_dict: dict, plot_queue=None):
+def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     """Model pyrite precipitation.
 
     As a function of organic matter availability, including isotopes
@@ -46,7 +46,8 @@ def pyrite_model(p_dict: dict, plot_queue=None):
         run_non_steady_state_solver_coupled,
     )
 
-    from reactions_new import diagenetic_reactions
+    # from reactions_new import diagenetic_reactions
+    import reactions_new as rn
     from reaction_constants import get_reaction_constants
     from live_plot_lib import LivePlotter, capture_state
     import plot_data_new
@@ -55,61 +56,89 @@ def pyrite_model(p_dict: dict, plot_queue=None):
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
 
-    print("Entering pyrite_model...", flush=True)
-
     mp = data_container(
         {
-            "plot_name": "pyrite_model_fipy",
-            "layout_file": "plot_layout.py",  # Plot layout file
+            # File Names & output
+            "plot_name": f"{experiment}",
+            "state_data": f"{experiment}_state.npz",
+            "layout_file": "plot_layout.py",
+            "process_monitor": "none",  # gui | video | none
             "process_monitor": "gui",  # gui | video | none
-            "steady_state": False,  # assume steady state?
-            "max_depth": 10.0,  # meters
-            "display_length": 2,  # meters
+            "process_monitor": "video",  # gui | video | none
+            "report_step": 2,  # how often to update plot
+            "title": None,  # defaults to current time
+            "start_time": 0,  # i.e., when starting from a previous state
+            # Model Geometry & boundary conditions
+            "max_depth": 4.0,  # meters
+            "initial_spacing": 0.001,  # meters
+            "reaction_zone_spacing": 0.001,  # meters
+            "max_spacing": 0.1,  # meters, None = no cap
+            "reaction_zone": (0.05, 0.8),  # in meters
+            "isotopes": True,
             "temp": [10.0, 10.1],  # temp top, bottom, in C
-            "phi": 0.65,  # porosity
             "w": Q_("46 cm/kyr").to("m/s").m,  # sedimentation rate in m/s
             "advection": 0,  # upward directed flow component
             "pH": 7.5,  # porewater pH, Velde et al.
-            "isotopes": False,  # include isotope calculations
+            "phi": 0.8,
             "so4_d": 21,  # seawater delta
             "msr_alpha": 1.07,  # MSR enrichment factor in mUr
             "hs_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
             "s0_ox_alpha": 1,  # sulfide oxidation enrichment factor in mUr
-            "bc_o2": 0.20,  # mmmol/l
+            "bc_o2": 6,  # mmmol/l
             "bc_so4": 28.0,  # mmol/l
             "bc_ts2": 0.0,  # mmol/l # Total S2-
             "bc_s0": 0.0,  # mmol/l
+            "bc_om": Q_("548 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
             "bc_fe2": 0,  # wt% Fe2
             "bc_fe2_p": 0,  # wt% sorbed Fe2
-            "bc_om": Q_("548 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
             "bc_fe3": Q_("12 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
-            "DB0": 4e-12 * 0,  # Bioturbation coefficient
+            "DB0": Q_("4 cm^2/year").to("m^2/second").magnitude * 0,
             "DB_depth": 0,  # Bioturbation depth in m
             "BI0": 1e-6 * 0,  # should be < 1e-5
             "BI_depth": 0.0,  # Irrigation depth (0 = off)
+            # Solver Parameters
+            "max_steps": 20,  # max number of iterations
+            "t_end": Q_("1 kyr").to("seconds").magnitude,
+            "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
+            "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
+            "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
+            "tolerance": 1e-12,  # convergence criterion
+            "dt_tolerance": 1e-12,  # steady state threshold (stop simulation)
+            "dt_target_change": 10,  # target change per step (for dt adaptation)
+            # "solver": "non_steady",  # use non-steady solver, non_steady or steady
+            # "solver_backend": "LinearLUSolver",  # see solver_calls for options
+            "solver_backend": "default",  # see solver_calls for options
+            "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
+            # Other
             "eps": 1e-8,  # limiters
-            "relax": 0.1,  # use 0.1 for coupled solver, and 0.8 otherwise
-            "tolerance": 1e-5,  # convergence criterion
-            "dt_tolerance": 0.1,  # steady state threshold
-            "dt_target_change": 1.0,  # desired change per time step
-            "solver_backend": "default",
-            "dt_max": Q_("100 years").to("seconds").magnitude,  # mad dt step in years
-            "dt_min": Q_("1 second").to("seconds").magnitude,  # min dt in years
-            "dt_init": Q_("1 year").to("seconds").magnitude,  # initial dt
             "current_dt": 0.0,  # place holder
-            "t_end": Q_("10 kyear").to("seconds").magnitude,  # max model time
-            "max_steps": 2000,  # max number of iterations
             "VCDT": 0.044162589,  # VCDT reference ratio
-            "initial_spacing": 0.01,  # meters
-            "reaction_zone_spacing": 0.001,  # meters
-            "reaction_zone": (5e-2, 2e-1),  # in meters
-            "max_spacing": 0.1,  # meters, None = no cap
-            "state_data": "state_data.npz",
-            "title": None,  # defaults to current time
-            "start_time": 0,  # i.e., when starting from a previous state
+            "display_length": 2,  #
         }
     )
 
+    # add reactions as needed
+    p_dict["diagenetic_reactions"] = [
+        rn.aerobic_respiration,
+        rn.sulfate_reduction,
+        rn.hs_oxidation,
+        rn.elemental_sulfur_oxidation,
+        rn.sulfide_mediated_iron_reduction_3,
+        rn.fe2_oxidation,
+        rn.fes_precipitation_terminal,
+        rn.fes_dissolution_2,
+        rn.fes_oxidation,
+        rn.pyrite_formation_s0,
+        rn.pyrite_formation_fes_ts2,
+        rn.pyrite_oxidation,
+    ]
+
+    p_dict["instantenous_reactions"] = [
+        rn.fe2_sorption_clip,
+        # rn.sulfide_speciation_clip,
+    ]
+
+    # update with values passed from calling program
     mp.update(p_dict)
 
     # -----------------------------------------------------------------------------
@@ -320,7 +349,7 @@ def pyrite_model(p_dict: dict, plot_queue=None):
         species_list_full,
         species_list_partial,
         k,
-        diagenetic_reactions,
+        rn.diagenetic_reactions,
         mesh,
         D_mol,
         bc_map,
@@ -363,7 +392,7 @@ def pyrite_model(p_dict: dict, plot_queue=None):
         species_list_full,
         z,
         D_mol,
-        diagenetic_reactions,
+        rn.diagenetic_reactions,
         converged,
         step,
         total_time,

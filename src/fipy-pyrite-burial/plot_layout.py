@@ -2,7 +2,6 @@
 Configuration for plotting diagenetic modeling results.
 
 This module defines the layout and aesthetic properties of the plots.
-
 """
 
 
@@ -20,7 +19,7 @@ def get_layout(df):
     from diff_lib import solid_conc_to_wt_percent, liquid_conc_to_wt_percent
 
     # define color scheme
-    poc_attr=  {"color": "forestgreen"}
+    poc_attr = {"color": "forestgreen"}
     o2_attr = {"color": "forestgreen", "linestyle": "dashed"}
 
     so4_attr = {"color": "cornflowerblue", "linestyle": "dashed"}
@@ -33,32 +32,32 @@ def get_layout(df):
     fes_attr = {"color": "red"}
     fes2_attr = {"color": "darkorange"}
 
-    # mpl.rcParams["axes.prop_cycle"] = mpl.cycler(
-    #     color=[
-    #         "#332288",
-    #         "#88CCEE",
-    #         "#44AA99",
-    #         "#117733",
-    #         "#999933",
-    #         "#DDCC77",
-    #         "#CC6677",
-    #         "#882255",
-    #         "#AA4499",
-    #     ]
-    # )
+    mpl.rcParams["axes.prop_cycle"] = mpl.cycler(
+        color=[
+            "#332288",
+            "#88CCEE",
+            "#44AA99",
+            "#117733",
+            "#999933",
+            "#DDCC77",
+            "#CC6677",
+            "#882255",
+            "#AA4499",
+        ]
+    )
     # ax.set_prop_cycle(None)
-    # poc_attr = {"color": "C0"}
-    # o2_attr = {"color": "C1", "linestyle": "dashed"}
+    poc_attr = {"color": "C0"}
+    o2_attr = {"color": "C1", "linestyle": "dashed"}
 
-    # so4_attr = {"color": "C2", "linestyle": "dashed"}
-    # ts2_attr = {"color": "C3", "linestyle": "dashed", "zorder": 10}
-    # s0_attr = {"color": "C4"}
+    so4_attr = {"color": "C2", "linestyle": "dashed"}
+    ts2_attr = {"color": "C3", "linestyle": "dashed", "zorder": 10}
+    s0_attr = {"color": "C4"}
 
-    # fe3_attr = {"color": "C5"}
-    # fe2_s_attr = {"color": "C6"}
-    # fe2_l_attr = {"color": "C7", "linestyle": "dashed"}
-    # fes_attr = {"color": "C8"}
-    # fes2_attr = {"color": "C9"}
+    fe3_attr = {"color": "C5"}
+    fe2_s_attr = {"color": "C6"}
+    fe2_l_attr = {"color": "C7", "linestyle": "dashed"}
+    fes_attr = {"color": "C8"}
+    fes2_attr = {"color": "C9"}
 
     phi = df.phi
     # relative to sulfur
@@ -133,7 +132,11 @@ def get_layout(df):
                 [df.f_fes2, r"FeS$_{2}$", fes2_attr],
                 [df.f_s0, r"S$^{0}$", s0_attr],
                 # [df.f_fe2_p, "f_fe2+p", {"color": "C9"}],
-                [df.D_bio*1000, r"D$_{bio} \times 1000$ [$m^{2}/s$]", {"color": "C8", "linestyle": "dotted"}],
+                [
+                    df.D_bio * 1000,
+                    r"D$_{bio} \times 1000$ [$m^{2}/s$]",
+                    {"color": "C8", "linestyle": "dotted"},
+                ],
             ],
             # "right": [df.D_irr, "D_irr", {"color": "C8"}],
             # "yscale": "symlog, linthresh=1e-14,linscale=0,1,base=10",
