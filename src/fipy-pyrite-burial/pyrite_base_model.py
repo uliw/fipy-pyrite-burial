@@ -66,6 +66,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
             "process_monitor": "gui",  # gui | video | none
             "process_monitor": "video",  # gui | video | none
             "report_step": 2,  # how often to update plot
+            "backup_step": 10000,  # create backups every nth step
             "title": None,  # defaults to current time
             "start_time": 0,  # i.e., when starting from a previous state
             # Model Geometry & boundary conditions

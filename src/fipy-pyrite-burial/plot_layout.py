@@ -46,7 +46,7 @@ def get_layout(df):
         ]
     )
     # ax.set_prop_cycle(None)
-    poc_attr = {"color": "C0"}
+    poc_attr = {"color": "brown"}
     o2_attr = {"color": "C1", "linestyle": "dashed"}
 
     so4_attr = {"color": "C2", "linestyle": "dashed"}

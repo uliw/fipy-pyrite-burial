@@ -338,6 +338,13 @@ def run_non_steady_state_solver_coupled(
     start_wall = time.time()
     solver = _get_solver(mp)
 
+    log_path = f"{mp.plot_name}.log"
+    _log_file = open(log_path, "w", buffering=1)
+
+    def _log(msg: str) -> None:
+        print(msg, flush=True)
+        _log_file.write(msg + "\n")
+
     # --- Initialize Adaptive Time Stepping ---
     dt_controller = AdaptiveDT(
         dt_min=mp.dt_min,
@@ -437,6 +444,8 @@ def run_non_steady_state_solver_coupled(
                 step_success=True,
                 target_error=adaptive_target,
             )
+            if step % mp.backup_step == 0:
+                save_state(c, f"{mp.plot_name}_bak.npz")
 
             # Reporting
             if step % mp.report_step == 0:  # Force reporting for debug
@@ -445,11 +454,11 @@ def run_non_steady_state_solver_coupled(
                 fe_total_bulk = phi * c.fe2_total + (1 - phi) * (c.fe3 + c.fes + c.fes2)
                 m_fe = np.sum(dz * fe_total_bulk[:-1]).value
                 time_str = f" Time: {get_time_units(total_time):.2f~P}"
-                print(
+                _log(
                     f"Step {step:4d} | {time_str} | "
                     f"dt: {get_time_units(current_dt):.2f~P} | RMS Chg: {rms_change:.2e} | "
                     f"d34S = {get_total_delta(c, mp):.2f} "
-                    f"Total Fe {m_fe:.2e}\n"
+                    f"Total Fe {m_fe:.2e}"
                 )
                 if mp.title is None:
                     title_str = (
@@ -489,14 +498,14 @@ def run_non_steady_state_solver_coupled(
             # Steady State Check
             # if c.fe3[-10] < 70:
             if rms_change < mp.dt_tolerance:
-                print(
+                _log(
                     f"Steady State Met: rms_change {rms_change:.2e} < tolerance {mp.dt_tolerance:.2e}"
                 )
                 status = "Steady State Converged"
                 fe3_lost = c.fe3.value[0] - c.fe3.value[-1]
                 fe2_gained = c.fe2_total.value[-1] - c.fe2_total.value[0]
                 dt = get_time_units(mp.dt_max)
-                print(
+                _log(
                     f"dt = {dt:~P.2f}, fe3_lost = {fe3_lost:.2f}, fe2_gained = {fe2_gained:.2f}"
                 )
                 break
@@ -508,9 +517,10 @@ def run_non_steady_state_solver_coupled(
         print(traceback.format_exc())
 
     # Final Save
-    print(
+    _log(
         f"Final Report: {status} in {step} steps. Total Wall Time: {time.time() - start_wall:.2f}s"
     )
+    _log_file.close()
     if plot_queue is not None:
         write_to_queue_async(
             plot_queue,
