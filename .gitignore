@@ -14,6 +14,10 @@ TAGS
 *.pyd
 *.code-workspace
 *.npz
+*.npz-old
+*.mp4
+CLAUDE.md
+*.org
 
 
 
