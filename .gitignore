@@ -2,6 +2,8 @@
 __pycache__/
 *.py[oc]
 build/
+ltximg/
+notes/
 dist/
 wheels/
 *.egg-info
