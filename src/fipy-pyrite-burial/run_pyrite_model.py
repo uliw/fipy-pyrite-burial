@@ -33,7 +33,11 @@ if __name__ == "__main__":
     p_dict = {
         "experiment": experiment,
         "state_data": None,
-        "process_monitor": "video",  # gui | video | none
+        "process_monitor": "gui",  # gui | video | none
+        "backup_step": 1000,  # create backups every nth step
+        "max_steps": 40000,  # max number of iterations
+        "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
+        "t_end": Q_("1 kyr").to("seconds").magnitude,
         # "DB_depth": 0.1,
         #     "DB0": Q_("4 cm^2/year").to("m^2/second").magnitude,
     }

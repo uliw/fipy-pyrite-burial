@@ -251,17 +251,13 @@ def _assemble_coupled_equation(
     Calculate reaction terms and assemble the full coupled equation system.
     """
     # 1. Handle Instantaneous Equilibrium
-    # RATES_eq = {s: np.zeros_like(c.so4.value) for s in species_list_partial}
+    # RATES_eq is only for diagnostic merging; since RATES is discarded by
+    # the caller, skip the merge loop entirely.
     RATES_eq = {s: np.zeros_like(c.so4) for s in species_list_partial}
-    _, RATES_eq = equilibrium_reactions(mp, c, k, None, RATES_eq, current_dt)
+    equilibrium_reactions(mp, c, k, None, RATES_eq, current_dt)
 
     # 2. Get Kinetic Reaction Terms
     f_res, RATES = diagenetic_reactions(mp, c, k, f=data_container())
-
-    # 3. Merge Equilibrium rates for reporting
-    for s in RATES:
-        if s in RATES_eq:
-            RATES[s] += RATES_eq[s]
 
     # 4. Build individual equations and couple them
     #
@@ -332,7 +328,7 @@ def run_non_steady_state_solver_coupled(
     3. Adapts the time step using a PID-controlled logic.
     """
     #     import numpy as np
-    from diff_lib import get_total_delta, save_state
+    from diff_lib import get_delta, get_total_delta, save_state
 
     start_wall = time.time()
     solver = _get_solver(mp)
@@ -381,11 +377,9 @@ def run_non_steady_state_solver_coupled(
             step += 1
             current_dt = dt_controller.dt
 
-            # Snapshot and advance old values
+            # updateOld() stores current -> var.old; used below for RMS and restore
             for s_obj in species_struct:
                 s_obj["var"].updateOld()
-
-            last_val_backup = {s["name"]: s["var"].value.copy() for s in species_struct}
 
             # --- Solve Step (with automatic retry on failure) ---
             converged = False
@@ -411,9 +405,9 @@ def run_non_steady_state_solver_coupled(
                     print(
                         f"  Step failed at dt={get_time_units(current_dt):.2f~P}: {e}. Cutting dt."
                     )
-                    # Restore state
+                    # Restore state from FiPy's built-in old-value store
                     for s_obj in species_struct:
-                        s_obj["var"].value[:] = last_val_backup[s_obj["name"]]
+                        s_obj["var"].value[:] = s_obj["var"].old.value
 
                     # Cut time step and retry
                     current_dt = dt_controller.update(0.0, step_success=False)
@@ -425,11 +419,12 @@ def run_non_steady_state_solver_coupled(
             # --- Calculate Convergence Metrics ---
             # Using Normalized RMS change to reduce sensitivity to grid resolution
             # RMS = sqrt( mean( (c_new - c_old)**2 ) )
-            rms_change = 0.0
-            for s_obj in species_struct:
-                delta = s_obj["var"].value - last_val_backup[s_obj["name"]]
-                diff = np.sqrt(np.mean(delta**2))
-                rms_change = max(rms_change, diff)
+            rms_change = max(
+                float(
+                    np.sqrt(np.mean((s_obj["var"].value - s_obj["var"].old.value) ** 2))
+                )
+                for s_obj in species_struct
+            )
 
             total_time += current_dt
 
@@ -453,18 +448,16 @@ def run_non_steady_state_solver_coupled(
                 fe_total_bulk = phi * c.fe2_total + (1 - phi) * (c.fe3 + c.fes + c.fes2)
                 m_fe = np.sum(dz * fe_total_bulk[:-1]).value
                 time_str = f" Time: {get_time_units(total_time):.2f~P}"
+                d34s = get_total_delta(c, mp)
                 _log(
                     f"Step {step:4d}, {time_str}, "
                     f"dt: {get_time_units(current_dt):.2f~P}, RMS Chg: {rms_change:.2e}, "
-                    f"d34S = {get_total_delta(c, mp):.2f}, "
+                    f"d34S = {d34s:.2f}, "
                     f"Total Fe {m_fe:.2e}"
                 )
+                d34S = get_delta(2 * c.fes2[-1], c.fes2_32[-1], mp.VCDT)
                 if mp.title is None:
-                    title_str = (
-                        time_str
-                        + r", $\delta^{34}$S = "
-                        + f"{get_total_delta(c, mp):.1f} [mUr]"
-                    )
+                    title_str = time_str + r", $\delta^{34}$S = " + f"{d34s:.1f} [mUr]"
                 else:
                     title_str = mp.title
 

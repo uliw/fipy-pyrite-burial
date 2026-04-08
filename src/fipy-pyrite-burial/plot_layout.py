@@ -19,18 +19,17 @@ def get_layout(df):
     from diff_lib import solid_conc_to_wt_percent, liquid_conc_to_wt_percent
 
     # define color scheme
-    poc_attr = {"color": "forestgreen"}
-    o2_attr = {"color": "forestgreen", "linestyle": "dashed"}
+    poc_attr = {"color": "forestgreen", "lw": 2}
+    o2_attr = {"color": "forestgreen", "linestyle": "dashed", "lw": 2}
 
-    so4_attr = {"color": "cornflowerblue", "linestyle": "dashed"}
-    ts2_attr = {"color": "slateblue", "linestyle": "dashed", "zorder": 10}
-    s0_attr = {"color": "cornflowerblue"}
-
-    fe3_attr = {"color": "saddlebrown"}
-    fe2_s_attr = {"color": "indianred"}
-    fe2_l_attr = {"color": "brown", "linestyle": "dashed"}
-    fes_attr = {"color": "red"}
-    fes2_attr = {"color": "darkorange"}
+    so4_attr = {"color": "cornflowerblue", "linestyle": "dashed", "lw": 2}
+    ts2_attr = {"color": "slateblue", "linestyle": "dashed", "zorder": 10, "lw": 2}
+    s0_attr = {"color": "cornflowerblue", "lw": 2}
+    fe3_attr = {"color": "saddlebrown", "lw": 2}
+    fe2_s_attr = {"color": "indianred", "lw": 2}
+    fe2_l_attr = {"color": "brown", "linestyle": "dashed", "lw": 2}
+    fes_attr = {"color": "red", "lw": 2}
+    fes2_attr = {"color": "darkorange", "lw": 2}
 
     mpl.rcParams["axes.prop_cycle"] = mpl.cycler(
         color=[
@@ -45,19 +44,20 @@ def get_layout(df):
             "#AA4499",
         ]
     )
+    lt = 2
     # ax.set_prop_cycle(None)
-    poc_attr = {"color": "brown"}
-    o2_attr = {"color": "C1", "linestyle": "dashed"}
+    poc_attr = {"color": "brown", "lw": lt}
+    o2_attr = {"color": "C1", "linestyle": "dashed", "lw": lt}
 
-    so4_attr = {"color": "C2", "linestyle": "dashed"}
-    ts2_attr = {"color": "C3", "linestyle": "dashed", "zorder": 10}
-    s0_attr = {"color": "C4"}
+    so4_attr = {"color": "C2", "linestyle": "dashed", "lw": lt}
+    ts2_attr = {"color": "C3", "linestyle": "dashed", "zorder": 10, "lw": lt}
+    s0_attr = {"color": "C4", "lw": lt}
 
-    fe3_attr = {"color": "C5"}
-    fe2_s_attr = {"color": "C6"}
-    fe2_l_attr = {"color": "C7", "linestyle": "dashed"}
-    fes_attr = {"color": "C8"}
-    fes2_attr = {"color": "C9"}
+    fe3_attr = {"color": "C5", "lw": lt}
+    fe2_s_attr = {"color": "C6", "lw": lt}
+    fe2_l_attr = {"color": "C7", "linestyle": "dashed", "lw": lt}
+    fes_attr = {"color": "C8", "lw": lt}
+    fes2_attr = {"color": "C9", "lw": lt}
 
     phi = df.phi
     # relative to sulfur

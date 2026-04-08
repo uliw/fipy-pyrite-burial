@@ -58,7 +58,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
 
     mp = data_container(
         {
-            # File Names & output
+            # -------- File Names & output --------------------
             "plot_name": f"{experiment}",
             "state_data": f"{experiment}_state.npz",
             "layout_file": "plot_layout.py",
@@ -69,15 +69,15 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
             "backup_step": 10000,  # create backups every nth step
             "title": None,  # defaults to current time
             "start_time": 0,  # i.e., when starting from a previous state
-            # Model Geometry & boundary conditions
-            "max_depth": 4.0,  # meters
+            # --------- Model Geometry & boundary conditions ------
+            "max_depth": 2.0,  # meters
             "initial_spacing": 0.001,  # meters
             "reaction_zone_spacing": 0.001,  # meters
             "max_spacing": 0.1,  # meters, None = no cap
             "reaction_zone": (0.05, 0.8),  # in meters
             "isotopes": True,
             "temp": [10.0, 10.1],  # temp top, bottom, in C
-            "w": Q_("46 cm/kyr").to("m/s").m,  # sedimentation rate in m/s
+            "w": Q_("0.2 cm/yr").to("m/s").m,  # sedimentation rate in m/s
             "advection": 0,  # upward directed flow component
             "pH": 7.5,  # porewater pH, Velde et al.
             "phi": 0.8,
@@ -93,11 +93,11 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
             "bc_fe2": 0,  # wt% Fe2
             "bc_fe2_p": 0,  # wt% sorbed Fe2
             "bc_fe3": Q_("12 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
-            "DB0": Q_("4 cm^2/year").to("m^2/second").magnitude * 0,
+            "DB0": Q_("0.2 cm^2/year").to("m^2/second").magnitude * 0,
             "DB_depth": 0,  # Bioturbation depth in m
             "BI0": 1e-6 * 0,  # should be < 1e-5
             "BI_depth": 0.0,  # Irrigation depth (0 = off)
-            # Solver Parameters
+            # --------- Solver Parameters ----------------------------
             "max_steps": 20,  # max number of iterations
             "t_end": Q_("1 kyr").to("seconds").magnitude,
             "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
@@ -106,11 +106,9 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
             "tolerance": 1e-12,  # convergence criterion
             "dt_tolerance": 1e-12,  # steady state threshold (stop simulation)
             "dt_target_change": 10,  # target change per step (for dt adaptation)
-            # "solver": "non_steady",  # use non-steady solver, non_steady or steady
-            # "solver_backend": "LinearLUSolver",  # see solver_calls for options
             "solver_backend": "default",  # see solver_calls for options
             "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
-            # Other
+            # ---------  Other --------------------------------------------------
             "eps": 1e-8,  # limiters
             "current_dt": 0.0,  # place holder
             "VCDT": 0.044162589,  # VCDT reference ratio
