@@ -105,7 +105,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
             "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
             "tolerance": 1e-12,  # convergence criterion
             "dt_tolerance": 1e-12,  # steady state threshold (stop simulation)
-            "dt_target_change": 10,  # target change per step (for dt adaptation)
+            "dt_target_change": 100,  # target change per step (for dt adaptation)
             "solver_backend": "default",  # see solver_calls for options
             "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
             # ---------  Other --------------------------------------------------

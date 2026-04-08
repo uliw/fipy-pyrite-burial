@@ -148,7 +148,7 @@ def plot(
         # Plot on left axis
         left_config = subplot_config.get("left", [])
         if left_config:
-            left_lines, left_labels = _draw_series(ax_main, x_data, left_config, df2)
+            left_lines, left_labels = _draw_series(ax_main, x_data, left_config, df2, apply_fill=(idx == 0))
 
             # Set left axis properties
             if left_lines:
@@ -162,7 +162,7 @@ def plot(
 
         # Plot on right axes
         for twin_ax, config_key, series_idx, series in right_axes:
-            lines, labels = _draw_series(twin_ax, x_data, [series], df2)
+            lines, labels = _draw_series(twin_ax, x_data, [series], df2, apply_fill=(idx == 0))
             if not lines:
                 continue
 
@@ -385,7 +385,7 @@ def _get_xaxis_data(df, subplot_config):
     return x_data, x_label
 
 
-def _draw_series(ax, x_data, series_list, df2):
+def _draw_series(ax, x_data, series_list, df2, apply_fill=True):
     """
     Draw lines and measured scatter points on an axis.
 
@@ -395,6 +395,8 @@ def _draw_series(ax, x_data, series_list, df2):
     x_data: x-axis data.
     series_list: List of series configurations.
     df2: Measured data DataFrame.
+    apply_fill: If False, the ``fill`` key in series kwargs is ignored.
+                Fill is suppressed for all subplots except the first.
 
     Returns
     -------
@@ -408,9 +410,27 @@ def _draw_series(ax, x_data, series_list, df2):
 
         y_data = series[0]
         label = series[1]
-        kwargs = series[2] if len(series) > 2 else {}
+        kwargs = dict(series[2]) if len(series) > 2 else {}
 
-        (line,) = ax.plot(x_data, y_data, label=label, **kwargs)
+        fill_only = kwargs.pop("fill_only", False)
+        fill_requested = kwargs.pop("fill", False) or fill_only
+        fill = fill_requested and apply_fill
+        # alpha is fill-only: pop it whenever fill was requested, regardless of apply_fill
+        fill_alpha = kwargs.pop("alpha", 0.3) if fill_requested else None
+        if fill_only and apply_fill:
+            kwargs["lw"] = 0
+
+        # When fill_only: hide line from legend, label the fill patch instead
+        plot_label = "_nolegend_" if (fill and fill_only) else label
+        fill_label = label if (fill and fill_only) else "_nolegend_"
+
+        (line,) = ax.plot(x_data, y_data, label=plot_label, **kwargs)
+
+        if fill:
+            ax.fill_between(
+                x_data, y_data,
+                alpha=fill_alpha, color=line.get_color(), label=fill_label,
+            )
         lines.append(line)
         labels.append(label)
 
