@@ -351,7 +351,7 @@ def _setup_subplot_axes(ax_main, subplot_config):
             # Create ONE twin axis for this key
             twin_ax = ax_main.twinx()
             # Position the spine based on the axis index
-            twin_ax.spines.right.set_position(("axes", 1.0 + 0.2 * current_axis_idx))
+            twin_ax.spines.right.set_position(("axes", 1.0 + 0.12 * current_axis_idx))
 
             for series_idx, series in enumerate(series_list):
                 right_axes.append((twin_ax, key, series_idx, series))
