@@ -120,7 +120,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     )
 
     # add reactions as needed
-    p_dict["diagenetic_reactions"] = [
+    mp["diagenetic_reactions"] = [
         rn.aerobic_respiration,
         rn.sulfate_reduction,
         rn.hs_oxidation,
@@ -133,9 +133,10 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         rn.pyrite_formation_s0,
         rn.pyrite_formation_fes_ts2,
         rn.pyrite_oxidation,
+        rn.s0_disproportionation,
     ]
 
-    p_dict["instantenous_reactions"] = [
+    mp["instantenous_reactions"] = [
         rn.fe2_sorption_clip,
         # rn.sulfide_speciation_clip,
     ]

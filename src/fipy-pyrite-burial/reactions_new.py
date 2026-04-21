@@ -1288,7 +1288,6 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             add_lhs_sink=True,
         )
 
-
 def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Calculate elemental sulfur disproportionation.
 
@@ -1360,7 +1359,7 @@ def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     add_implicit_sink(
         LHS,
         RATES,
-        "O2",
+        "o2",
         coeff_O2_base * so4_fraction * 1.5,
         s0_total_rate * so4_fraction * 1.5,
         ctype="liquid",
