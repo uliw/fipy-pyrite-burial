@@ -59,7 +59,9 @@ def get_reaction_constants(pH):
             10**-3.5,
             "mol/l",
             "mol/m^3 ",
-        ],  # FeS Saturation constant
+        ],  # Dispro rate, 4 times that of HS oxidation
+        "s0_dispro": [4 * 1e7, "cm^3/(umol*year)", "m^3/(mol*second)"],
+        "s0_dispro": [1e7, "cm^3/(umol*year)", "m^3/(mol*second)"],
     }
 
     k_values: dict = {}

@@ -49,8 +49,8 @@ def get_layout(df):
     # define color scheme
     poc_attr = {"color": "forestgreen", "lw": lt}
     o2_attr = {"color": "#AA4499", "lw": lt}
-    so4_attr = {"color": "cornflowerblue","lw": lt,"fill_only": True, "zorder": -10}
-    so4_attr_nf = {"color": "cornflowerblue","lw": lt,"fill_only": False}
+    so4_attr = {"color": "cornflowerblue", "lw": lt, "fill_only": True, "zorder": -10}
+    so4_attr_nf = {"color": "cornflowerblue", "lw": lt, "fill_only": False}
     ts2_attr = {"color": "slateblue", "zorder": 10, "lw": lt}
     s0_attr = {"color": "#009988", "lw": lt}
     fe3_attr = {"color": "saddlebrown", "lw": lt}
@@ -59,7 +59,7 @@ def get_layout(df):
     fes_attr = {"color": "#ee3377", "lw": lt}
     fes2_attr = {"color": "darkorange", "lw": lt, "fill_only": True, "zorder": -9}
     fes2_attr_nf = {"color": "darkorange", "lw": lt, "fill_only": False}
-    dbio_attr =  {"color": "#bbbbbb", "lw": lt, "fill_only": True}
+    dbio_attr = {"color": "#bbbbbb", "lw": lt, "fill_only": True}
 
     phi = df.phi
     # relative to sulfur
@@ -109,7 +109,7 @@ def get_layout(df):
                 #     r"TFe [wt% Fe]",
                 #     {"color": "black", "linestyle": "dotted"},
                 # ],
-            ], 
+            ],
             "right1_ylim": (0, 1),
             "right1_ylabel": "[wt% Fe]",
             # right 2
@@ -117,7 +117,7 @@ def get_layout(df):
                 [s0_s, r"S$^{0}$ [wt% S]", s0_attr],
                 # [fes2_s, r"FeS$_2$ [wt% S]", {"color": "black"}],
                 # [fes_s, r"$\times$ FeS [wt% S]", {"color": "C6"}],
-            ], 
+            ],
             "right2_ylim": (0, 0.1),
             "right2_ylabel": "[wt% S]",
         },
@@ -126,7 +126,7 @@ def get_layout(df):
             "left": [
                 [df.f_so4, r"SO$_{4}$", so4_attr_nf],
                 [df.f_ts2, r"TS$^{2-}$", ts2_attr],
-                [df.f_fe2_total, r"Fe$^{2+}_{sorb}$", fe2_l_attr],
+                [df.f_fe2_total, r"Fe$^{2+}_{liq}$", fe2_l_attr],
                 [df.f_fes, "FeS", fes_attr],
                 [df.f_fe3, r"Fe${3+}$", fe3_attr],
                 [df.f_fes2, r"FeS$_{2}$", fes2_attr_nf],

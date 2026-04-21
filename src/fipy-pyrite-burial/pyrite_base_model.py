@@ -97,6 +97,9 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
             "DB_depth": 0,  # Bioturbation depth in m
             "BI0": 1e-6 * 0,  # should be < 1e-5
             "BI_depth": 0.0,  # Irrigation depth (0 = off)
+            "dispro_so4_alpha": 1.02,  # about +20 mUr
+            "dispro_hs_alpha": 9.0993,  # about -7 mUr
+            "dispro_so4_hs_split": 0.5,  # i.e. 2 parts SO4, 1 part H2S
             # --------- Solver Parameters ----------------------------
             "max_steps": 20,  # max number of iterations
             "t_end": Q_("1 kyr").to("seconds").magnitude,

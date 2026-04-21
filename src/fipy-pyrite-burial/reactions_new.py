@@ -103,6 +103,8 @@ def diagenetic_reactions(mp, c, k, f):
     # O2 Inhibition (1.0 -> 0.0)
     limiters["inhib_o2"] = eps / (c.o2 + eps)
 
+    limiters["ts2"] = 0.1 / (c.ts2 + 0.1)
+
     # Sulfate Limiter (Implicit 1/[S+K] and Explicit [S]/[S+K])
     K_so4 = 0.2
     limiters["so4_implicit"] = 1.0 / (c.so4 + K_so4)
@@ -329,6 +331,7 @@ def hs_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 def elemental_sulfur_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     Reaction: 1 S0 + 1.5 O2 -> 1 SO4
+    Assuming that some O comes from H2O
     Phases: S0 (Solid), O2 (Liquid), SO4 (Liquid)
     """
     # S0 sink (Solid)
@@ -1284,3 +1287,138 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             c=c,
             add_lhs_sink=True,
         )
+
+
+def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """Calculate elemental sulfur disproportionation.
+
+    Reaction: 4S0 + 4.5O2 -> 1HS2 + 3SO4
+
+    Notes:
+    - The split between H2S and SO4 depends on mp.dispro_so4_hs_split,
+      which is the ratio between H2S/SO4, typically 1:2 -> 0.5
+    - The isotope fractionation between S0 and H2S is given by mp.dispro_hs_alpha (0.993)
+    - The isotope fractionation between S0 and SO4 is given by mp.dispro_so4_alpha (1.02)
+    - The reaction constant for the overall reaction is given by k.s0_dispro
+    - The reaction rate depends on O2, S0, and H2S (inhibitor).
+    """
+
+    # 1. Base Rate Calculation (Master Species: S0)
+    # The inhibitor lim["ts2"] is already MM-type as per user instructions
+    coeff_s0_base = k.s0_dispro * c.o2 * lim["ts2"]
+    coeff_O2_base = k.s0_dispro * lim["ts2"]
+    s0_total_rate = coeff_s0_base * c.s0
+
+    # 2. Calculate the Stoichiometric Split
+    # If split = 0.5 (1 H2S : 2 SO4), then for 1.5 moles of S0:
+    # 1.0 mole goes to SO4 and 0.5 moles go to H2S
+    split = mp.dispro_so4_hs_split
+    so4_fraction = 1.0 / (1.0 + split)
+    h2s_fraction = split / (1.0 + split)
+
+    # 3. S0 Sink (Reference Species) - SOLID phase
+    # moved to coupled expression below
+    # add_implicit_sink(
+    #     LHS, RATES, "s0", coeff_s0_base, s0_total_rate, ctype="solid", mp=mp, c=c
+    # )
+
+    # 4. Product Sources - LIQUID phase (solid_2_liquid handles fac_l)
+
+    # SO4 Production
+    coeff_so4 = coeff_s0_base * so4_fraction
+    add_implicit_coupling_new(
+        "solid_2_liquid",
+        CROSS,
+        RATES,
+        LHS,
+        "so4",
+        "s0",
+        coeff_so4,
+        s0_total_rate * so4_fraction,
+        mp,
+        c=c,
+        add_lhs_sink=True,
+    )
+
+    # TS2 (H2S) Production
+    coeff_ts2 = coeff_s0_base * h2s_fraction
+    add_implicit_coupling_new(
+        "solid_2_liquid",
+        CROSS,
+        RATES,
+        LHS,
+        "ts2",
+        "s0",
+        coeff_ts2,
+        s0_total_rate * h2s_fraction,
+        mp,
+        c=c,
+        add_lhs_sink=True,
+    )
+
+    # O2 Consumption (Assuming 1:1 with S0 based on reaction string)
+    add_implicit_sink(
+        LHS,
+        RATES,
+        "O2",
+        coeff_O2_base * so4_fraction * 1.5,
+        s0_total_rate * so4_fraction * 1.5,
+        ctype="liquid",
+        mp=mp,
+        c=c,
+    )
+
+    # 5. Isotopes
+    if mp.isotopes:
+        # We calculate how the 32S atoms leaving S0 are distributed
+        s0_32_val = c.s0_32 + 1e-30
+        s0_val = c.s0 + 1e-30
+
+        # Fractionation for H2S path
+        # Rate32_hs = RateTotal_hs * alpha * (S32/Stot)
+        # Coeff for coupling is (RateTotal_hs / Stot) * alpha
+        coeff_hs_32 = (coeff_ts2) * mp.dispro_hs_alpha
+
+        add_implicit_coupling_new(
+            "solid_2_liquid",
+            CROSS,
+            RATES,
+            LHS,
+            "ts2_32",
+            "s0_32",
+            coeff_hs_32,
+            coeff_hs_32 * c.s0_32,
+            mp,
+            c=c,
+            add_lhs_sink=True,
+        )
+
+        # Fractionation for SO4 path
+        coeff_so4_32 = (coeff_so4) * mp.dispro_so4_alpha
+
+        add_implicit_coupling_new(
+            "solid_2_liquid",
+            CROSS,
+            RATES,
+            LHS,
+            "so4_32",
+            "s0_32",
+            coeff_so4_32,
+            coeff_so4_32 * c.s0_32,
+            mp,
+            c=c,
+            add_lhs_sink=True,
+        )
+
+        # # S0_32 Sink (Sum of both paths)
+        # coeff_s0_32_sink = coeff_hs_32 + coeff_so4_32
+        # add_implicit_sink(
+        #     LHS,
+        #     RATES,
+        #     "s0_32",
+        #     coeff_s0_32_sink,
+        #     coeff_s0_32_sink * c.s0_32,
+        #     ctype="solid",
+        #     mp=mp,
+        #     c=c,
+        # )
