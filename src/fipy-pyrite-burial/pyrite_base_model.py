@@ -29,15 +29,11 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
 
     from fipy import CellVariable
     from diff_lib import (
-        calculate_k_iron_reduction,
         data_container,
         diff_coeff,
         compute_sigmoidal_db,
         get_l_mass,
-        # get_delta,
-        wt_percent_to_solid_conc,
         compute_bio_irrigation_alpha,
-        make_grid,
         make_grid2,
         read_state,
         check_peclet_numbers,
@@ -98,7 +94,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
             "BI0": 1e-6 * 0,  # should be < 1e-5
             "BI_depth": 0.0,  # Irrigation depth (0 = off)
             "dispro_so4_alpha": 1.02,  # about +20 mUr
-            "dispro_hs_alpha": 9.0993,  # about -7 mUr
+            "dispro_hs_alpha": 0.993,  # about -7 mUr
             "dispro_so4_hs_split": 0.5,  # i.e. 2 parts SO4, 1 part H2S
             # --------- Solver Parameters ----------------------------
             "max_steps": 20,  # max number of iterations

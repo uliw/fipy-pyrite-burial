@@ -104,6 +104,7 @@ def diagenetic_reactions(mp, c, k, f):
     limiters["inhib_o2"] = eps / (c.o2 + eps)
 
     limiters["ts2"] = 0.1 / (c.ts2 + 0.1)
+    limiters["disp_o2_inhib"] = 0.01 / (c.o2 + 0.01)
 
     # Sulfate Limiter (Implicit 1/[S+K] and Explicit [S]/[S+K])
     K_so4 = 0.2
@@ -1288,10 +1289,12 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             add_lhs_sink=True,
         )
 
+
+
 def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Calculate elemental sulfur disproportionation.
 
-    Reaction: 4S0 + 4.5O2 -> 1HS2 + 3SO4
+    Reaction: 4S0 + 4.5O2 -> 1H2S + 3SO4
 
     Notes:
     - The split between H2S and SO4 depends on mp.dispro_so4_hs_split,
@@ -1299,14 +1302,21 @@ def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     - The isotope fractionation between S0 and H2S is given by mp.dispro_hs_alpha (0.993)
     - The isotope fractionation between S0 and SO4 is given by mp.dispro_so4_alpha (1.02)
     - The reaction constant for the overall reaction is given by k.s0_dispro
-    - The reaction rate depends on O2, S0, and H2S (inhibitor).
+    - The reaction rate depends on S0, and H2S & O2 as inhibitors.
     """
 
     # 1. Base Rate Calculation (Master Species: S0)
-    # The inhibitor lim["ts2"] is already MM-type as per user instructions
-    coeff_s0_base = k.s0_dispro * c.o2 * lim["ts2"]
-    coeff_O2_base = k.s0_dispro * lim["ts2"]
-    s0_total_rate = coeff_s0_base * c.s0
+    # Disproportionation is anaerobic, so O2 is NOT a reactant.
+    # Instead, we use the inhibitor lim["disp_o2_inhib"] to ensure it only
+    # proceeds under low oxygen conditions.
+    rate_uncapped = k.s0_dispro * c.s0 * lim["ts2"] * lim["disp_o2_inhib"]
+
+    # Capping to prevent over-consumption in a single timestep
+    max_rate_s0 = 0.7 * c.s0 / (mp.current_dt + 1e-30)
+    rate_actual = np.minimum(rate_uncapped, max_rate_s0)
+
+    # Coefficient based on the consumed species (S0)
+    coeff_s0_base = rate_actual / (c.s0 + 1e-30)
 
     # 2. Calculate the Stoichiometric Split
     # If split = 0.5 (1 H2S : 2 SO4), then for 1.5 moles of S0:
@@ -1314,14 +1324,6 @@ def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     split = mp.dispro_so4_hs_split
     so4_fraction = 1.0 / (1.0 + split)
     h2s_fraction = split / (1.0 + split)
-
-    # 3. S0 Sink (Reference Species) - SOLID phase
-    # moved to coupled expression below
-    # add_implicit_sink(
-    #     LHS, RATES, "s0", coeff_s0_base, s0_total_rate, ctype="solid", mp=mp, c=c
-    # )
-
-    # 4. Product Sources - LIQUID phase (solid_2_liquid handles fac_l)
 
     # SO4 Production
     coeff_so4 = coeff_s0_base * so4_fraction
@@ -1333,7 +1335,7 @@ def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         "so4",
         "s0",
         coeff_so4,
-        s0_total_rate * so4_fraction,
+        coeff_so4 * c.s0,
         mp,
         c=c,
         add_lhs_sink=True,
@@ -1349,34 +1351,27 @@ def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         "ts2",
         "s0",
         coeff_ts2,
-        s0_total_rate * h2s_fraction,
+        coeff_ts2 * c.s0,
         mp,
         c=c,
         add_lhs_sink=True,
     )
 
-    # O2 Consumption (Assuming 1:1 with S0 based on reaction string)
-    add_implicit_sink(
-        LHS,
-        RATES,
-        "o2",
-        coeff_O2_base * so4_fraction * 1.5,
-        s0_total_rate * so4_fraction * 1.5,
-        ctype="liquid",
-        mp=mp,
-        c=c,
-    )
+    # O2 Consumption - REMOVED (Disproportionation is anaerobic)
+    # If the user intended this to be S0 oxidation, O2 should be a reactant.
+    # But for disproportionation, it is purely internal redox.
 
     # 5. Isotopes
     if mp.isotopes:
-        # We calculate how the 32S atoms leaving S0 are distributed
-        s0_32_val = c.s0_32 + 1e-30
-        s0_val = c.s0 + 1e-30
+        # To maintain isotope mass balance, the 32S leaving S0 must exactly equal
+        # the 32S entering H2S and SO4. If the user-provided alphas do not have a 
+        # weighted average of 1.0, mass is created/destroyed. We normalize them here:
+        weighted_alpha = h2s_fraction * mp.dispro_hs_alpha + so4_fraction * mp.dispro_so4_alpha
+        norm_hs_alpha = mp.dispro_hs_alpha / weighted_alpha
+        norm_so4_alpha = mp.dispro_so4_alpha / weighted_alpha
 
         # Fractionation for H2S path
-        # Rate32_hs = RateTotal_hs * alpha * (S32/Stot)
-        # Coeff for coupling is (RateTotal_hs / Stot) * alpha
-        coeff_hs_32 = (coeff_ts2) * mp.dispro_hs_alpha
+        coeff_hs_32 = coeff_ts2 * norm_hs_alpha
 
         add_implicit_coupling_new(
             "solid_2_liquid",
@@ -1393,7 +1388,7 @@ def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         )
 
         # Fractionation for SO4 path
-        coeff_so4_32 = (coeff_so4) * mp.dispro_so4_alpha
+        coeff_so4_32 = coeff_so4 * norm_so4_alpha
 
         add_implicit_coupling_new(
             "solid_2_liquid",
@@ -1408,16 +1403,3 @@ def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             c=c,
             add_lhs_sink=True,
         )
-
-        # # S0_32 Sink (Sum of both paths)
-        # coeff_s0_32_sink = coeff_hs_32 + coeff_so4_32
-        # add_implicit_sink(
-        #     LHS,
-        #     RATES,
-        #     "s0_32",
-        #     coeff_s0_32_sink,
-        #     coeff_s0_32_sink * c.s0_32,
-        #     ctype="solid",
-        #     mp=mp,
-        #     c=c,
-        # )

@@ -398,7 +398,11 @@ def run_non_steady_state_solver_coupled(
                         species_list_partial,
                     )
 
-                    coupled_eq.sweep(dt=current_dt, solver=solver)
+                    coupled_eq.sweep(
+                        dt=current_dt,
+                        solver=solver,
+                        # underRelaxation=0.5, # currently failing
+                    )
                     converged = True
 
                 except Exception as e:
