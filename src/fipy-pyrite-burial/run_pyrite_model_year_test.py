@@ -33,7 +33,7 @@ if __name__ == "__main__":
         "process_monitor": "gui",  # gui | video | none
         # Solver Parameters
         "max_steps": 200000,  # max number of iterations
-        "t_end": Q_("10 yr").to("seconds").magnitude,
+        "t_end": Q_("1000 yr").to("seconds").magnitude,
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years

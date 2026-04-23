@@ -240,8 +240,13 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         alpha = 1.0 + (mp.msr_alpha - 1.0) * lim["alpha_explicit"]
         s_val = c.so4 + 1e-12
         s32_val = c.so4_32 + 1e-12
-        f_32 = alpha / (s_val + (alpha - 1) * s32_val + 1e-30)
-        coeff_so4_32 = f_32 * so4_rate
+        denom = s_val + (alpha - 1.0) * s32_val + 1e-30
+
+        # Logic: Coeff_32 = Coeff_Tot * (S_Tot * alpha / Denom)
+        # We use s_val to keep the implicit Jacobian stable and prevent
+        # artificial magnification when so4 is dropping rapidly.
+        ratio = s_val / denom
+        coeff_so4_32 = coeff_so4 * alpha * ratio
 
         add_implicit_coupling_new(
             "liquid_2_liquid",  # type
@@ -539,7 +544,7 @@ def fe2_sorption_clip(c, k, mp, dt, RATES):
 
 
 def fe2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """Reaction: 4 Fe2+ O2 -> 1 Fe3OOH
+    """Reaction: 4 Fe2+ O2 -> 4 Fe3OOH
     Note: Fe2_total tracks Fe2 liquid and sorbed. However the
     reaction rates are the same, so we use fe2_total
     """
@@ -702,7 +707,7 @@ def pyrite_formation_s0(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
 
 def pyrite_formation_fes_ts2(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """reaction: 1 FeS + 1 H2S -> 1 FeS2"""
+    """reaction: 1 FeS + 1 H2S -> 1 FeS2Fe"""
 
     # H2S Sink (1.0x) - LIQUID
     coeff_ts2 = k.fes_ts2 * c.fes * mp.hs_frac
@@ -1290,11 +1295,10 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         )
 
 
-
 def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Calculate elemental sulfur disproportionation.
 
-    Reaction: 4S0 + 4.5O2 -> 1H2S + 3SO4
+    Reaction: 3S0 + 8H2O -> H2S + 2SO4
 
     Notes:
     - The split between H2S and SO4 depends on mp.dispro_so4_hs_split,
@@ -1304,6 +1308,7 @@ def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     - The reaction constant for the overall reaction is given by k.s0_dispro
     - The reaction rate depends on S0, and H2S & O2 as inhibitors.
     """
+    from diff_lib import get_delta
 
     # 1. Base Rate Calculation (Master Species: S0)
     # Disproportionation is anaerobic, so O2 is NOT a reactant.
@@ -1364,9 +1369,11 @@ def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 5. Isotopes
     if mp.isotopes:
         # To maintain isotope mass balance, the 32S leaving S0 must exactly equal
-        # the 32S entering H2S and SO4. If the user-provided alphas do not have a 
+        # the 32S entering H2S and SO4. If the user-provided alphas do not have a
         # weighted average of 1.0, mass is created/destroyed. We normalize them here:
-        weighted_alpha = h2s_fraction * mp.dispro_hs_alpha + so4_fraction * mp.dispro_so4_alpha
+        weighted_alpha = (
+            h2s_fraction * mp.dispro_hs_alpha + so4_fraction * mp.dispro_so4_alpha
+        )
         norm_hs_alpha = mp.dispro_hs_alpha / weighted_alpha
         norm_so4_alpha = mp.dispro_so4_alpha / weighted_alpha
 
@@ -1403,3 +1410,12 @@ def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             c=c,
             add_lhs_sink=True,
         )
+        # d_ts2 = get_delta(c.ts2[-1], c.ts2_32[-1], mp.VCDT)
+        # d_so4 = get_delta(c.so4[-1], c.so4_32[-1], mp.VCDT)
+        # d_s0 = get_delta(c.s0[-1], c.s0_32[-1], mp.VCDT)
+        # print(f"d_so4 = {d_so4:.2f}")
+        # print(f"d_ts2 = {d_ts2:.2f}")
+        # print(f"d_s0 = {d_s0:.2f}")
+        # print(f"c.s0[-1] = {c.s0.value[-1]:.2e}")
+        # print(f"c.so4[-1] = {c.so4.value[-1]:.2e}")
+        # print(f"c.ts2[-1] = {c.ts2.value[-1]:.2e}\n")

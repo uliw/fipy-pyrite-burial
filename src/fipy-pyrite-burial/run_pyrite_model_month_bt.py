@@ -36,7 +36,7 @@ if __name__ == "__main__":
         "DB0": Q_("4 cm^2/year").to("m^2/second").magnitude,
         # Solver Parameters
         "max_steps": 200000,  # max number of iterations
-        "t_end": Q_("500 yr").to("seconds").magnitude,
+        "t_end": Q_("10 kyr").to("seconds").magnitude,
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 month").to("seconds").magnitude,  # time step in years

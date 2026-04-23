@@ -30,7 +30,7 @@ if __name__ == "__main__":
     p_dict = {
         "experiment": experiment,
         "state_data": None,
-        "process_monitor": "video",  # gui | video | none
+        "process_monitor": "gui",  # gui | video | none
         # Solver Parameters
         "max_steps": 200000,  # max number of iterations
         "t_end": Q_("10 kyr").to("seconds").magnitude,
