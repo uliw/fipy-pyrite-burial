@@ -1128,7 +1128,7 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     # 3. Apply the MM-type limiter
     # km_fes controls the 'sharpness' of the approach to equilibrium
-    km_fes = 0.1
+    km_fes = 0.5
     # breakpoint()
     fes_limiter = driving_force / (km_fes + driving_force)
     fes_coeff = k.fes_ts2 * hs_val * fes_limiter
@@ -1242,6 +1242,103 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     # Apply both caps
     k_d = np.minimum(k_d_raw, np.minimum(k_d_reservoir, k_d_equil))
+
+    # ------------------------------------------------------------------
+    # 4. Dissolution rate [mmol/L_solid/s]
+    # ------------------------------------------------------------------
+    diss_rate_solid = k_d * fes_val
+
+    # print(f"f max = {np.max(diss_rate_solid.value):.2e}, f min = {np.min(diss_rate_solid.value):.2e}")
+
+    # ------------------------------------------------------------------
+    # 5a. fes sink + ts2 source
+    # ------------------------------------------------------------------
+    add_implicit_coupling_new(
+        "solid_2_liquid",
+        CROSS,
+        RATES,
+        LHS,
+        target_species="ts2",
+        source_species="fes",
+        coeff=k_d,
+        rate=diss_rate_solid,
+        mp=mp,
+        c=c,
+        add_lhs_sink=True,
+    )
+
+    # ------------------------------------------------------------------
+    # 5b. fe2_total source (solid_2_liquid; fe2_total is a diffusing liquid)
+    # ------------------------------------------------------------------
+    add_implicit_coupling_new(
+        "solid_2_liquid",
+        CROSS,
+        RATES,
+        LHS,
+        target_species="fe2_total",
+        source_species="fes",
+        coeff=k_d,
+        rate=diss_rate_solid,
+        mp=mp,
+        c=c,
+        add_lhs_sink=False,
+    )
+
+    # ------------------------------------------------------------------
+    # 6. Isotopes (32S) — no fractionation, k_d identical to bulk
+    # ------------------------------------------------------------------
+    if mp.isotopes:
+        fes_32_val = c.fes_32
+        diss_32_solid = k_d * fes_32_val
+
+        add_implicit_coupling_new(
+            "solid_2_liquid",
+            CROSS,
+            RATES,
+            LHS,
+            target_species="ts2_32",
+            source_species="fes_32",
+            coeff=k_d,
+            rate=diss_32_solid,
+            mp=mp,
+            c=c,
+            add_lhs_sink=True,
+        )
+
+
+def fes_dissolution_new(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """
+    FeS dissolution — equilibrium capped
+
+    All rates in natural model units (mmol/L_pw or mmol/L_solid).
+    Porosity conversions are handled transparently by helpers via ctype.
+
+    using michaelis menten limiter
+    """
+    from fipy.variables.variable import Variable
+
+    # ------------------------------------------------------------------
+    # 1. Current state
+    # ------------------------------------------------------------------
+    fe2_pw_val = c.fe2_total * mp.f_diss + 1e-20  # mmol/L_pw
+    ts2_val = c.ts2  # mmol/L_pw
+    hs_val = ts2_val * mp.hs_frac  # mmol/L_pw
+    fes_val = c.fes  # mmol/L_solid
+
+    # 1. Calculate Omega
+    km_diss = 0.5
+    omega_den = k.hplus * k.fes_sp + 1e-30
+    omega = (fe2_pw_val * hs_val) / omega_den
+    zero = c.fes * 0.0  # quick hack to get a fipy cellvariable
+    undersat = np.maximum(zero, 1.0 - omega)
+    dissol_limiter = undersat / (km_diss + undersat)
+
+    # ------------------------------------------------------------------
+    # 3. Dissolution coefficient
+    # ------------------------------------------------------------------
+    f_max = 0.5
+    k_d = k.fes_isd * dissol_limiter  #  * fes_limiter
+    k_d = k_d / (1 + (k_d * mp.current_dt / f_max))
 
     # ------------------------------------------------------------------
     # 4. Dissolution rate [mmol/L_solid/s]

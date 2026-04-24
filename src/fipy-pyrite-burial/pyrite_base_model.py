@@ -66,7 +66,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
             "title": None,  # defaults to current time
             "start_time": 0,  # i.e., when starting from a previous state
             # --------- Model Geometry & boundary conditions ------
-            "max_depth": 2.0,  # meters
+            "max_depth": 4.0,  # meters
             "initial_spacing": 0.001,  # meters
             "reaction_zone_spacing": 0.001,  # meters
             "max_spacing": 0.1,  # meters, None = no cap
@@ -86,9 +86,9 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
             "bc_ts2": 0.0,  # mmol/l # Total S2-
             "bc_s0": 0.0,  # mmol/l
             "bc_om": Q_("548 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
+            "bc_fe3": Q_("12 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
             "bc_fe2": 0,  # wt% Fe2
             "bc_fe2_p": 0,  # wt% sorbed Fe2
-            "bc_fe3": Q_("12 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
             "DB0": Q_("0.2 cm^2/year").to("m^2/second").magnitude * 0,
             "DB_depth": 0,  # Bioturbation depth in m
             "BI0": 1e-6 * 0,  # should be < 1e-5
@@ -124,7 +124,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         rn.sulfide_mediated_iron_reduction,
         rn.fe2_oxidation,
         rn.fes_precipitation_terminal,
-        rn.fes_dissolution,
+        rn.fes_dissolution_new,
         rn.fes_oxidation,
         rn.pyrite_formation_s0,
         rn.pyrite_formation_fes_ts2,
