@@ -1,10 +1,12 @@
 """
 A python script to create a concise summary of the experimental steady state results.
 """
+
 import numpy as np
 import pandas as pd
 import glob
 import os
+
 
 def get_delta(c, li, r):
     """Calculate the delta from the mass of light and heavy isotope.
@@ -40,6 +42,7 @@ def get_delta(c, li, r):
 
     return d
 
+
 # Export final results as
 file_name = "summary.csv"
 
@@ -52,7 +55,22 @@ csv_files = [f for f in csv_files if f != file_name]
 results = []
 
 # 2.1 test that the following column names are present
-col_names = ["c_so4", "c_so4_32", "c_ts2", "c_ts2_32", "c_fe2_total", "c_fe3", "c_fes", "c_fes_32", "c_fes2", "c_fes2_32", "c_s0", "c_s0_32", "w", "phi"]
+col_names = [
+    "c_so4",
+    "c_so4_32",
+    "c_ts2",
+    "c_ts2_32",
+    "c_fe2_total",
+    "c_fe3",
+    "c_fes",
+    "c_fes_32",
+    "c_fes2",
+    "c_fes2_32",
+    "c_s0",
+    "c_s0_32",
+    "w",
+    "phi",
+]
 
 for current_file_name in csv_files:
     try:
@@ -69,7 +87,7 @@ for current_file_name in csv_files:
 
     # 2.2 Assign values in the last row of the csv file to variables that derive their name from the column header
     last_row = df.iloc[-1]
-    
+
     so4 = last_row["c_so4"]
     so4_32 = last_row["c_so4_32"]
     ts2 = last_row["c_ts2"]
@@ -96,24 +114,28 @@ for current_file_name in csv_files:
     s_flux = s_total_bulk * w
 
     # get delta values for total flux
-    s_32_total_bulk = phi * (so4_32 + ts2_32) + (1 - phi) * (s0_32 + 2 * fes2_32)
+    s_32_total_bulk = phi * (so4_32 + ts2_32) + (1 - phi) * (s0_32 + fes2_32)
     d34S_total = get_delta(s_total_bulk, s_32_total_bulk, 0.044162589)
-  
-    
+    print(f"s_total_bulk = {s_total_bulk:.2e}")
+    print(f"s_32_total_bulk = {s_32_total_bulk:.2e}")
+    print(f"d34S_total = {d34S_total:.2e}\n")
+
     # get delta values for Pyrite
     d34S_pyrite = np.nan
     if fes2_32 > 0.01:
-        d34S_pyrite = get_delta(2* fes2, fes2_32, 0.044162589)
+        d34S_pyrite = get_delta(2 * fes2, fes2_32, 0.044162589)
         print(f"d34S_pyrite = {d34S_pyrite}")
 
     # 2.4 save values as a row into results list
-    results.append({
-        "current_file_name": current_file_name,
-        "fe_flux [mol/m^3/s]": fe_flux,
-        "s_flux [mol/m^3/s]": s_flux,
-        "d34S_total [mUr VCDT]": d34S_total,
-        "d34S_pyrite [mUr VCDT]": d34S_pyrite
-    })
+    results.append(
+        {
+            "current_file_name": current_file_name,
+            "fe_flux [mol/m^3/s]": fe_flux,
+            "s_flux [mol/m^3/s]": s_flux,
+            "d34S_total [mUr VCDT]": d34S_total,
+            "d34S_pyrite [mUr VCDT]": d34S_pyrite,
+        }
+    )
 
 # 3 save data to csv file using the file_name variable. Export without the index!
 if results:
