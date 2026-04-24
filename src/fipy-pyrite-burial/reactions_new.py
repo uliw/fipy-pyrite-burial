@@ -1122,7 +1122,7 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     hs_val = c.ts2 * mp.hs_frac
     omega_den = k.hplus * k.fes_sp + 1e-30
     omega = (fe2_pw_val * hs_val) / omega_den
-    zero = c.ts2 * 0
+    zero = c.ts2 * 0  # hack to get a fipy cell variable
     # 2. Define the 'Driving Force' (only positive for precipitation)
     driving_force = np.maximum(zero, omega - 1)
 
@@ -1130,9 +1130,9 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # km_fes controls the 'sharpness' of the approach to equilibrium
     km_fes = 0.5
     # breakpoint()
-    fes_limiter = driving_force / (km_fes + driving_force)
-    fes_coeff = k.fes_ts2 * hs_val * fes_limiter
-    hs_coeff = k.fes_ts2 * fe2_pw_val * fes_limiter
+    equilibrium_limiter = driving_force / (km_fes + driving_force)
+    fes_coeff = k.fes_ts2 * hs_val * equilibrium_limiter
+    hs_coeff = k.fes_ts2 * fe2_pw_val * equilibrium_limiter
 
     # Fe2 sink + FeS source: CROSS to fe2_new
     add_implicit_coupling_new(
