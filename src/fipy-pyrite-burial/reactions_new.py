@@ -1120,8 +1120,19 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     fe2_pw_val = c.fe2_total * mp.f_diss + 1e-20
     hs_val = c.ts2 * mp.hs_frac
-    fes_coeff = k.fes_ts2 * hs_val
-    hs_coeff = k.fes_ts2 * fe2_pw_val
+    omega_den = k.hplus * k.fes_sp + 1e-30
+    omega = (fe2_pw_val * hs_val) / omega_den
+    zero = c.ts2 * 0
+    # 2. Define the 'Driving Force' (only positive for precipitation)
+    driving_force = np.maximum(zero, omega - 1)
+
+    # 3. Apply the MM-type limiter
+    # km_fes controls the 'sharpness' of the approach to equilibrium
+    km_fes = 0.1
+    # breakpoint()
+    fes_limiter = driving_force / (km_fes + driving_force)
+    fes_coeff = k.fes_ts2 * hs_val * fes_limiter
+    hs_coeff = k.fes_ts2 * fe2_pw_val * fes_limiter
 
     # Fe2 sink + FeS source: CROSS to fe2_new
     add_implicit_coupling_new(
