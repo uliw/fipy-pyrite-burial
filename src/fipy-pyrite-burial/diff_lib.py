@@ -327,7 +327,7 @@ def make_grid(L, initial_spacing, max_spacing, r=1.05):
         max_spacing (float): Maximum cell size allowed.
         r (float): Geometric growth rate (default 1.05).
 
-    Returns:
+    Returns
     -------
         tuple (mesh, z_centers)
             mesh: A fipy.Grid1D object.

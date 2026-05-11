@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-# import numpy as np
-from fipy.tools.numerix import *
 from fipy.tools import numerix as np
+
+# import numpy as np
+from fipy.tools.numerix import *  # noqa: F403
 from fipy.variables.cellVariable import CellVariable
 
 from diff_lib import (
     add_explicit_source,
-    add_implicit_sink,
     add_implicit_coupling_new,
+    add_implicit_sink,
 )
 
 
@@ -134,7 +135,7 @@ def diagenetic_reactions(mp, c, k, f):
     for r in mp.diagenetic_reactions:
         r(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
 
-    # 4. FINALIZE
+    # 4. FINALIZE 
     # -----------
     # Convert the CROSS dict into FiPy ImplicitSourceTerm objects and pack all
     # results into the f container as a tuple per species:

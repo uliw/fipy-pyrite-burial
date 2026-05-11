@@ -60,6 +60,7 @@ def get_layout(df):
     fes2_attr = {"color": "darkorange", "lw": lt, "fill_only": True, "zorder": -9}
     fes2_attr_nf = {"color": "darkorange", "lw": lt, "fill_only": False}
     dbio_attr = {"color": "#bbbbbb", "lw": lt, "fill_only": True}
+    dirr_attr = {"color": "yellow", "lw": lt, "fill_only": True, "alpha": 0.1}
 
     phi = df.phi
     # relative to sulfur
@@ -96,7 +97,7 @@ def get_layout(df):
             "yscale": "log",
             "xscale": "log",
             "ylim": (1e-6, 1e2),
-            "xlim": (4e-3, 2),
+            "xlim": (1e-2, 2),
             "left_ylabel": r"Concentration [mmol/L$_{PW}$]",
             # right 1
             "right1": [
@@ -132,6 +133,7 @@ def get_layout(df):
                 [df.f_fes2, r"FeS$_{2}$", fes2_attr_nf],
                 [df.f_s0, r"S$^{0}$", s0_attr],
                 [df.D_bio * 1e6, r"1e6 $\times$ D$_{bio}$ [$m^{2}/s$]", dbio_attr],
+                [df.D_irr, "1e6 $\times$ D$_{irr}$ [1/s]", dirr_attr],
                 # [df.f_o2, "O2", {"color": "C3"}],
                 # [df.f_poc, r"POC", poc_attr],
                 # [df.f_fe2_p, "f_fe2+p", {"color": "C9"}],
