@@ -12,14 +12,13 @@ liter of bulk sediment does.  ​
 
 if __name__ == "__main__":
     import pint
+    import reactions_new as rn
     from diff_lib import (
+        get_total_delta,
         save_data,
         save_state,
-        get_total_delta,
     )
-
     from pyrite_base_model import pyrite_model
-    import reactions_new as rn
 
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity

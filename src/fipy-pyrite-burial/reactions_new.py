@@ -1,11 +1,11 @@
 """Define the reactions."""
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 from fipy.tools import numerix as np
 
 # import numpy as np
-from fipy.tools.numerix import *  # noqa: F403
+# from fipy.tools.numerix import *  # noqa: F403
 from fipy.variables.cellVariable import CellVariable
 
 from diff_lib import (
@@ -22,14 +22,15 @@ def equilibrium_reactions(mp, c, k, f, RATES, dt):
     transport matrix has been solved.
     """
     for r in mp.instantenous_reactions:
-        r(c, k, mp, dt, RATES)
+        r[0](c, r[1], mp, dt, RATES)
 
     return f, RATES
 
 
 def diagenetic_reactions(mp, c, k, f):
     """
-    Main orchestrator for diagenetic reactions.  That are inside transport matrix.
+    Orchestrate diagenetic reactions inside the transport matrix.
+
     Calculates limiters, initializes matrices, and calls specific process functions.
 
     Porosity Handling:
@@ -131,9 +132,9 @@ def diagenetic_reactions(mp, c, k, f):
     # 3. RUN PROCESSES
     # ----------------
     # Each function updates LHS, RHS, and RATES in place
-
+    # r is list of list where r[0] is the function and r[1] is the k val
     for r in mp.diagenetic_reactions:
-        r(c, k, limiters, LHS, RHS, RATES, CROSS, mp)
+        r[0](c, r[1], limiters, LHS, RHS, RATES, CROSS, mp) 
 
     # 4. FINALIZE 
     # -----------
@@ -225,8 +226,8 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 4. Sulfate reduction
     add_implicit_coupling_new(
         "liquid_2_liquid",  # type
-        CROSS,  #  Off-diagonal coupling matrix
-        RATES,  #  Rate reporting dictionary
+        CROSS,  # Off-diagonal coupling matrix
+        RATES,  # Rate reporting dictionary
         LHS,  # Diagonal matrix (implicit sinks)
         "ts2",  # species that is produced
         "so4",  # species that is consumed
@@ -264,7 +265,8 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
 
 def hs_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """reaction: 1 HS- + 0.5 O2 -> 1 S0
+    """Reaction: 1 HS- + 0.5 O2 -> 1 S0.
+
     Note the model tracks total reduced sulfur ts2, to get HS-
     use:  [HS-] = ts2 * mp.hs_frac
     """
@@ -336,8 +338,8 @@ def hs_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
 
 def elemental_sulfur_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """
-    Reaction: 1 S0 + 1.5 O2 -> 1 SO4
+    """Reaction: 1 S0 + 1.5 O2 -> 1 SO4.
+
     Assuming that some O comes from H2O
     Phases: S0 (Solid), O2 (Liquid), SO4 (Liquid)
     """
@@ -507,7 +509,10 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
 
 def sulfide_speciation_clip(c, k, mp, dt, RATES):
-    """Update reporting species (h2s, hs) based on total sulfide (ts2) and pH."""
+    """Update reporting species (h2s, hs) based on total sulfide (ts2) and pH.
+
+    This is FYI only and does not affect the reaction rates, which are all based on ts2.
+    """
     ts2_val = c.ts2.value
     c.h2s.value[:] = ts2_val * mp.h2s_frac
     c.hs.value[:] = ts2_val * mp.hs_frac
@@ -524,28 +529,16 @@ def fe2_sorption_clip(c, k, mp, dt, RATES):
     Instead of calculating rates, we calculate fractions.
 
     System State: 'fe_total' is the primary variable.
-    fe2 (liquid) and fe2_p (solid) are derived helper views.
-    """
-    # -----------------------------------------------------------
-    # RECONSTRUCT SPECIES FOR OTHER REACTIONS
-    # -----------------------------------------------------------
-    # Other reactions (Pyrite precip, etc.) need [Fe2] and [Fe2_p].
-    # We essentially 'distribute' the total iron to these views.
-    # NOTE: c.fe2 and c.fe2_p must be updated so subsequent functions
-    # (like iron_sulfide_formation) read the correct values.
-
-    # This might require c to be mutable or update the variables in place.
-    # In FiPy, we can't easily overwrite 'c.fe2' if it's the solution variable.
-    # STRATEGY:
-    # 1. Solve for 'fe_total' in the main solver.
-    # 2. Inside this function, calculate fe2 and fe2_p from fe_total.
-    # 3. Store them in 'c' so subsequent reactions use them.
+    fe2 (liquid) and fe2_p (solid) are derived helper views. 
+    These are not used in the equations, and FYI only. 
+    """    
     c.fe2.setValue(c.fe2_total * mp.f_diss)
     c.fe2_p.setValue(c.fe2_total * mp.f_sorb)
 
 
 def fe2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """Reaction: 4 Fe2+ O2 -> 4 Fe3OOH
+    """Reaction: 4 Fe2+ O2 -> 4 Fe3OOH.
+
     Note: Fe2_total tracks Fe2 liquid and sorbed. However the
     reaction rates are the same, so we use fe2_total
     """
@@ -580,8 +573,7 @@ def fe2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
 
 def fes_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """reaction: 1 FeS + 2.25 O2 -> 1 Fe3 + 1 SO4"""
-
+    """reaction: 1 FeS + 2.25 O2 -> 1 Fe3 + 1 SO4."""
     # FeS Sink - SOLID
     coeff_fes = k.fes_ox * c.o2
 
@@ -649,7 +641,8 @@ def fes_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
 
 def pyrite_formation_s0(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """reaction: 1 FeS + 1 S0 -> 1 FeS2.
+    """Reaction: 1 FeS + 1 S0 -> 1 FeS2.
+
     This is a bit tricky as we have two different S atoms into the same
     target (FeS2)
     """
@@ -708,8 +701,7 @@ def pyrite_formation_s0(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
 
 def pyrite_formation_fes_ts2(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """reaction: 1 FeS + 1 H2S -> 1 FeS2Fe"""
-
+    """Reaction: 1 FeS + 1 H2S -> 1 FeS2Fe."""
     # H2S Sink (1.0x) - LIQUID
     coeff_ts2 = k.fes_ts2 * c.fes * mp.hs_frac
     add_implicit_sink(
@@ -786,17 +778,9 @@ def pyrite_formation_fes_ts2(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         )
 
 
-def apply_rate_limiter(rate, var, fraction=0.5, eps=1e-12):
-    """Limit rate so it doesn't consume more than a fraction of available var."""
-    raise DeprecationWarning()
-    val = var.value if hasattr(var, "value") else var
-    max_rate = val * fraction / 1.0  # Normalized dt=1 for steady state sweep
-    return np.minimum(rate, np.maximum(max_rate, 0.0))
-
-
 def pyrite_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
-    Reaction: 1 FeS2 + 3.5 O2 → 1 Fe3 + 2 SO4
+    Reaction: 1 FeS2 + 3.5 O2 → 1 Fe3 + 2 SO4.
 
     Coupling strategy:
       - SO4 is cross-coupled to O2  (liquid_2_liquid, stoich 2/3.5)
@@ -869,77 +853,6 @@ def pyrite_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             stoich_ratio=1.0,  # fes2_32 in mol-S, not mol-FeS2
         )
 
-
-def fes_precipitation_clip(c, k, mp, dt, RATES):
-    """Fe2+ HS- -> FeS
-    Instantaneous equilibrium 'Clip' for FeS precipitation.
-    Includes Solid-Phase Buffering!
-    """
-    #     import numpy as np
-
-    # 1. Get concentrations
-    fe_pw = c.fe2_total.value * mp.f_diss
-    ts2_pw = c.ts2.value
-    fe_pw = c.fe2_total * mp.f_diss
-    ts2_pw = c.ts2
-
-    # 2. Define Effective Ksp (CRITICAL FIX: Include hs_frac!)
-    # True Equilibrium: [Fe_pw] * [HS] = K_sp * [H+]
-    # [HS] = [TS2] * hs_frac  -->  [Fe_pw] * [TS2] = (K_sp * [H+]) / hs_frac
-    K_eff = (k.fes_sp * k.hplus) / mp.hs_frac
-
-    # 3. Identify Supersaturated Cells
-    iap = fe_pw * ts2_pw
-    mask = iap > K_eff
-
-    if not np.any(mask):
-        return RATES
-
-    # 4. Solve BUFFERED Quadratic
-    # (Fe_pw - x * f_diss) * (TS2 - x) = K_eff
-    A = mp.f_diss
-    B = -(fe_pw[mask] + ts2_pw[mask] * mp.f_diss)
-    C = iap[mask] - K_eff
-
-    delta = B**2 - 4.0 * A * C
-
-    # Negative root is the physical one (subtracting mass)
-    x_precip = (-B - np.sqrt(delta)) / (2.0 * A)
-
-    phi_val = getattr(mp.phi, "value", mp.phi)
-    fac_s = phi_val / (1.0 - phi_val)
-
-    # --- REPORTING LOGIC ---
-    rate_report = x_precip / dt
-
-    RATES["ts2"][mask] -= rate_report
-    RATES["fe2_total"][mask] -= rate_report
-    RATES["fes"][mask] += rate_report * fac_s[mask]
-
-    # ---------------------------------------------------------
-    # 5. Calculate Isotope Mass Transfer FIRST
-    # ---------------------------------------------------------
-    if mp.isotopes:
-        # Current Porewater Ratio
-        R_pw = c.ts2_32.value[mask] / (c.ts2.value[mask] + 1e-20)
-
-        # Mass of 32S we WANT to move
-        loss_32 = x_precip * R_pw
-
-        # Apply changes
-        c.ts2_32.value[mask] -= loss_32
-
-        # Ensure your solid isotope variable matches your initialization
-        c.fes_32.value[mask] += loss_32 * mp.fac_s
-
-    # ---------------------------------------------------------
-    # 6. Update Bulk State Variables
-    # ---------------------------------------------------------
-    c.ts2.value[mask] -= x_precip
-    c.fe2_total.value[mask] -= x_precip
-    c.fes.value[mask] += x_precip * fac_s[mask]
-
-    return RATES
 
 
 def fes_precipitation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
@@ -1111,8 +1024,8 @@ def fes_precipitation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
 
 def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """
-    FeS precipitation as terminal solid phase. No dissolution.
+    """FeS precipitation as terminal solid phase. No dissolution.
+
     Fe2 + HS- -> FeS
 
     All bulk species and fes_32 driven by fe2_new.
@@ -1195,8 +1108,6 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     Hard cutoff at omega < omega_crit prevents any overlap with the
     precipitation function.
     """
-    from fipy.variables.variable import Variable
-
     # ------------------------------------------------------------------
     # 1. Current state
     # ------------------------------------------------------------------
@@ -1309,15 +1220,13 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
 def fes_dissolution_new(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
-    FeS dissolution — equilibrium capped
+    FeS dissolution — equilibrium capped.
 
     All rates in natural model units (mmol/L_pw or mmol/L_solid).
     Porosity conversions are handled transparently by helpers via ctype.
 
     using michaelis menten limiter
     """
-    from fipy.variables.variable import Variable
-
     # ------------------------------------------------------------------
     # 1. Current state
     # ------------------------------------------------------------------
@@ -1409,7 +1318,8 @@ def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     Reaction: 3S0 + 8H2O -> H2S + 2SO4
 
-    Notes:
+    Notes
+    -----
     - The split between H2S and SO4 depends on mp.dispro_so4_hs_split,
       which is the ratio between H2S/SO4, typically 1:2 -> 0.5
     - The isotope fractionation between S0 and H2S is given by mp.dispro_hs_alpha (0.993)
@@ -1417,8 +1327,6 @@ def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     - The reaction constant for the overall reaction is given by k.s0_dispro
     - The reaction rate depends on S0, and H2S & O2 as inhibitors.
     """
-    from diff_lib import get_delta
-
     # 1. Base Rate Calculation (Master Species: S0)
     # Disproportionation is anaerobic, so O2 is NOT a reactant.
     # Instead, we use the inhibitor lim["disp_o2_inhib"] to ensure it only
@@ -1519,12 +1427,4 @@ def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             c=c,
             add_lhs_sink=True,
         )
-        # d_ts2 = get_delta(c.ts2[-1], c.ts2_32[-1], mp.VCDT)
-        # d_so4 = get_delta(c.so4[-1], c.so4_32[-1], mp.VCDT)
-        # d_s0 = get_delta(c.s0[-1], c.s0_32[-1], mp.VCDT)
-        # print(f"d_so4 = {d_so4:.2f}")
-        # print(f"d_ts2 = {d_ts2:.2f}")
-        # print(f"d_s0 = {d_s0:.2f}")
-        # print(f"c.s0[-1] = {c.s0.value[-1]:.2e}")
-        # print(f"c.so4[-1] = {c.so4.value[-1]:.2e}")
-        # print(f"c.ts2[-1] = {c.ts2.value[-1]:.2e}\n")
+        
