@@ -847,9 +847,9 @@ def save_data_async(
         return obj
 
     c_snap = data_container({s: snap(getattr(c, s)) for s in species_list})
-    f_snap = data_container(
-        {s: (None, None, snap(getattr(f_final, s)[2])) for s in species_list}
-    )
+    f_snap = data_container({
+        s: (None, None, snap(getattr(f_final, s)[2])) for s in species_list
+    })
     D_mol_snap = data_container({key: snap(val) for key, val in D_mol.items()})
 
     # Copy metadata
@@ -1016,7 +1016,14 @@ def get_total_delta(c, mp, index=-1):
 # HELPER FUNCTIONS (Matrix Math Abstraction)
 # =============================================================================
 def add_implicit_sink(
-    LHS, RATES, species, coeff, rate, ctype="liquid_2_liquid", mp=None, c=None
+    LHS,
+    RATES,
+    species,
+    coeff,
+    rate,
+    ctype="liquid_2_liquid",
+    mp=None,
+    c=None,
 ):
     """Add an implicit consumption term to the LHS matrix.
 

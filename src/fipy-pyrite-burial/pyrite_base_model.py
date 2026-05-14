@@ -26,6 +26,9 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     # import numpy as np
     import pandas as pd
     import pint
+    from fipy import CellVariable
+    from fipy.tools import numerix as np
+
     import plot_data_new
 
     # from reactions_new import diagenetic_reactions
@@ -40,8 +43,6 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         make_grid2,
         read_state,
     )
-    from fipy import CellVariable
-    from fipy.tools import numerix as np
     from live_plot_lib import LivePlotter, capture_state
     from reaction_constants import get_reaction_constants
     from solver_calls import (
@@ -63,38 +64,51 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         "backup_step": 10000,  # create backups every nth step
         "title": None,  # defaults to current time
         "start_time": 0,  # i.e., when starting from a previous state
-        # --------- Model Geometry & boundary conditions ------
-        "max_depth": 4.0,  # meters
-        "initial_spacing": 0.001,  # meters
-        "reaction_zone_spacing": 0.001,  # meters
+        # --------- Model Geometry --------------------------- #
+        "max_depth": 2,  # meters
+        "initial_spacing": 0.0001,  # meters
+        "reaction_zone_spacing": 0.0001,  # meters
         "max_spacing": 0.1,  # meters, None = no cap
-        "reaction_zone": (0.05, 0.8),  # in meters
-        "isotopes": True,
+        "reaction_zone": (0.0, 0.1),  # in meters
+        # ------ bopundary conditions ------------------------ #
         "temp": [10.0, 10.1],  # temp top, bottom, in C
         "w": Q_("0.2 cm/yr").to("m/s").m,  # sedimentation rate in m/s
         "advection": 0,  # upward directed flow component
         "pH": 7.5,  # porewater pH, Velde et al.
         "phi": 0.8,
-        "so4_d": 21,  # seawater delta
-        "msr_alpha": 1.07,  # MSR enrichment factor in mUr
-        "hs_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
-        "s0_ox_alpha": 1,  # sulfide oxidation enrichment factor in mUr
-        "bc_o2": 6,  # mmmol/l
-        "bc_so4": 28.0,  # mmol/l
+        "bc_o2": 0.28,  # mmmol/l
+        "bc_so4": 28.2,  # mmol/l
         "bc_ts2": 0.0,  # mmol/l # Total S2-
         "bc_s0": 0.0,  # mmol/l
-        "bc_om": Q_("548 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
+        "bc_om_fast": Q_("365 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
+        "bc_om_slow": Q_("183 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
         "bc_fe3": Q_("12 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
         "bc_fe2": 0,  # wt% Fe2
         "bc_fe2_p": 0,  # wt% sorbed Fe2
+         # ---------  Monod constants -------------------------- #
+        "K_o2": Q_("0.001 umol/cm^3").to("mol/m^3").m,  # Monod constant
+        "K_ts2": Q_("0.1 umol/cm^3").to("mol/m^3").m,  # Monod constant
+        "K_so4": Q_("0.9 umol/cm^3").to("mol/m^3").m,  # Monod constant
+        "K_fe3_diss":  Q_("10.4 umol/cm^3").to("mol/m^3").m,  # Monod constant diss Fe3 reduc
+        "K_fe3":  1e-3,  # Monod constant Fe3 H2S reduc
+        # -------- benthic activity ---------------------------- #
         "DB0": Q_("0.2 cm^2/year").to("m^2/second").magnitude * 0,
         "DB_depth": 0,  # Bioturbation depth in m
         "BI0": 1e-6 * 0,  # should be < 1e-5
         "BI_depth": 0.0,  # Irrigation depth (0 = off)
+        # --------- Isotopes ----------------------------------- #
+        "isotopes": True,
+        "so4_d": 21,  # seawater delta
+        "msr_alpha": 1.07,  # MSR enrichment factor in mUr
+        "hs_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
+        "s0_ox_alpha": 1,  # sulfide oxidation enrichment factor in mUr
         "dispro_so4_alpha": 1.02,  # about +20 mUr
         "dispro_hs_alpha": 0.993,  # about -7 mUr
         "dispro_so4_hs_split": 0.5,  # i.e. 2 parts SO4, 1 part H2S
-        # --------- Solver Parameters ----------------------------
+        "VCDT": 0.044162589,  # VCDT reference ratio
+        "K_epsilon_msr": 0.2,  # limit MSR fractionation below 0.2 mmol/L
+        "K_epsilon_hs_ox": 0.01,  # limit HS fractionation below 0.01 mmol/L
+        # --------- Solver Parameters -------------------------- #
         "max_steps": 20,  # max number of iterations
         "t_end": Q_("1 kyr").to("seconds").magnitude,
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
@@ -104,11 +118,9 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         "dt_tolerance": 1e-12,  # steady state threshold (stop simulation)
         "dt_target_change": 100,  # target change per step (for dt adaptation)
         "solver_backend": "default",  # see solver_calls for options
-        "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
-        # ---------  Other --------------------------------------------------
-        "eps": 1e-8,  # limiters
+        # "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
+        # ---------  Other ------------------------------------ #
         "current_dt": 0.0,  # place holder
-        "VCDT": 0.044162589,  # VCDT reference ratio
         "display_length": 2,  #
     })
 
@@ -123,6 +135,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     # You can pass different k value containers as needed.
     mp["diagenetic_reactions"] = [
         [rn.aerobic_respiration, k],
+        [rn.dissimilatory_iron_reduction, k],
         [rn.sulfate_reduction, k],
         [rn.hs_oxidation, k],
         [rn.elemental_sulfur_oxidation, k],
@@ -172,7 +185,8 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         "ts2",  # Total S2-
         "ts2_32",  # Total S2- 32S
         "o2",
-        "poc",
+        "poc_fast",
+        "poc_slow",
         "fe2_total",
         "fe3",
         "fes",
@@ -267,7 +281,8 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         "so4_32": {"top": mp.bc_so4_32, "type": "dissolved"},
         "ts2": {"top": mp.bc_ts2, "type": "dissolved"},
         "ts2_32": {"top": mp.bc_ts2, "type": "dissolved"},
-        "poc": {"top": mp.bc_om, "type": "particulate"},
+        "poc_fast": {"top": mp.bc_om_fast, "type": "particulate"},
+        "poc_slow": {"top": mp.bc_om_slow, "type": "particulate"},
         "o2": {"top": mp.bc_o2, "type": "dissolved"},
         "s0": {"top": mp.bc_s0, "type": "particulate"},
         "s0_32": {"top": mp.bc_s0, "type": "particulate"},

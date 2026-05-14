@@ -1,4 +1,4 @@
-"""Convert reaction constants.
+"""Define reaction constants.
 
 Note, Velde et al likely have a typo in the FeS equilibrium constant
 Rickard (2006) defines two reaction constants, one with Ksp = 3.5
@@ -8,7 +8,9 @@ we would never precipitate FeS unless H2S > 1 mmol/l
 
 
 def get_reaction_constants(pH):
-    """convert reaction_constants into model units.  Constants returned are relative to
+    """convert reaction_constants into model units.
+
+    Constants returned are relative to
     bulk volume, with the exception of fe2_p_eq which is a ratio of solid-volume
     concentration and the porewater-volume concentration.
     """
@@ -18,8 +20,10 @@ def get_reaction_constants(pH):
     Q_ = ureg.Quantity
 
     velde: dict = {
-        "poc_o2": [5e-11, "m^3/(mol*second)", "m^3/(mol*second)"],  # POC + O2 -> CO2
-        "poc_so4": [5e-11, "m^3/(mol*second)", "m^3/(mol*second)"],  # POC + SO4 -> CO2
+        # "poc_o2": [5e-11, "m^3/(mol*second)", "m^3/(mol*second)"],  # POC + O2 -> CO2
+        # "poc_so4": [5e-11, "m^3/(mol*second)", "m^3/(mol*second)"],  # POC + SO4 -> CO2
+        "poc_fast": [10, "1/year", "1/second"],  # highly reactive OM
+        "poc_slow": [0.1, "1/year", "1/second"],  # reactive OM
         "fe2_p_eq": [696, "dimensionless", "dimensionless"],  # sorbed vs Fe2+ Fe2+ liq.
         "fes2_ox": [
             1e-10,

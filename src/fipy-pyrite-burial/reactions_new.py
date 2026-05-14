@@ -99,44 +99,37 @@ def diagenetic_reactions(mp, c, k, f):
 
     # 2. CALCULATE LIMITERS
     # ---------------------
-    eps = mp.eps
     limiters = {}
+    # O2 Limitation for low O2 (1.0 -> 0.0)
+    limiters["o2_implicit"] = 1 / (c.o2 + mp.K_o2)
+    # O2 Inhibition for high O2 (1.0 -> 0.0)
+    limiters["o2_inhibit"] = mp.K_o2 / (c.o2 + mp.K_o2)
 
-    # O2 Inhibition (1.0 -> 0.0)
-    limiters["inhib_o2"] = eps / (c.o2 + eps)
-
-    limiters["ts2"] = 0.1 / (c.ts2 + 0.1)
-    limiters["disp_o2_inhib"] = 0.01 / (c.o2 + 0.01)
+    # TS2 inhibition for high TS2
+    limiters["ts2"] = mp.K_ts2 / (c.ts2 + mp.K_ts2)
 
     # Sulfate Limiter (Implicit 1/[S+K] and Explicit [S]/[S+K])
-    K_so4 = 0.2
-    limiters["so4_implicit"] = 1.0 / (c.so4 + K_so4)
-    limiters["so4_32_implicit"] = 1.0 / (c.so4_32 + K_so4)
+    limiters["so4_implicit"] = 1.0 / (c.so4 + mp.K_so4)
+    limiters["so4_explicit"] = c.so4 / (c.so4 + mp.K_so4)
 
-    limiters["so4_explicit"] = c.so4 / (c.so4 + K_so4)
-    limiters["so4_32_explicit"] = c.so4_32 / (c.so4_32 + K_so4)
+    # isotope enrichment during MSR
+    limiters["so4_alpha_explicit"] = c.so4 / (c.so4 + mp.K_epsilon_msr)
+    # isotope enrichment during HS oxidation
+    limiters["ts2_alpha_explicit"] = c.ts2 / (c.ts2 + mp.K_epsilon_hs_ox)
 
-    limiters["fe3_explicit"] = c.fe3 / (c.fe3 + 1e-3)
-    limiters["fe3_implicit"] = 1.0 / (c.fe3 + 1e-3)
-
-    # limiters["fes_explicit"] = c.fes / (c.fes + 1e-6)
-    # limiters["fes_implicit"] = 1 / (c.fes + 1e-6)
-
-    K_alpha = 0.2
-    limiters["alpha_explicit"] = c.so4 / (c.so4 + K_alpha)
-    limiters["alpha_implicit"] = 1.0 / (c.so4 + K_alpha)
-
-    # H2S Alpha Limiter (prevents numerical issues at trace concentrations)
-    limiters["ts2_alpha_explicit"] = c.ts2 / (c.ts2 + 0.05)
+    # Fe3 limiters
+    limiters["fe3_implicit"] = 1.0 / (c.fe3 + mp.K_fe3)
+    limiters["fe3_diss_implicit"] = 1.0 / (c.fe3 + mp.K_fe3_diss)
+    limiters["fe3_diss_inhib"] = mp.K_fe3_diss / (c.fe3 + mp.K_fe3_diss)
 
     # 3. RUN PROCESSES
     # ----------------
     # Each function updates LHS, RHS, and RATES in place
     # r is list of list where r[0] is the function and r[1] is the k val
     for r in mp.diagenetic_reactions:
-        r[0](c, r[1], limiters, LHS, RHS, RATES, CROSS, mp) 
+        r[0](c, r[1], limiters, LHS, RHS, RATES, CROSS, mp)
 
-    # 4. FINALIZE 
+    # 4. FINALIZE
     # -----------
     # Convert the CROSS dict into FiPy ImplicitSourceTerm objects and pack all
     # results into the f container as a tuple per species:
@@ -189,41 +182,130 @@ def diagenetic_reactions(mp, c, k, f):
 # PROCESS FUNCTIONS (The Biogeochemistry)
 # =============================================================================
 def aerobic_respiration(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """Define POC consumption by aerobic respiration."""
-    rate_base = k.poc_o2 * c.poc * c.o2
+    """Define POC and O2 consumption by aerobic respiration.
 
+    f = k * [OM] * [O2] / (K_O2 *[O2])
+
+    The model does however not track HCO3
+    This function considers two types of organic matter
+    """
     # POC Sink - SOLID
-    coeff_poc = k.poc_o2 * c.o2
+    coeff_poc_fast = k.poc_fast * c.o2 * lim["o2_implicit"]
+    coeff_poc_slow = k.poc_slow * c.o2 * lim["o2_implicit"]
     add_implicit_sink(
-        LHS, RATES, "poc", coeff_poc, rate_base, ctype="solid", mp=mp, c=c
+        LHS,
+        RATES,
+        "poc_fast",
+        coeff_poc_fast,
+        coeff_poc_fast * c.poc_fast,
+        ctype="solid",
+        mp=mp,
+        c=c,
+    )
+    add_implicit_sink(
+        LHS,
+        RATES,
+        "poc_slow",
+        coeff_poc_slow,
+        coeff_poc_slow * c.poc_slow,
+        ctype="solid",
+        mp=mp,
+        c=c,
     )
 
     # O2 Sink (1.27x) - LIQUID
-    coeff_o2 = 1.27 * k.poc_o2 * c.poc
+    coeff_o2_fast = k.poc_fast * c.poc_fast * lim["o2_implicit"]
+    coeff_o2_slow = k.poc_slow * c.poc_slow * lim["o2_implicit"]
+    coeff_o2 = coeff_o2_fast + coeff_o2_slow
     add_implicit_sink(
-        LHS, RATES, "o2", coeff_o2, 1.27 * rate_base, ctype="liquid", mp=mp, c=c
+        LHS,
+        RATES,
+        "o2",
+        coeff_o2,
+        1.27 * coeff_o2 * c.o2,
+        ctype="liquid",
+        mp=mp,
+        c=c,
     )
+
     # No produced species here (CO2 ignored)
+
+
+def dissimilatory_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """Calculate dissimilatory iron reduction.
+
+    Reaction: CH2O + 4 Fe3 -> HCO3 + 4Fe2+
+    """
+    coeff_fe3_slow = k.poc_slow * c.poc_slow * lim["o2_inhibit"] * 4
+    coeff_fe3_fast = k.poc_fast * c.poc_fast * lim["o2_inhibit"] * 4
+    coeff_fe3 = coeff_fe3_slow + coeff_fe3_fast
+    # Couple Fe3 reduction to Fe2 production
+    add_implicit_coupling_new(
+        "solid_2_liquid",  # type
+        CROSS,  # Off-diagonal coupling matrix
+        RATES,  # Rate reporting dictionary
+        LHS,  # Diagonal matrix (implicit sinks)
+        "fe2",  # species that is produced
+        "fe3",  # species that is consumed
+        coeff_fe3,  # reaction coefficient
+        coeff_fe3 * c.fe3,  # coeff * concentration
+        mp,
+        c=c,  # model parameters
+    )
+
+    # create the OM sinks
+    coeff_poc_slow = k.poc_slow * c.fe3 * lim["o2_inhibit"]
+    coeff_poc_fast = k.poc_fast * c.fe3 * lim["o2_inhibit"]
+    add_implicit_sink(
+        LHS,
+        RATES,
+        "poc_slow",
+        coeff_poc_slow,
+        coeff_poc_slow * c.poc_slow,
+        ctype="solid",
+        mp=mp,
+        c=c,
+    )
+    add_implicit_sink(
+        LHS,
+        RATES,
+        "poc_fast",
+        coeff_poc_fast,
+        coeff_poc_fast * c.poc_fast,
+        ctype="solid",
+        mp=mp,
+        c=c,
+    )
 
 
 def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Calculate sulfate reduction.
 
-    Reaction: 2 POC + 1 SO4 -> 1 TS2- Ref: POC (k.poc_so4)
+    Reaction: 2 POC + 1 SO4 -> 1 TS2-
+
+    Notes
+    -----
+     - sulfate reduction is limited in the presence of O2
+     - POC can be fast and/or slow
     """
-    # 1. Base Rate
-    poc_rate = k.poc_so4 * c.poc * c.so4 * lim["so4_implicit"] * lim["inhib_o2"]
-    so4_rate = poc_rate * 0.5
-
-    # 2. POC Sink (Ref Species) - SOLID
-    coeff_poc = k.poc_so4 * lim["so4_explicit"] * lim["inhib_o2"]
-    add_implicit_sink(LHS, RATES, "poc", coeff_poc, poc_rate, ctype="solid", mp=mp, c=c)
-
-    # 3. SO4 Sink -> Rate = 0.5 * Base - LIQUID
-    # HS- ~ 0.5 H2S,
-    coeff_so4 = k.poc_so4 * c.poc * lim["inhib_o2"] * lim["so4_implicit"] * 0.5
-
-    # 4. Sulfate reduction
+    coeff_so4_slow = (
+        k.poc_slow
+        * c.poc_slow
+        * lim["o2_inhibit"]
+        * lim["so4_implicit"]
+        * lim["fe3_diss_inhib"]
+        * 0.5
+    )
+    coeff_so4_fast = (
+        k.poc_fast
+        * c.poc_fast
+        * lim["o2_inhibit"]
+        * lim["so4_implicit"]
+        * lim["fe3_diss_inhib"]
+        * 0.5
+    )
+    coeff_so4 = coeff_so4_fast + coeff_so4_slow
+    # 4. Couple sulfate reduction to h2s production
     add_implicit_coupling_new(
         "liquid_2_liquid",  # type
         CROSS,  # Off-diagonal coupling matrix
@@ -232,14 +314,38 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         "ts2",  # species that is produced
         "so4",  # species that is consumed
         coeff_so4,  # reaction coefficient
-        so4_rate,  # coeff * concentration
+        coeff_so4 * c.so4,  # coeff * concentration
         mp,
         c=c,  # model parameters
     )
 
+    # sulfate reduction consumes poc
+    coeff_poc_slow = k.poc_slow * lim["so4_explicit"] * lim["o2_inhibit"]
+    coeff_poc_fast = k.poc_fast * lim["so4_explicit"] * lim["o2_inhibit"]
+    add_implicit_sink(
+        LHS,
+        RATES,
+        "poc_slow",
+        coeff_poc_slow,
+        coeff_poc_slow * c.poc_slow,
+        ctype="solid",
+        mp=mp,
+        c=c,
+    )
+    add_implicit_sink(
+        LHS,
+        RATES,
+        "poc_fast",
+        coeff_poc_fast,
+        coeff_poc_fast * c.poc_fast,
+        ctype="solid",
+        mp=mp,
+        c=c,
+    )
+
     # isotopes
     if mp.isotopes:
-        alpha = 1.0 + (mp.msr_alpha - 1.0) * lim["alpha_explicit"]
+        alpha = 1.0 + (mp.msr_alpha - 1.0) * lim["so4_alpha_explicit"]
         s_val = c.so4 + 1e-12
         s32_val = c.so4_32 + 1e-12
         denom = s_val + (alpha - 1.0) * s32_val + 1e-30
@@ -406,7 +512,7 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # ------------------------------------------------------------------
     k_base_val = (
         getattr(k.fe3_hs, "value", k.fe3_hs)
-        * getattr(lim["inhib_o2"], "value", lim["inhib_o2"])
+        * getattr(lim["o2_inhibit"], "value", lim["o2_inhibit"])
         * getattr(lim["fe3_implicit"], "value", lim["fe3_implicit"])
     )
 
@@ -529,9 +635,9 @@ def fe2_sorption_clip(c, k, mp, dt, RATES):
     Instead of calculating rates, we calculate fractions.
 
     System State: 'fe_total' is the primary variable.
-    fe2 (liquid) and fe2_p (solid) are derived helper views. 
-    These are not used in the equations, and FYI only. 
-    """    
+    fe2 (liquid) and fe2_p (solid) are derived helper views.
+    These are not used in the equations, and FYI only.
+    """
     c.fe2.setValue(c.fe2_total * mp.f_diss)
     c.fe2_p.setValue(c.fe2_total * mp.f_sorb)
 
@@ -852,7 +958,6 @@ def pyrite_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             c=c,
             stoich_ratio=1.0,  # fes2_32 in mol-S, not mol-FeS2
         )
-
 
 
 def fes_precipitation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
@@ -1329,9 +1434,9 @@ def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     # 1. Base Rate Calculation (Master Species: S0)
     # Disproportionation is anaerobic, so O2 is NOT a reactant.
-    # Instead, we use the inhibitor lim["disp_o2_inhib"] to ensure it only
+    # Instead, we use the inhibitor lim["disp_o2_inhibit"] to ensure it only
     # proceeds under low oxygen conditions.
-    rate_uncapped = k.s0_dispro * c.s0 * lim["ts2"] * lim["disp_o2_inhib"]
+    rate_uncapped = k.s0_dispro * c.s0 * lim["ts2"] * lim["o2_inhibit"]
 
     # Capping to prevent over-consumption in a single timestep
     max_rate_s0 = 0.7 * c.s0 / (mp.current_dt + 1e-30)
@@ -1427,4 +1532,3 @@ def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             c=c,
             add_lhs_sink=True,
         )
-        

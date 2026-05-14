@@ -97,12 +97,12 @@ def get_layout(df):
             "yscale": "log",
             "xscale": "log",
             "ylim": (1e-6, 1e2),
-            "xlim": (1e-2, 2),
+            "xlim": (1e-4, 1),
             "left_ylabel": r"Concentration [mmol/L$_{PW}$]",
             # right 1
             "right1": [
                 [fes2_fe, r"FeS$_{2}$ [wt% Fe]", fes2_attr],
-                [fes_fe * 100, r"FeS $\times$ 100 [wt% Fe]", fes_attr],
+                [fes_fe * 1, r"FeS $\times$ 1 [wt% Fe]", fes_attr],
                 [fe3_fe, r"Fe$^{3+}$ [wt% Fe]", fe3_attr],
                 # [fe2_fe_sorbed, r"Fe$^{2+}_{sorb}$ [wt% Fe]", fe2_s_attr],
                 # [
@@ -111,7 +111,7 @@ def get_layout(df):
                 #     {"color": "black", "linestyle": "dotted"},
                 # ],
             ],
-            "right1_ylim": (0, 1),
+            "right1_ylim": (0, 2),
             "right1_ylabel": "[wt% Fe]",
             # right 2
             "right2": [
@@ -119,7 +119,7 @@ def get_layout(df):
                 # [fes2_s, r"FeS$_2$ [wt% S]", {"color": "black"}],
                 # [fes_s, r"$\times$ FeS [wt% S]", {"color": "C6"}],
             ],
-            "right2_ylim": (0, 0.1),
+            "right2_ylim": (0, 0.4),
             "right2_ylabel": "[wt% S]",
         },
         "second_subplot": {
@@ -132,16 +132,16 @@ def get_layout(df):
                 [df.f_fe3, r"Fe${3+}$", fe3_attr],
                 [df.f_fes2, r"FeS$_{2}$", fes2_attr_nf],
                 [df.f_s0, r"S$^{0}$", s0_attr],
-                [df.D_bio * 1e6, r"1e6 $\times$ D$_{bio}$ [$m^{2}/s$]", dbio_attr],
-                [df.D_irr, "1e6 $\times$ D$_{irr}$ [1/s]", dirr_attr],
+                # [df.D_bio * 1e6, r"1e6 $\times$ D$_{bio}$ [$m^{2}/s$]", dbio_attr],
+                # [df.D_irr, "1e6 $\times$ D$_{irr}$ [1/s]", dirr_attr],
                 # [df.f_o2, "O2", {"color": "C3"}],
-                # [df.f_poc, r"POC", poc_attr],
+                [df.f_poc_slow + df.f_poc_fast, r"POC", poc_attr],
                 # [df.f_fe2_p, "f_fe2+p", {"color": "C9"}],
             ],
             "left_ylabel": r"reaction rate [mol m$^{-3}s^{-1}$]",
             "xscale": "log",
             "options-left": "set_yscale('symlog', linthresh=1e-9,linscale=0.5,base=10)",
-            "xlim": (5e-3, 2),
+            "xlim": (1e-4, 1),
             # "yscale": "symlog, linthresh=1e-14,linscale=0,1,base=10",
             # "right": [df.D_irr, "D_irr", {"color": "C8"}],
         },
@@ -157,11 +157,11 @@ def get_layout(df):
             "left_ylabel": r"$\delta^{34}$ [mUr VCDT]",
             "options-left": "set_ylim(-50, 100)",
             "xscale": "log",
-            "xlim": (5e-3, 2),
+            "xlim": (1e-4, 1),
             # "ylim": (-15, 75),
             # "right": [[df.d_h2s, "d_h2s", {"color": "C1"}]],
             # "yscale": "log",
-            "options-left": "set_ylim(-15, 75)",
+            "options-left": "set_ylim(-30, 75)",
         },
     }
     return plt_desc
