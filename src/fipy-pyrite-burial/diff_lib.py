@@ -27,10 +27,10 @@ These helpers are primarily intended for modelling isotope diffusion and fractio
 processes in geological simulations.
 """
 
-# import numpy as np
-from fipy.tools import numerix as np
-from typing import Union
 from concurrent.futures import ThreadPoolExecutor
+from typing import Union
+
+from fipy.tools import numerix as np
 
 _executor = None
 
@@ -151,10 +151,9 @@ def get_l_mass(m, d, r):
 
 def get_total_s_export(df, VCDT=0.044162589):
     """Calculate the total sulfur and delta34S at the bottom of the column.
+
     Uses the logic as defined in run_fipy.py.
     """
-    #    import numpy as np
-
     phi = df.phi.iloc[-1]
     s = phi * (df.c_so4.iloc[-1] + df.c_h2s.iloc[-1]) + (1 - phi) * (
         df.c_s0.iloc[-1] + df.c_fes.iloc[-1] + 2 * df.c_fes2.iloc[-1]
@@ -259,10 +258,12 @@ def bioturbation_profile_2(z, D_max, cutoff_depth, threshold=1e-12):
 
 def compute_sigmoidal_db(z, Db0, xL, xbm):
     """
-    Computes the bio-diffusivity (Db) at a specific depth (z)
-    using Equation 4 from van de Velde and Meysman (2016).
+    Compute the bio-diffusivity (Db) at a specific depth (z).
 
-    Parameters:
+    Using Equation 4 from van de Velde and Meysman (2016).
+
+    Parameters
+    ----------
     z   : float or np.ndarray
           Depth into the sediment in m
     Db0 : float
@@ -272,7 +273,8 @@ def compute_sigmoidal_db(z, Db0, xL, xbm):
     xbm : float
           Attenuation coefficient determining the width of the transition zone [m]
 
-    Returns:
+    Returns
+    -------
     float or np.ndarray: The bio-diffusivity at depth z.
     """
     z_cm = z * 100
@@ -292,10 +294,12 @@ def compute_sigmoidal_db(z, Db0, xL, xbm):
 
 def compute_bio_irrigation_alpha(z, alpha0, x_irr):
     """
-    Computes the bio-irrigation coefficient (alpha) at a specific depth (z)
-    using Equation 6 from van de Velde and Meysman (2016).
+    Compute the bio-irrigation coefficient (alpha) at a specific depth (z).
 
-    Parameters:
+    Using Equation 6 from van de Velde and Meysman (2016).
+
+    Parameters
+    ----------
     z     : float or np.ndarray
             Depth into the sediment (m).
     alpha0: float
@@ -303,8 +307,10 @@ def compute_bio_irrigation_alpha(z, alpha0, x_irr):
     x_irr : float
             Attenuation coefficient determining the depth of irrigation (m).
 
-    Returns:
-    float or np.ndarray: The irrigation intensity at depth z.
+    Returns
+    -------
+    float or np.ndarray
+        The irrigation intensity at depth z.
     """
     z = z * 100
     x_irr = x_irr * 100
@@ -1027,15 +1033,9 @@ def add_implicit_sink(
 ):
     """Add an implicit consumption term to the LHS matrix.
 
-    Incoming ``coeff`` and ``rate`` are in **bulk** units.  The FiPy transport
-    equation already carries ``eff_phi`` on its transient / convection /
-    diffusion terms, so reaction source terms are passed through in bulk
-    without further division.
-
     ``ctype`` is retained for documentation (indicates rate_phase_2_species_phase).
     """
     LHS[species] = LHS[species] - coeff
-    # RATES[species] -= getattr(rate, "value", rate)
     RATES[species] -= rate
 
 
