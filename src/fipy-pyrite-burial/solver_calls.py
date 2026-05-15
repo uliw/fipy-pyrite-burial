@@ -406,8 +406,9 @@ def run_non_steady_state_solver_coupled(
                     converged = True
 
                 except Exception as e:
+                    tb_str = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
                     print(
-                        f"  Step failed at dt={get_time_units(current_dt):.2f~P}: {e}. Cutting dt."
+                        f"  Step failed at dt={get_time_units(current_dt):.2f~P}:\n\n {tb_str}\n Cutting dt."
                     )
                     # Restore state from FiPy's built-in old-value store
                     for s_obj in species_struct:
