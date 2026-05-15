@@ -18,6 +18,8 @@ def get_layout(df):
     import matplotlib as mpl
     from diff_lib import solid_conc_to_wt_percent, liquid_conc_to_wt_percent
 
+    lt = 2
+    
     # mpl.rcParams["axes.prop_cycle"] = mpl.cycler(
     #     color=[
     #         "#332288",
@@ -31,7 +33,6 @@ def get_layout(df):
     #         "#AA4499",
     #     ]
     # )
-    lt = 2
     # ax.set_prop_cycle(None)
     # poc_attr = {"color": "brown", "lw": lt}
     # o2_attr = {"color": "C1", "linestyle": "dashed", "lw": lt}
@@ -78,6 +79,7 @@ def get_layout(df):
     total_iron = fe2_fe_sorbed + fe3_fe + fes_fe + fes2_fe
 
     plt_desc = {
+        # -------------------------------- 1 panel ----------------------- #
         "first_subplot": {
             # "show_grid_options": {
             #     "grid": df.z,
@@ -97,14 +99,14 @@ def get_layout(df):
             "yscale": "log",
             "xscale": "log",
             "ylim": (1e-6, 1e2),
-            "xlim": (1e-4, 1),
+            "xlim": (1e-4, 2),
             "left_ylabel": r"Concentration [mmol/L$_{PW}$]",
             # right 1
             "right1": [
                 [fes2_fe, r"FeS$_{2}$ [wt% Fe]", fes2_attr],
                 [fes_fe * 1, r"FeS $\times$ 1 [wt% Fe]", fes_attr],
                 [fe3_fe, r"Fe$^{3+}$ [wt% Fe]", fe3_attr],
-                # [fe2_fe_sorbed, r"Fe$^{2+}_{sorb}$ [wt% Fe]", fe2_s_attr],
+                [fe2_fe_sorbed, r"Fe$^{2+}_{sorb}$ [wt% Fe]", fe2_s_attr],
                 # [
                 #     total_iron,
                 #     r"TFe [wt% Fe]",
@@ -122,6 +124,7 @@ def get_layout(df):
             "right2_ylim": (0, 0.4),
             "right2_ylabel": "[wt% S]",
         },
+        # -------------------------------- 2 panel ----------------------- #
         "second_subplot": {
             "xaxis": [df.z, "Depth [m]"],
             "left": [
@@ -132,8 +135,8 @@ def get_layout(df):
                 [df.f_fe3, r"Fe${3+}$", fe3_attr],
                 [df.f_fes2, r"FeS$_{2}$", fes2_attr_nf],
                 [df.f_s0, r"S$^{0}$", s0_attr],
-                # [df.D_bio * 1e6, r"1e6 $\times$ D$_{bio}$ [$m^{2}/s$]", dbio_attr],
-                # [df.D_irr, "1e6 $\times$ D$_{irr}$ [1/s]", dirr_attr],
+                [df.D_bio * 1e6, r"1e6 $\times$ D$_{bio}$ [$m^{2}/s$]", dbio_attr],
+                [df.D_irr, "1e6 $\times$ D$_{irr}$ [1/s]", dirr_attr],
                 # [df.f_o2, "O2", {"color": "C3"}],
                 [df.f_poc_slow + df.f_poc_fast, r"POC", poc_attr],
                 # [df.f_fe2_p, "f_fe2+p", {"color": "C9"}],
@@ -141,10 +144,11 @@ def get_layout(df):
             "left_ylabel": r"reaction rate [mol m$^{-3}s^{-1}$]",
             "xscale": "log",
             "options-left": "set_yscale('symlog', linthresh=1e-9,linscale=0.5,base=10)",
-            "xlim": (1e-4, 1),
+            "xlim": (1e-4, 2),
             # "yscale": "symlog, linthresh=1e-14,linscale=0,1,base=10",
             # "right": [df.D_irr, "D_irr", {"color": "C8"}],
         },
+        # -------------------------------- 3 panel ----------------------- #
         "third_subplot": {
             "xaxis": [df.z, "Depth [m]"],
             "left": [
@@ -155,9 +159,8 @@ def get_layout(df):
                 [df.d_s0, r"S$^{0}$", s0_attr],
             ],
             "left_ylabel": r"$\delta^{34}$ [mUr VCDT]",
-            "options-left": "set_ylim(-50, 100)",
             "xscale": "log",
-            "xlim": (1e-4, 1),
+            "xlim": (1e-4, 2),
             # "ylim": (-15, 75),
             # "right": [[df.d_h2s, "d_h2s", {"color": "C1"}]],
             # "yscale": "log",
