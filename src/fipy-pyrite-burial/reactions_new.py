@@ -100,10 +100,11 @@ def diagenetic_reactions(mp, c, k, f):
     # 2. CALCULATE LIMITERS
     # ---------------------
     limiters = {}
+
     # O2 Limitation for low O2 (1.0 -> 0.0)
     limiters["o2_implicit"] = 1 / (c.o2 + mp.K_o2)
     # O2 Inhibition for high O2 (1.0 -> 0.0)
-    limiters["o2_inhibit"] = mp.K_o2 / (c.o2 + mp.K_o2)
+    limiters["o2_inhibit"] = mp.K_o2/100 / (c.o2 + mp.K_o2/100)
 
     # TS2 inhibition for high TS2
     limiters["ts2"] = mp.K_ts2 / (c.ts2 + mp.K_ts2)
@@ -118,9 +119,13 @@ def diagenetic_reactions(mp, c, k, f):
     limiters["ts2_alpha_explicit"] = c.ts2 / (c.ts2 + mp.K_epsilon_hs_ox)
 
     # Fe3 limiters
-    limiters["fe3_implicit"] = 1.0 / (c.fe3 + mp.K_fe3)
-    limiters["fe3_diss_implicit"] = 1.0 / (c.fe3 + mp.K_fe3_diss)
-    limiters["fe3_diss_inhib"] = mp.K_fe3_diss / (c.fe3 + mp.K_fe3_diss)
+    limiters["fe3_implicit"] = 1.0 / ((c.fe3 + mp.K_fe3) * (1 - mp.phi))
+    limiters["fe3_diss_red_implicit"] = 1.0 / (
+        (c.fe3 + mp.K_fe3_diss_red) * (1 - mp.phi)
+    )
+    limiters["fe3_diss_red_inhib"] = mp.K_fe3_diss_red / (
+        (c.fe3 + mp.K_fe3_diss_red) * (1 - mp.phi)
+    )
 
     # 3. RUN PROCESSES
     # ----------------
@@ -128,24 +133,6 @@ def diagenetic_reactions(mp, c, k, f):
     # r is list of list where r[0] is the function and r[1] is the k val
     for r in mp.diagenetic_reactions:
         r[0](c, r[1], limiters, LHS, RHS, RATES, CROSS, mp)
-
-    # 4. FINALIZE
-    # -----------
-    # Convert the CROSS dict into FiPy ImplicitSourceTerm objects and pack all
-    # results into the f container as a tuple per species:
-    #   f.<species> = (lhs_coeff, rhs_source, rates, cross_term)
-    #
-    # The CROSS dict contains entries of the form:
-    #   CROSS[target_species] = [(source_name, coeff_with_fac), ...]
-    # where coeff_with_fac already includes the porosity factor applied by
-    # add_implicit_coupling_new().
-    #
-    # Each (source_name, coeff) entry becomes:
-    #   ImplicitSourceTerm(coeff=coeff, var=c[source_name])
-    # in the target species' equation.  Because var=c[source_name] refers to a
-    # *different* species variable, FiPy treats this as an off-diagonal (cross-)
-    # coupling term when all species equations are assembled into the coupled
-    # block system in _assemble_coupled_equation() (solver_calls.py).
 
     for s in species_list:
         lhs_coeff = LHS.get(s, 0.0)
@@ -162,18 +149,6 @@ def diagenetic_reactions(mp, c, k, f):
                 cross_term += ImplicitSourceTerm(coeff=coeff_val, var=c[source_name])
 
         setattr(f, s, (lhs_coeff, RHS[s], RATES[s], cross_term))
-
-    # print("fe2 LHS (implicit sink coeff):", LHS["fe2_total"].sum())
-    # print("fe2 RHS (explicit source):", RHS["fe2_total"].sum())
-    # print("fe2 CROSS entries:")
-    # for source_name, coeff in CROSS["fe2_total"]:
-    #     val = getattr(coeff, "value", coeff)
-    #     if hasattr(val, "sum"):
-    #         print(f"  from {source_name}: coeff sum = {val.sum()}")
-    #     else:
-    #         print(f"  from {source_name}: coeff = {val}")
-    #         print("fe2 RATES:", RATES["fe2_total"].sum())
-    # print()
 
     return f, RATES
 
@@ -214,15 +189,15 @@ def aerobic_respiration(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     )
 
     # O2 Sink (1.27x) - LIQUID
-    coeff_o2_fast = k.poc_fast * c.poc_fast * lim["o2_implicit"]
-    coeff_o2_slow = k.poc_slow * c.poc_slow * lim["o2_implicit"]
-    coeff_o2 = coeff_o2_fast + coeff_o2_slow
+    coeff_o2_fast = k.poc_fast * c.poc_fast
+    coeff_o2_slow = k.poc_slow * c.poc_slow
+    coeff_o2 = (coeff_o2_fast + coeff_o2_slow) * lim["o2_implicit"] * 1.27
     add_implicit_sink(
         LHS,
         RATES,
         "o2",
         coeff_o2,
-        1.27 * coeff_o2 * c.o2,
+        coeff_o2 * c.o2,
         ctype="liquid",
         mp=mp,
         c=c,
@@ -235,10 +210,18 @@ def dissimilatory_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Calculate dissimilatory iron reduction.
 
     Reaction: CH2O + 4 Fe3 -> HCO3 + 4Fe2+
+
+    This reaction is inhibited under oxic condition, and uses
+    a Monod type limiter for low Fe3 concentrations
     """
-    coeff_fe3_slow = k.poc_slow * c.poc_slow * lim["o2_inhibit"] * 4
-    coeff_fe3_fast = k.poc_fast * c.poc_fast * lim["o2_inhibit"] * 4
-    coeff_fe3 = coeff_fe3_slow + coeff_fe3_fast
+    inhibit = lim["o2_inhibit"] * lim["fe3_diss_red_implicit"]
+    coeff_fe3_slow = k.poc_slow * c.poc_slow
+    coeff_fe3_fast = k.poc_fast * c.poc_fast
+    coeff_fe3 = 4 * (coeff_fe3_slow + coeff_fe3_fast) * inhibit
+
+    print("diss Fe3 reduction")
+    print(f"f3e_diss_rate = {(coeff_fe3.value * c.fe3.value)[10]:.2e}")
+
     # Couple Fe3 reduction to Fe2 production
     add_implicit_coupling_new(
         "solid_2_liquid",  # type
@@ -254,8 +237,9 @@ def dissimilatory_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     )
 
     # create the OM sinks
-    coeff_poc_slow = k.poc_slow * c.fe3 * lim["o2_inhibit"]
-    coeff_poc_fast = k.poc_fast * c.fe3 * lim["o2_inhibit"]
+    coeff_poc_slow = k.poc_slow * c.fe3 * inhibit
+    coeff_poc_fast = k.poc_fast * c.fe3 * inhibit
+
     add_implicit_sink(
         LHS,
         RATES,
@@ -288,23 +272,11 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
      - sulfate reduction is limited in the presence of O2
      - POC can be fast and/or slow
     """
-    coeff_so4_slow = (
-        k.poc_slow
-        * c.poc_slow
-        * lim["o2_inhibit"]
-        * lim["so4_implicit"]
-        * lim["fe3_diss_inhib"]
-        * 0.5
-    )
-    coeff_so4_fast = (
-        k.poc_fast
-        * c.poc_fast
-        * lim["o2_inhibit"]
-        * lim["so4_implicit"]
-        * lim["fe3_diss_inhib"]
-        * 0.5
-    )
-    coeff_so4 = coeff_so4_fast + coeff_so4_slow
+    inhibition = lim["o2_inhibit"] * lim["so4_implicit"] * lim["fe3_diss_red_inhib"]
+    coeff_so4_slow = k.poc_slow * c.poc_slow
+    coeff_so4_fast = k.poc_fast * c.poc_fast
+    coeff_so4 = (coeff_so4_fast + coeff_so4_slow) * inhibition * 0.5
+
     # 4. Couple sulfate reduction to h2s production
     add_implicit_coupling_new(
         "liquid_2_liquid",  # type
@@ -320,8 +292,8 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     )
 
     # sulfate reduction consumes poc
-    coeff_poc_slow = k.poc_slow * lim["so4_explicit"] * lim["o2_inhibit"]
-    coeff_poc_fast = k.poc_fast * lim["so4_explicit"] * lim["o2_inhibit"]
+    coeff_poc_slow = k.poc_slow * inhibition
+    coeff_poc_fast = k.poc_fast * inhibition
     add_implicit_sink(
         LHS,
         RATES,
@@ -1148,7 +1120,6 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 3. Apply the MM-type limiter
     # km_fes controls the 'sharpness' of the approach to equilibrium
     km_fes = 0.5
-    # breakpoint()
     equilibrium_limiter = driving_force / (km_fes + driving_force)
     fes_coeff = k.fes_ts2 * hs_val * equilibrium_limiter
     hs_coeff = k.fes_ts2 * fe2_pw_val * equilibrium_limiter
