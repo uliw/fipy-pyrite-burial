@@ -51,6 +51,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
 
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
+    
 
     mp = data_container({
         # -------- File Names & output --------------------
@@ -70,7 +71,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         "reaction_zone_spacing": 0.0001,  # meters
         "max_spacing": 0.1,  # meters, None = no cap
         "reaction_zone": (0.0, 0.1),  # in meters
-        # ------ bopundary conditions ------------------------ #
+        # ------ boundary conditions ------------------------ #
         "temp": [10.0, 10.1],  # temp top, bottom, in C
         "w": Q_("0.2 cm/yr").to("m/s").m,  # sedimentation rate in m/s
         "advection": 0,  # upward directed flow component
@@ -86,14 +87,20 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         "bc_fe2": 0,  # wt% Fe2
         "bc_fe2_p": 0,  # wt% sorbed Fe2
          # ---------  Monod constants -------------------------- #
+         # Note, unlike the k-values in reaction_constants.py
+         # These may need to be corrected to phase specific values
+         # i.e., Velde et al report their k-values in bulk units
+         # since phi is not yet known, we apply this correction
+         # in the reactions_new.py file.
         "K_o2": Q_("0.001 umol/cm^3").to("mol/m^3").m,  # Monod constant
         "K_ts2": Q_("0.1 umol/cm^3").to("mol/m^3").m,  # Monod constant
         "K_so4": Q_("0.9 umol/cm^3").to("mol/m^3").m,  # Monod constant
-        "K_fe3_diss":  Q_("10.4 umol/cm^3").to("mol/m^3").m,  # Monod constant diss Fe3 reduc
+        "K_fe3_diss_red":  Q_("10.4 umol/cm^3").to("mol/m^3").m,  # Monod constant diss Fe3 reduc
         "K_fe3":  1e-3,  # Monod constant Fe3 H2S reduc
         # -------- benthic activity ---------------------------- #
-        "DB0": Q_("0.2 cm^2/year").to("m^2/second").magnitude * 0,
-        "DB_depth": 0,  # Bioturbation depth in m
+        "BT0": Q_("4 cm^2/year").to("m^2/second").magnitude * 0,
+        "BT_depth": Q_("7.6 cm").to("meter").magnitude,  # Bioturbation depth in m
+        "BT_attenuation": Q_("2 cm").to("meter").magnitude, # xbm of Velde et al.
         "BI0": 1e-6 * 0,  # should be < 1e-5
         "BI_depth": 0.0,  # Irrigation depth (0 = off)
         # --------- Isotopes ----------------------------------- #
@@ -124,11 +131,12 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         "display_length": 2,  #
     })
 
-    # Use pH from p_dict if it exists, otherwise use the default from mp.
+    # get initial k-values. 
+    # Use pH and phi from p_dict if it exists, otherwise use the default from mp.
     pH = p_dict.get("pH", mp.pH)
-    _k1, k = get_reaction_constants(pH)
-    # transform k dict into a data_container for easier attribute access
-    k = data_container(k)
+    phi =  p_dict.get("phi", mp.phi)
+    k = data_container()
+    _k1, k = get_reaction_constants(pH, phi, k_values=k)
 
     # add reactions as needed. This dict entry is a list of lists, where the first entry
     # is the function handle, and the second entry is data container with k values.
@@ -172,6 +180,11 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     mp.grid_points = len(z)
     mp.phi = CellVariable(name="porosity", mesh=mesh, value=mp.phi)
 
+    # update k-values after we initialized phi as an array. This is needed for
+    # models that use depth dependent phi values
+    _k1, k = get_reaction_constants(mp.pH, mp.phi, k_values=k)
+
+    # get delta values for sulfate/sulfide boundary conditions.
     mp.bc_so4_32 = get_l_mass(mp.bc_so4, mp.so4_d, mp.VCDT)
     mp.bc_ts2_32 = get_l_mass(mp.bc_ts2, 0.0, mp.VCDT)  # Assume 0 delta for bc_h2s
 
@@ -241,7 +254,6 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     # ---- Initialize CellVariables and diffusion coefficients ---- #
     D_mol = data_container()
     c = data_container()
-    f = data_container()
     zeros = np.zeros(mp.grid_points)
     for species_name in species_list_full:
         setattr(D_mol, species_name, zeros)
@@ -269,7 +281,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
 
     # -- Bioturbation and Irrigation Profiles (Robust Sigmoid) --
     D_mol.D_irr = compute_bio_irrigation_alpha(z, mp.BI0, mp.BI_depth)
-    D_mol.D_bio = compute_sigmoidal_db(z, mp.DB0, mp.DB_depth, 0.1)
+    D_mol.D_bio = compute_sigmoidal_db(z, mp.BT0, mp.BT_depth, mp.BT_attenuation)
     # lumped modeling of Fe2 liq and Fe2 adsorbed
     D_mol.fe2_total = D_mol.fe2 * mp.f_diss
 
@@ -318,6 +330,8 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
                     [(mp.w * var.faceValue - J_solid) / D_total.faceValue],
                     mesh.facesLeft,
                 )
+                if species_name == "fe3":
+                    var.setValue(J_solid / mp.w if mp.w > 0 else 0.0)
             else:
                 # Pure advection -> Dirichlet C_solid = J_solid / w
                 val = J_solid / mp.w if mp.w > 0 else 0.0
