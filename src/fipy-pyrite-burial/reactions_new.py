@@ -101,10 +101,18 @@ def diagenetic_reactions(mp, c, k, f):
     # ---------------------
     limiters = {}
 
+    # Velde et al specify their k-values in bulk concentrations, so
+    # we convert to phase specific space first
+    mp.K_o2 = mp.K_o2 / mp.phi
+    mp.K_ts2 = mp.K_ts2 / mp.phi
+    mp.K_so4 = mp.K_so4 / mp.phi
+    mp.K_fe3 = mp.K_fe3 / (1 - mp.phi)
+    mp.K_fe3_diss_red = mp.K_fe3_diss_red / (1 - mp.phi)
+
     # O2 Limitation for low O2 (1.0 -> 0.0)
     limiters["o2_implicit"] = 1 / (c.o2 + mp.K_o2)
     # O2 Inhibition for high O2 (1.0 -> 0.0)
-    limiters["o2_inhibit"] = mp.K_o2/100 / (c.o2 + mp.K_o2/100)
+    limiters["o2_inhibit"] = mp.K_o2 / (c.o2 + mp.K_o2)
 
     # TS2 inhibition for high TS2
     limiters["ts2"] = mp.K_ts2 / (c.ts2 + mp.K_ts2)
@@ -119,13 +127,9 @@ def diagenetic_reactions(mp, c, k, f):
     limiters["ts2_alpha_explicit"] = c.ts2 / (c.ts2 + mp.K_epsilon_hs_ox)
 
     # Fe3 limiters
-    limiters["fe3_implicit"] = 1.0 / ((c.fe3 + mp.K_fe3) * (1 - mp.phi))
-    limiters["fe3_diss_red_implicit"] = 1.0 / (
-        (c.fe3 + mp.K_fe3_diss_red) * (1 - mp.phi)
-    )
-    limiters["fe3_diss_red_inhib"] = mp.K_fe3_diss_red / (
-        (c.fe3 + mp.K_fe3_diss_red) * (1 - mp.phi)
-    )
+    limiters["fe3_implicit"] = 1.0 / (c.fe3 + mp.K_fe3)
+    limiters["fe3_diss_red_implicit"] = 1.0 / (c.fe3 + mp.K_fe3_diss_red)
+    limiters["fe3_diss_red_inhib"] = mp.K_fe3_diss_red / (c.fe3 + mp.K_fe3_diss_red)
 
     # 3. RUN PROCESSES
     # ----------------
@@ -219,16 +223,13 @@ def dissimilatory_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     coeff_fe3_fast = k.poc_fast * c.poc_fast
     coeff_fe3 = 4 * (coeff_fe3_slow + coeff_fe3_fast) * inhibit
 
-    print("diss Fe3 reduction")
-    print(f"f3e_diss_rate = {(coeff_fe3.value * c.fe3.value)[10]:.2e}")
-
     # Couple Fe3 reduction to Fe2 production
     add_implicit_coupling_new(
         "solid_2_liquid",  # type
         CROSS,  # Off-diagonal coupling matrix
         RATES,  # Rate reporting dictionary
         LHS,  # Diagonal matrix (implicit sinks)
-        "fe2",  # species that is produced
+        "fe2_total",  # species that is produced
         "fe3",  # species that is consumed
         coeff_fe3,  # reaction coefficient
         coeff_fe3 * c.fe3,  # coeff * concentration
