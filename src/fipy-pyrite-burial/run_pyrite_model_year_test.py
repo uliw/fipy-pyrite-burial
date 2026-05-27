@@ -30,7 +30,7 @@ if __name__ == "__main__":
         "layout_file": "plot_layout_velde.py",
         "layout_file": "plot_layout.py",
         # Solver Parameters
-        "max_steps": 200,  # max number of iterations
+        "max_steps": 2000,  # max number of iterations
         "max_depth": 1,  # meters
         "t_end": Q_("10 kyr").to("seconds").magnitude,
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
@@ -41,6 +41,7 @@ if __name__ == "__main__":
         "BT0": Q_("4 cm^2/year").to("m^2/second").magnitude,
         "BT_depth": Q_("7.6 cm").to("meter").magnitude,  # Bioturbation depth in m
         "BT_attenuation": Q_("2 cm").to("meter").magnitude,  # xbm of Velde et al.
+        "om_o2_consumption": 1,  # Velde uses a 1:1 ratio
     }
 
     k = data_container()

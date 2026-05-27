@@ -86,6 +86,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
             "bc_fe3": Q_("0.33 mmol/(m^2 * day)").to("mol/(m^2 * second)").magnitude,
             "bc_fe2": 0,  # wt% Fe2
             "bc_fe2_p": 0,  # wt% sorbed Fe2
+            "om_o2_consumption": 1.27,  # 1.27, Velde uses 1.0
             # ---------  Monod constants -------------------------- #
             # Note, unlike the k-values in reaction_constants.py
             # These may need to be corrected to phase specific values

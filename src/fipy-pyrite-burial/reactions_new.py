@@ -197,7 +197,9 @@ def aerobic_respiration(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # O2 Sink (1.27x) - LIQUID
     coeff_o2_fast = k.poc_fast * c.poc_fast
     coeff_o2_slow = k.poc_slow * c.poc_slow
-    coeff_o2 = (coeff_o2_fast + coeff_o2_slow) * lim["o2_implicit"] * 1.27
+    coeff_o2 = (
+        (coeff_o2_fast + coeff_o2_slow) * lim["o2_implicit"] * mp.om_o2_consumption
+    )
     add_implicit_sink(
         LHS,
         RATES,
@@ -295,8 +297,8 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     )
 
     # sulfate reduction consumes poc
-    coeff_poc_slow = k.poc_slow * inhibition
-    coeff_poc_fast = k.poc_fast * inhibition
+    coeff_poc_slow = k.poc_slow * c.so4 * inhibition
+    coeff_poc_fast = k.poc_fast * c.so4 * inhibition
     add_implicit_sink(
         LHS,
         RATES,
@@ -556,10 +558,20 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # ------------------------------------------------------------------
     # 5. ts2 sink (Coupled to fe3_new) — EXACTLY 0.5:1
     # ------------------------------------------------------------------
-    # fe3 is the source_species in the CROSS coupling, meaning ts2 receives
-    # -0.5 * coeff_master * fe3_new on its RHS.
-    CROSS["ts2"].append(("fe3", -0.5 * coeff_master))
-    RATES["ts2"] -= 0.5 * rate_actual
+    add_implicit_coupling_new(
+        CROSS,
+        RATES,
+        LHS,
+        target_species="ts2",
+        source_species="fe3",
+        coeff=coeff_master,
+        rate=rate_actual,
+        mp=mp,
+        ctype="solid_2_liquid",
+        c=c,
+        add_lhs_sink=False,
+        stoich_ratio=-0.5,
+    )
 
     # ------------------------------------------------------------------
     # 6. s0 source (Coupled to fe3_new) — EXACTLY 0.5:1
@@ -590,8 +602,20 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         coeff_32 = 0.5 * coeff_master * f32
 
         # ts2_32 sink
-        CROSS["ts2_32"].append(("fe3", -coeff_32))
-        RATES["ts2_32"] -= rate_32
+        add_implicit_coupling_new(
+            CROSS,
+            RATES,
+            LHS,
+            target_species="ts2_32",
+            source_species="fe3",
+            coeff=coeff_32,
+            rate=rate_32,
+            mp=mp,
+            ctype="solid_2_liquid",
+            c=c,
+            add_lhs_sink=False,
+            stoich_ratio=-1.0,
+        )
 
         # s0_32 source
         add_implicit_coupling_new(
@@ -1053,9 +1077,20 @@ def fes_precipitation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     #   Same coefficient as ts2 sink → 1:1 stoichiometry
     #   Δfe2 = Δts2 (both deplete by same amount)
     # ------------------------------------------------------------------
-    CROSS["fe2_total"].append(("ts2", -k_rxn))
-    # RATES["fe2_total"] -= getattr(precip_rate, "value", precip_rate)
-    RATES["fe2_total"] -= precip_rate
+    add_implicit_coupling_new(
+        CROSS,
+        RATES,
+        LHS,
+        target_species="fe2_total",
+        source_species="ts2",
+        coeff=k_rxn,
+        rate=precip_rate,
+        mp=mp,
+        ctype="liquid",
+        c=c,
+        add_lhs_sink=False,
+        stoich_ratio=-1.0,
+    )
 
     add_explicit_source(
         RHS,
