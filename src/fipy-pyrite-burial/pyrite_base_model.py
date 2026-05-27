@@ -153,12 +153,12 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         [rn.sulfide_mediated_iron_reduction, k],
         [rn.fe2_oxidation, k],
         [rn.fes_precipitation_terminal, k],
-        [rn.fes_dissolution_new, k],
+        [rn.fes_dissolution, k],
         [rn.fes_oxidation, k],
         [rn.pyrite_formation_s0, k],
         [rn.pyrite_formation_fes_ts2, k],
         [rn.pyrite_oxidation, k],
-        # [rn.s0_disproportionation, k],
+        [rn.s0_disproportionation, k],
     ]
 
     mp["instantenous_reactions"] = [

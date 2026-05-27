@@ -55,7 +55,7 @@ if __name__ == "__main__":
         [rn.sulfide_mediated_iron_reduction, k],
         [rn.fe2_oxidation, k],
         [rn.fes_precipitation_terminal, k],
-        [rn.fes_dissolution_newest, k],
+        [rn.fes_dissolution, k],
         [rn.fes_oxidation, k],
         # [rn.pyrite_formation_s0, k],
         # [rn.pyrite_formation_fes_ts2, k],

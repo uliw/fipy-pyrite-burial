@@ -1050,16 +1050,22 @@ def add_implicit_sink(
     species,
     coeff,
     rate,
-    ctype="liquid_2_liquid",
-    mp=None,
+    mp,
+    ctype,
     c=None,
 ):
     """Add an implicit consumption term to the LHS matrix.
 
     ``ctype`` is retained for documentation (indicates rate_phase_2_species_phase).
     """
-    LHS[species] = LHS[species] - coeff
-    RATES[species] -= rate
+    phi = mp.phi
+    if ctype in ["solid", "solid_2_solid", "solid_2_liquid"]:
+        fac = 1.0 - phi
+    else:
+        fac = phi
+
+    LHS[species] = LHS[species] - coeff * fac
+    RATES[species] -= rate * fac
 
 
 def add_explicit_source(
@@ -1067,50 +1073,30 @@ def add_explicit_source(
     RATES,
     species,
     rate,
-    ctype="liquid_2_liquid",
-    mp=None,
+    mp,
+    ctype,
     update_rates=True,
     c=None,
 ):
     """Add a production term to the RHS vector.
 
-    Incoming ``rate`` is in **bulk** units and is passed through without
-    division.  See ``add_implicit_sink`` for rationale.
+    Incoming ``rate`` is in phase-specific units and is scaled by
+    the target species' phase volume fraction to convert to bulk units.
     """
-    RHS[species] = RHS[species] + rate
+    phi = mp.phi
+    if ctype in ["solid", "solid_2_solid", "liquid_2_solid"]:
+        fac = 1.0 - phi
+    else:
+        fac = phi
+
+    scaled_rate = rate * fac
+    RHS[species] = RHS[species] + scaled_rate
     if update_rates:
-        RATES[species] += getattr(rate, "value", rate)
-        RATES[species] += rate
-
-
-def add_implicit_coupling(
-    CROSS, RATES, target_species, source_species, coeff, rate, c=None
-):
-    """
-    Add a coupled source term (legacy helper — prefer ``add_implicit_coupling_new``).
-
-    If d[Target]/dt = +coeff * [Source]
-    Then we add `ImplicitSourceTerm(coeff=coeff, var=Source)` to Target's equation.
-
-    CROSS[target].append( (source, coeff) )
-
-    This function does NOT add an implicit sink for the source species and does NOT
-    apply any porosity conversion to ``coeff``.  It is intended for situations where:
-      1. The source species sink has already been registered by a prior call (e.g.
-         ``add_implicit_sink`` or ``add_implicit_coupling_new``), and
-      2. Any required phase-conversion factor has been applied to ``coeff`` by the caller.
-
-    For new code, use ``add_implicit_coupling_new`` with ``add_lhs_sink=False`` instead,
-    which handles phase-conversion automatically.
-    """
-    CROSS[target_species].append((source_species, coeff))
-    # Note: Rates are accumulating scalar values for reporting, usually calculated explicitly before calling
-    # RATES[target_species] += getattr(rate, "value", rate)
-    RATES[target_species] += rate
+        RATES[species] += getattr(scaled_rate, "value", scaled_rate)
+        RATES[species] += scaled_rate
 
 
 def add_implicit_coupling_new(
-    ctype,
     CROSS,
     RATES,
     LHS,
@@ -1119,27 +1105,27 @@ def add_implicit_coupling_new(
     coeff,
     rate,
     mp,
-    c,
+    ctype,
+    c=None,
     add_lhs_sink=True,
     stoich_ratio=1.0,
 ):
     """Add a coupled implicit source term with optional stoichiometry.
 
-    Incoming ``coeff`` and ``rate`` are in **bulk** units.  No phi-division
-    is applied; the FiPy transport equation already carries the phase volume
-    on its LHS.
-
-    ``ctype`` is retained for documentation (source_phase_2_target_phase).
+    Both the coupling term and the sink term are scaled by the source
+    species' phase volume fraction (fac) to convert to bulk units.
     """
-    cross_coeff = coeff * stoich_ratio
+    phi = mp.phi
+    if ctype.startswith("solid"):
+        fac = 1.0 - phi
+    else:
+        fac = phi
+
+    cross_coeff = coeff * stoich_ratio * fac
     CROSS[target_species].append((source_species, cross_coeff))
 
-    # rate_val = getattr(rate, "value", rate)
-
     if add_lhs_sink:
-        LHS[source_species] = LHS[source_species] - coeff
-        # RATES[source_species] -= rate_val
-        RATES[source_species] -= rate
+        LHS[source_species] = LHS[source_species] - coeff * fac
+        RATES[source_species] -= rate * fac
 
-    # RATES[target_species] += rate_val * stoich_ratio
-    RATES[target_species] += rate
+    RATES[target_species] += rate * fac * stoich_ratio
