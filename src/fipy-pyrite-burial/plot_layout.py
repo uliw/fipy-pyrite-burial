@@ -73,6 +73,7 @@ def get_layout(df):
     # relative to Iron
     fe2_liquid = df.c_fe2_total / 696
     fe2_fe_sorbed = liquid_conc_to_wt_percent(df.c_fe2_total, 56, 2.6, phi)
+    fe2 = liquid_conc_to_wt_percent(df.c_fe2_total, 56, 2.6, phi)
     fe3_fe = solid_conc_to_wt_percent(df.c_fe3, 56, 2.6, phi)
     fes_fe = solid_conc_to_wt_percent(df.c_fes, 56, 2.6, phi)
     fes2_fe = solid_conc_to_wt_percent(df.c_fes2, 56, 2.6, phi)
@@ -106,7 +107,7 @@ def get_layout(df):
                 [fes2_fe, r"FeS$_{2}$ [wt% Fe]", fes2_attr],
                 [fes_fe * 1, r"FeS $\times$ 1 [wt% Fe]", fes_attr],
                 [fe3_fe, r"Fe$^{3+}$ [wt% Fe]", fe3_attr],
-                [fe2_fe_sorbed, r"Fe$^{2+}_{sorb}$ [wt% Fe]", fe2_s_attr],
+                [fe2, r"Fe$^{2+}$ [wt% Fe]", fe2_s_attr],
                 # [
                 #     total_iron,
                 #     r"TFe [wt% Fe]",

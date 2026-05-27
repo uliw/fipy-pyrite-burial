@@ -104,11 +104,11 @@ def diagenetic_reactions(mp, c, k, f):
     # Velde et al specify their k-values in bulk concentrations, so
     # we convert to phase specific space first
     phi = mp.phi
-    K_o2 = mp.K_o2  # / phi
-    K_ts2 = mp.K_ts2  # / phi
-    K_so4 = mp.K_so4  #  phi
-    K_fe3 = mp.K_fe3  # / (1 - phi)
-    K_fe3_diss_red = mp.K_fe3_diss_red  # / (1 - phi)
+    K_o2 = mp.K_o2 / phi
+    K_ts2 = mp.K_ts2 / phi
+    K_so4 = mp.K_so4 / phi
+    K_fe3 = mp.K_fe3 / (1 - phi)
+    K_fe3_diss_red = mp.K_fe3_diss_red / (1 - phi)
 
     # O2 Limitation for low O2 (1.0 -> 0.0)
     limiters["o2_implicit"] = 1 / (c.o2 + K_o2)
@@ -1391,8 +1391,6 @@ def fes_dissolution_new(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         )
 
 
-
-
 def fes_dissolution_newest(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     FeS dissolution — equilibrium capped.
@@ -1424,23 +1422,23 @@ def fes_dissolution_newest(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # Calculate the exact porewater mass increment (dx_eq) required to hit Omega = 1
     # Quadratic: dx^2 + (fe2 + hs)*dx + (fe2*hs - Ksp) = 0
     # standard form: a=1, b=(fe2 + hs), c=(fe2*hs - K_sp_prime)
-    
+
     k_sp_prime = omega_den  # This is k.hplus * k.fes_sp
-    
+
     b_coef = fe2_pw_val + hs_val
     c_coef = (fe2_pw_val * hs_val) - k_sp_prime
-    
+
     # Radical: sqrt(b^2 - 4ac)
     discriminant = b_coef**2 - 4.0 * c_coef
-    
+
     # Safe guard against negative noise under radical
     discriminant = np.maximum(zero, discriminant)
-    
+
     # Solve quadratic for the positive root
     dx_eq = (-b_coef + np.sqrt(discriminant)) / 2.0
     # If already supersaturated, dx_eq will be <= 0. Clamp it.
     dx_eq = np.maximum(zero, dx_eq)
-    
+
     # Convert dx_eq from [mmol/L_pw] back to solid phase equivalent [mmol/L_solid]
     # to compare against our available solid inventory.
     # Conversion: solid = liquid * (phi / (1 - phi))
@@ -1453,25 +1451,29 @@ def fes_dissolution_newest(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # The maximum mass allowed to dissolve this timestep is the lesser of:
     # 1. A fraction of the solid inventory (f_max * fes_val)
     # 2. The thermodynamic space remaining in the porewater (dx_eq_solid)
-    
+
     f_max = 0.5
     max_allowed_mass_solid = np.minimum(f_max * fes_val, dx_eq_solid)
-    
+
     # Define a safety timescale over which we want to smoothly land on equilibrium.
     # E.g., land smoothly over ~15 minutes (900 seconds) or current_dt, whichever is smaller.
-    tau_safe = np.minimum(mp.current_dt, 900.0)
-    
+    # tau_safe = np.minimum(mp.current_dt, 900.0)
+    # Define a relaxation timescale proportional to the timestep
+    # Setting it to 5 * dt ensures the system under-relaxingly glides
+    # toward equilibrium over multiple timesteps rather than violently forcing it.
+    tau_safe = 5.0 * mp.current_dt
+
     # Back-calculate the maximum allowed safe k_d coefficient
     # rate = k_d * fes_val  ==>  k_d_max = max_allowed_mass_solid / (fes_val * tau_safe)
     k_d_max = max_allowed_mass_solid / (fes_val * tau_safe + 1e-30)
-    
+
     # Apply the thermodynamic cap to your kinetic rate constant
     k_d = k.fes_isd * dissol_limiter
     k_d = np.minimum(k_d, k_d_max)
 
     # Final Patankar-style step-limiter for standalone numerical matrix stability
     k_d = k_d / (1.0 + (k_d * mp.current_dt / f_max))
-    
+
     # ------------------------------------------------------------------
     # 5. Dissolution rate [mmol/L_solid/s]
     # ------------------------------------------------------------------
@@ -1534,7 +1536,6 @@ def fes_dissolution_newest(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             add_lhs_sink=True,
         )
 
-        
 
 def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Calculate elemental sulfur disproportionation.

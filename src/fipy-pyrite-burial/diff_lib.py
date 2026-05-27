@@ -605,6 +605,29 @@ def wt_percent_to_solid_conc(wp, mw, d, phi):
     return C_bulk
 
 
+def solid_conc_to_umol_per_g(C_solid, d):
+    """
+    Convert a concentration that is expressed per unit solid volume
+    (mmol L⁻¹ solid) to mol/dry weight.
+
+    Parameters
+    ----------
+    C_solid : float or array‑like
+        Concentration per unit solid volume (mmol L⁻¹ of solid).
+       umol/cm^3 or mol/m^3
+    d : float
+        Grain (particle) density of the pure solid (g cm⁻³).
+
+
+    Returns
+    -------
+    umol_gram : float or np.ndarray
+        umol/g *dry* sediment
+    """
+
+    return C_solid / d
+
+
 def solid_conc_to_wt_percent(C_solid, mw, d, phi):
     """
     Convert a concentration that is expressed per unit solid volume
@@ -853,9 +876,9 @@ def save_data_async(
         return obj
 
     c_snap = data_container({s: snap(getattr(c, s)) for s in species_list})
-    f_snap = data_container({
-        s: (None, None, snap(getattr(f_final, s)[2])) for s in species_list
-    })
+    f_snap = data_container(
+        {s: (None, None, snap(getattr(f_final, s)[2])) for s in species_list}
+    )
     D_mol_snap = data_container({key: snap(val) for key, val in D_mol.items()})
 
     # Copy metadata

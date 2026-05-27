@@ -13,11 +13,8 @@ liter of bulk sediment does.  ​
 if __name__ == "__main__":
     import pint
     import reactions_new as rn
-    from diff_lib import (
-        get_total_delta,
-        save_data,
-        save_state,
-    )
+    from diff_lib import get_total_delta, save_data, save_state, data_container
+    from reaction_constants import get_reaction_constants
     from pyrite_base_model import pyrite_model
 
     ureg = pint.UnitRegistry()
@@ -30,14 +27,41 @@ if __name__ == "__main__":
         "experiment": experiment,
         "state_data": None,
         "process_monitor": "gui",  # gui | video | none
+        "layout_file": "plot_layout_velde.py",
+        "layout_file": "plot_layout.py",
         # Solver Parameters
-        "max_steps": 20000,  # max number of iterations
-        "t_end": Q_("1 kyr").to("seconds").magnitude,
+        "max_steps": 200,  # max number of iterations
+        "max_depth": 1,  # meters
+        "t_end": Q_("10 kyr").to("seconds").magnitude,
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
-        "report_step": 1,  # how often to update plot`
+        "dt_target_change": 100,  # target change per step (for dt adaptation)
+        "report_step": 1,  # how often to update plot
+        "BT0": Q_("4 cm^2/year").to("m^2/second").magnitude,
+        "BT_depth": Q_("7.6 cm").to("meter").magnitude,  # Bioturbation depth in m
+        "BT_attenuation": Q_("2 cm").to("meter").magnitude,  # xbm of Velde et al.
     }
+
+    k = data_container()
+    _k1, k = get_reaction_constants(7.5, 0.8, k_values=k)
+
+    p_dict["diagenetic_reactions"] = [
+        [rn.aerobic_respiration, k],
+        [rn.dissimilatory_iron_reduction, k],
+        [rn.sulfate_reduction, k],
+        [rn.hs_oxidation, k],
+        [rn.elemental_sulfur_oxidation, k],
+        [rn.sulfide_mediated_iron_reduction, k],
+        [rn.fe2_oxidation, k],
+        [rn.fes_precipitation_terminal, k],
+        [rn.fes_dissolution_newest, k],
+        [rn.fes_oxidation, k],
+        # [rn.pyrite_formation_s0, k],
+        # [rn.pyrite_formation_fes_ts2, k],
+        # [rn.pyrite_oxidation, k],
+        # [rn.s0_disproportionation, k],
+    ]
 
     (
         mp,

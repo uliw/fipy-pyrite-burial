@@ -32,7 +32,7 @@ if __name__ == "__main__":
         "state_data": None,
         "process_monitor": "video",  # gui | video | none
         # Solver Parameters
-        "max_steps": 200000,  # max number of iterations
+        "max_steps": 20000,  # max number of iterations
         "t_end": Q_("10 kyr").to("seconds").magnitude,
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
