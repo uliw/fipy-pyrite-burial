@@ -334,8 +334,8 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
                     [(mp.w * var.faceValue - J_solid) / D_total.faceValue],
                     mesh.facesLeft,
                 )
-                if species_name == "fe3":
-                    var.setValue(J_solid / mp.w if mp.w > 0 else 0.0)
+                # if species_name == "fe3":
+                #     var.setValue(J_solid / mp.w if mp.w > 0 else 0.0)
             else:
                 # Pure advection -> Dirichlet C_solid = J_solid / w
                 val = J_solid / mp.w if mp.w > 0 else 0.0

@@ -1189,16 +1189,26 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     hs_val = c.ts2 * mp.hs_frac
     omega_den = k.hplus * k.fes_sp + 1e-30
     omega = (fe2_pw_val * hs_val) / omega_den
-    zero = c.ts2 * 0  # hack to get a fipy cell variable
+    zero = c.ts2 * 0.0  # hack to get a fipy cell variable
     # 2. Define the 'Driving Force' (only positive for precipitation)
-    driving_force = np.maximum(zero, omega - 1)
+    driving_force = np.maximum(zero, omega - 1.0)
 
     # 3. Apply the MM-type limiter
     # km_fes controls the 'sharpness' of the approach to equilibrium
     km_fes = 0.5
     equilibrium_limiter = driving_force / (km_fes + driving_force)
-    fes_coeff = k.fes_ts2 * hs_val * equilibrium_limiter
-    hs_coeff = k.fes_ts2 * fe2_pw_val * equilibrium_limiter
+
+    # Velde's phase-specific rate [mol/m^3_pw/s]
+    phi_val = getattr(mp.phi, "value", mp.phi)
+    fac_vol = (1.0 - phi_val) / phi_val
+    rate_pw = fac_vol * k.fes_isp * equilibrium_limiter
+
+    # Implicit coefficients based on solved variables
+    fes_coeff = rate_pw / (c.fe2_total + 1e-5) 
+    hs_coeff = rate_pw / (c.ts2 + 1e-5)
+
+    fes_coeff = 0.7 * c.fe2_total * fes_coeff / (mp.current_dt + 1e-30)
+    hs_coeff = 0.7 * c.ts2 * hs_coeff / (mp.current_dt + 1e-30)
 
     # Fe2 sink + FeS source: CROSS to fe2_new
     add_implicit_coupling_new(
@@ -1208,7 +1218,7 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         target_species="fes",
         source_species="fe2_total",
         coeff=fes_coeff,
-        rate=fes_coeff * fe2_pw_val,
+        rate=rate_pw,
         mp=mp,
         ctype="liquid_2_solid",
         c=c,
@@ -1218,14 +1228,14 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     # TS2 sink: self-implicit
     add_implicit_sink(
-        LHS, RATES, "ts2", hs_coeff, hs_coeff * hs_val, mp=mp, ctype="liquid"
+        LHS, RATES, "ts2", hs_coeff, rate_pw, mp=mp, ctype="liquid"
     )
 
     if mp.isotopes:
         f32_ts2 = c.ts2_32 / (c.ts2 + 1e-30)
+        rate_pw_32 = rate_pw * f32_ts2
 
-        # fes_32: CROSS to fe2_new, scaled by porewater isotope ratio
-        # Driven by same fe2_new as bulk fes → fes_32/fes = f32_ts2
+        # fes_32: CROSS to fe2_new
         add_implicit_coupling_new(
             CROSS,
             RATES,
@@ -1233,7 +1243,7 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             target_species="fes_32",
             source_species="fe2_total",
             coeff=fes_coeff * f32_ts2,
-            rate=fes_coeff * fe2_pw_val * f32_ts2,
+            rate=rate_pw_32,
             mp=mp,
             ctype="liquid_2_solid",
             c=c,
@@ -1241,13 +1251,12 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         )
 
         # ts2_32: self-implicit sink, same coeff as bulk ts2
-        # ts2_32/ts2 ratio preserved because same coefficient
         add_implicit_sink(
             LHS,
             RATES,
             "ts2_32",
             hs_coeff,
-            hs_coeff * c.ts2_32,
+            rate_pw_32,
             mp=mp,
             ctype="liquid",
         )
