@@ -257,7 +257,11 @@ def _assemble_coupled_equation(
     equilibrium_reactions(mp, c, k, None, RATES_eq, current_dt)
 
     # 2. Get Kinetic Reaction Terms
-    f_res, RATES = diagenetic_reactions(mp, c, k, f=data_container())
+    mp.in_solver = True
+    try:
+        f_res, RATES = diagenetic_reactions(mp, c, k, f=data_container())
+    finally:
+        mp.in_solver = False
 
     # 4. Build individual equations and couple them
     #
