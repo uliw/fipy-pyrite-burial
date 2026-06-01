@@ -1140,3 +1140,12 @@ def calculate_fractionated_coeff_32(coeff_total, c_total, c_32, alpha, eps=1e-20
     """
     denom = c_total + (alpha - 1.0) * c_32 + eps
     return coeff_total * alpha * c_total / denom
+
+
+def partition_equilibrium_isotope_32(c_32, frac_target, frac_other, alpha_eq_32, eps=1e-30):
+    """
+    Calculate the concentration of the 32S isotope in a partitioned species 
+    under equilibrium fractionation.
+    """
+    denom = frac_target + alpha_eq_32 * frac_other + eps
+    return c_32 * frac_target / denom
