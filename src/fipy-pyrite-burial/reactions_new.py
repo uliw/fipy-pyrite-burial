@@ -1185,30 +1185,70 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     ts2_32 has its own self-implicit sink with the same coefficient
     as bulk ts2, preserving the isotope ratio during depletion.
     """
-    fe2_pw_val = c.fe2_total * mp.f_diss + 1e-20
-    hs_val = c.ts2 * mp.hs_frac
+    # 1. Current state (using FiPy variables directly for consistency)
+    fe2_total_val = np.maximum(c.fe2_total, 0.0)
+    ts2_val = np.maximum(c.ts2, 0.0)
+
+    fe2_pw_val = fe2_total_val * mp.f_diss + 1e-20
+    hs_val = ts2_val * mp.hs_frac
     omega_den = k.hplus * k.fes_sp + 1e-30
     omega = (fe2_pw_val * hs_val) / omega_den
-    zero = c.ts2 * 0.0  # hack to get a fipy cell variable
+
     # 2. Define the 'Driving Force' (only positive for precipitation)
-    driving_force = np.maximum(zero, omega - 1.0)
+    driving_force = np.maximum(omega - 1.0, 0.0)
 
     # 3. Apply the MM-type limiter
-    # km_fes controls the 'sharpness' of the approach to equilibrium
     km_fes = 0.5
     equilibrium_limiter = driving_force / (km_fes + driving_force)
 
     # Velde's phase-specific rate [mol/m^3_pw/s]
-    phi_val = getattr(mp.phi, "value", mp.phi)
-    fac_vol = (1.0 - phi_val) / phi_val
-    rate_pw = fac_vol * k.fes_isp * equilibrium_limiter
+    fac_vol = (1.0 - mp.phi) / mp.phi
+    rate_pw_uncapped = fac_vol * k.fes_isp * equilibrium_limiter
+
+    # H2S and Fe2+ net chemical production rates from other reactions (in porewater phase-specific units)
+    # RATES contains rates in bulk units (mmol/L_bulk/s), so we divide by porosity to get mmol/L_liquid/s
+    fe2_prod_pw = RATES["fe2_total"] / (mp.phi + 1e-30)
+    ts2_prod_pw = RATES["ts2"] / (mp.phi + 1e-30)
+
+    # Total available reservoir over the next timestep (including chemical production)
+    dt_val = getattr(mp, "current_dt", 0.0)
+    dt_safe = np.maximum(dt_val, 1e-12)
+    fe2_available = np.maximum(fe2_total_val + fe2_prod_pw * dt_val, 0.0)
+    ts2_available = np.maximum(ts2_val + ts2_prod_pw * dt_val, 0.0)
+
+    # Timestep-dependent depletion caps (prevent depleting > 99% of total available species per step)
+    rate_cap_fe2 = 0.99 * fe2_available / dt_safe
+    rate_cap_ts2 = 0.99 * ts2_available / dt_safe
+    rate_pw = np.minimum(rate_pw_uncapped, np.minimum(rate_cap_fe2, rate_cap_ts2))
+    rate_pw = np.maximum(rate_pw, rate_pw * 0.0)
 
     # Implicit coefficients based on solved variables
-    fes_coeff = rate_pw / (c.fe2_total + 1e-5) 
-    hs_coeff = rate_pw / (c.ts2 + 1e-5)
+    fes_coeff = rate_pw / (fe2_total_val + 1e-5)
+    hs_coeff = rate_pw / (ts2_val + 1e-5)
 
-    fes_coeff = 0.7 * c.fe2_total * fes_coeff / (mp.current_dt + 1e-30)
-    hs_coeff = 0.7 * c.ts2 * hs_coeff / (mp.current_dt + 1e-30)
+    # calculate predicted consumption during the next time step.
+    # fe2_total is treated as a pseudo liquid, so concentration is in mmol/L_liquid
+    i = 252
+    fe2_c = fes_coeff * c.fe2_total * mp.current_dt
+    ts2_c = hs_coeff * c.ts2 * mp.current_dt
+    fe2_p = c.fe2_total + fe2_prod_pw * mp.current_dt
+    ts2_p = c.ts2 + ts2_prod_pw * mp.current_dt
+    print(f"Current FeS concentration mmol/L_sol = {c.fes.value[i]:.2e}")
+    print(f"Current Fe2_total concentration mmol/L_liq = {c.fe2_total.value[i]:.2e}")
+    print(f"Current Fe2_porewater concentration mmol/L_liq = {fe2_pw_val.value[i]:.2e}")
+    print(f"Current H2S concentration mmol/L_liq = {hs_val.value[i]:.2e}")
+    print(f"z = {mp.z[i]:.2f}, driving_force = {driving_force.value[i]:.2e}")
+    print(
+        f"equilibrium_limiter = {equilibrium_limiter.value[i]:.2e}, rate = {rate_pw.value[i]:.2e}"
+    )
+    print(f"H2S net chemical production rate mmol/L_liq/s = {ts2_prod_pw.value[i]:.2e}")
+    print(f"H2S available reservoir over dt mmol/L_liq = {ts2_available.value[i]:.2e}")
+    print(
+        f"fe2_ predicted = {fe2_p.value[i]:.2e}, predicted Fe2 consumption = {fe2_c.value[i]:.2e}"
+    )
+    print(
+        f"ts2 predicted = {ts2_p.value[i]:.2e}, predicted ts2 consumption = {ts2_c.value[i]:.2e}\n"
+    )
 
     # Fe2 sink + FeS source: CROSS to fe2_new
     add_implicit_coupling_new(
@@ -1227,9 +1267,7 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     )
 
     # TS2 sink: self-implicit
-    add_implicit_sink(
-        LHS, RATES, "ts2", hs_coeff, rate_pw, mp=mp, ctype="liquid"
-    )
+    add_implicit_sink(LHS, RATES, "ts2", hs_coeff, rate_pw, mp=mp, ctype="liquid")
 
     if mp.isotopes:
         f32_ts2 = c.ts2_32 / (c.ts2 + 1e-30)
