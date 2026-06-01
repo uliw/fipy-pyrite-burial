@@ -1129,3 +1129,14 @@ def add_implicit_coupling_new(
         RATES[source_species] -= rate * fac
 
     RATES[target_species] += rate * fac * stoich_ratio
+
+
+def calculate_fractionated_coeff_32(coeff_total, c_total, c_32, alpha, eps=1e-20):
+    """
+    Calculate the fractionated isotope rate coefficient for 32S.
+
+    Formula:
+        coeff_32 = coeff_total * alpha * c_total / (c_total + (alpha - 1) * c_32 + eps)
+    """
+    denom = c_total + (alpha - 1.0) * c_32 + eps
+    return coeff_total * alpha * c_total / denom
