@@ -13,6 +13,7 @@ from diff_lib import (
     add_implicit_coupling_new,
     add_implicit_sink,
     calculate_fractionated_coeff_32,
+    partition_equilibrium_isotope_32,
 )
 
 
@@ -379,7 +380,8 @@ def hs_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     if mp.isotopes:
         alpha = 1.0 + (mp.hs_ox_alpha - 1.0) * lim["ts2_alpha_explicit"]
-        coeff_ts2_32 = calculate_fractionated_coeff_32(coeff_ts2, c.ts2, c.ts2_32, alpha, eps=1e-20)
+        hs_32 = partition_equilibrium_isotope_32(c.ts2_32, mp.hs_frac, mp.h2s_frac, mp.h2s_hs_alpha)
+        coeff_ts2_32 = calculate_fractionated_coeff_32(coeff_ts2, c.ts2 * mp.hs_frac, hs_32, alpha, eps=1e-20)
 
         # S0_32 coupled to H2S_32
         add_implicit_coupling_new(
@@ -566,8 +568,8 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 7. Isotopes (32S)
     # ------------------------------------------------------------------
     if mp.isotopes:
-        ts2_32_val = c.ts2_32
-        f32 = ts2_32_val / (ts2_val + 1e-30)
+        hs_32 = partition_equilibrium_isotope_32(c.ts2_32, mp.hs_frac, mp.h2s_frac, mp.h2s_hs_alpha)
+        f32 = hs_32 / (ts2_val * mp.hs_frac + 1e-30)
 
         rate_32 = 0.5 * rate_actual * f32
         coeff_32 = 0.5 * coeff_master * f32
@@ -616,8 +618,13 @@ def sulfide_speciation_clip(c, k, mp, dt, RATES):
 
     if mp.isotopes:
         ts2_32_val = c.ts2_32.value
-        c.h2s_32.value[:] = ts2_32_val * mp.h2s_frac
-        c.hs_32.value[:] = ts2_32_val * mp.hs_frac
+        hs_frac_val = getattr(mp.hs_frac, "value", mp.hs_frac)
+        h2s_frac_val = getattr(mp.h2s_frac, "value", mp.h2s_frac)
+        alpha_val = getattr(mp.h2s_hs_alpha, "value", mp.h2s_hs_alpha)
+
+        denom = hs_frac_val + alpha_val * h2s_frac_val + 1e-30
+        c.hs_32.value[:] = ts2_32_val * hs_frac_val / denom
+        c.h2s_32.value[:] = ts2_32_val * alpha_val * h2s_frac_val / denom
 
 
 def fe2_sorption_clip(c, k, mp, dt, RATES):
@@ -1101,12 +1108,11 @@ def fes_precipitation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 6. Isotopes (32S)
     # ------------------------------------------------------------------
     if mp.isotopes:
-        # ts2_32_val = c.ts2_32.value
-        ts2_32_val = c.ts2_32
-        f32_ts2 = ts2_32_val / (ts2_val + 1e-30)
+        hs_32 = partition_equilibrium_isotope_32(c.ts2_32, mp.hs_frac, mp.h2s_frac, mp.h2s_hs_alpha)
+        f32_hs = hs_32 / (ts2_val * mp.hs_frac + 1e-30)
 
-        ts2_32_target = ts2_target * f32_ts2
-        precip_rate_32 = k_rxn * np.maximum(ts2_32_val - ts2_32_target, 0.0)
+        ts2_32_target = ts2_target * f32_hs
+        precip_rate_32 = k_rxn * np.maximum(c.ts2_32 - ts2_32_target, 0.0)
 
         # ts2_32: self-implicit
         add_implicit_sink(
@@ -1242,8 +1248,9 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     add_implicit_sink(LHS, RATES, "ts2", hs_coeff, rate_pw, mp=mp, ctype="liquid")
 
     if mp.isotopes:
-        f32_ts2 = c.ts2_32 / (c.ts2 + 1e-30)
-        rate_pw_32 = rate_pw * f32_ts2
+        hs_32 = partition_equilibrium_isotope_32(c.ts2_32, mp.hs_frac, mp.h2s_frac, mp.h2s_hs_alpha)
+        f32_hs = hs_32 / (ts2_val * mp.hs_frac + 1e-30)
+        rate_pw_32 = rate_pw * f32_hs
 
         # fes_32: CROSS to fe2_new
         add_implicit_coupling_new(
@@ -1252,7 +1259,7 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             LHS,
             target_species="fes_32",
             source_species="fe2_total",
-            coeff=fes_coeff * f32_ts2,
+            coeff=fes_coeff * f32_hs,
             rate=rate_pw_32,
             mp=mp,
             ctype="liquid_2_solid",
