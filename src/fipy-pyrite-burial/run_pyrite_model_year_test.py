@@ -25,8 +25,8 @@ if __name__ == "__main__":
 
     p_dict = {
         "experiment": experiment,
-        "state_data": None,
-        "process_monitor": "video",  # gui | video | none
+        "state_data": "pyrite_year_test_state_ss.npz",  # None
+        "process_monitor": "gui",  # gui | video | none
         "layout_file": "plot_layout_velde.py",
         "layout_file": "plot_layout.py",
         # Solver Parameters
@@ -37,7 +37,7 @@ if __name__ == "__main__":
         "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
         "dt_target_change": 100,  # target change per step (for dt adaptation)
-        "report_step": 50,  # how often to update plot
+        "report_step": 1,  # how often to update plot
         "BT0": Q_("4 cm^2/year").to("m^2/second").magnitude,
         "BT_depth": Q_("7.6 cm").to("meter").magnitude,  # Bioturbation depth in m
         "BT_attenuation": Q_("2 cm").to("meter").magnitude,  # xbm of Velde et al.
@@ -51,7 +51,7 @@ if __name__ == "__main__":
         [rn.aerobic_respiration, k],
         [rn.dissimilatory_iron_reduction, k],
         [rn.sulfate_reduction, k],
-        [rn.hs_oxidation, k],
+        [rn.h2s_oxidation, k],
         [rn.elemental_sulfur_oxidation, k],
         [rn.sulfide_mediated_iron_reduction, k],
         [rn.fe2_oxidation, k],

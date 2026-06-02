@@ -150,7 +150,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         [rn.aerobic_respiration, k],
         [rn.dissimilatory_iron_reduction, k],
         [rn.sulfate_reduction, k],
-        [rn.hs_oxidation, k],
+        [rn.h2s_oxidation, k],
         [rn.elemental_sulfur_oxidation, k],
         [rn.sulfide_mediated_iron_reduction, k],
         [rn.fe2_oxidation, k],
@@ -239,16 +239,15 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     # Fe2 sorption fraction. Since sorption is faster than transport we treat it as
     # instantenous, i.e. it is just a function of concentration K_ads = k.fe2_p_eq which
     # is unitless (Conc_solid_vol / Conc_liquid_vol)
-    # Fe_tot is mmol / L_solid
-    # k.fe2_p_eqv is (mmol/L_solid) / (mmol/L_pw)
-    # The 'volume ratio' term
-    vol_ratio = mp.phi.value / (1.0 - mp.phi.value)
-
+    # Note that fe2_total is considered a liquid species!
     # fraction of Fe2+ in porewater mmol/L_pw
-    mp.f_diss = 1 / (k.fe2_p_eq + vol_ratio)
-    mp.fe2_pw_conc = mp.f_diss
-    # fraction of Fe2+ in sediment as (mmol / L_solid)
-    mp.f_sorb = k.fe2_p_eq * mp.f_diss
+    mp.fe2_diss = 1 / (1 + k.fe2_p_eq)
+
+    # 2. Fraction of Fe2+ in sediment (mmol/L_solid)
+    # You must still apply the volume ratio to convert the liquid-based inventory
+    # back into solid-phase concentration units for your solid-state reactions
+    vol_ratio = mp.phi.value / (1.0 - mp.phi.value)
+    mp.fe2_sorb = k.fe2_p_eq * vol_ratio * mp.fe2_diss
 
     # calculate H2S/HS- speciation
     pKa1 = 7.0
@@ -289,7 +288,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     D_mol.D_irr = compute_bio_irrigation_alpha(z, mp.BI0, mp.BI_depth)
     D_mol.D_bio = compute_sigmoidal_db(z, mp.BT0, mp.BT_depth, mp.BT_attenuation)
     # lumped modeling of Fe2 liq and Fe2 adsorbed
-    D_mol.fe2_total = D_mol.fe2 * mp.f_diss
+    D_mol.fe2_total = D_mol.fe2 * mp.fe2_diss
 
     # -----------------------------------------------------------------------------
     # 4. BOUNDARY CONDITIONS
