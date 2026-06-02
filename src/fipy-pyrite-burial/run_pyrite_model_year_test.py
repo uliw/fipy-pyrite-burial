@@ -26,18 +26,18 @@ if __name__ == "__main__":
     p_dict = {
         "experiment": experiment,
         "state_data": None,
-        "process_monitor": "gui",  # gui | video | none
+        "process_monitor": "video",  # gui | video | none
         "layout_file": "plot_layout_velde.py",
         "layout_file": "plot_layout.py",
         # Solver Parameters
-        "max_steps": 200,  # max number of iterations
-        "max_depth": 1,  # meters
+        "max_steps": 2000,  # max number of iterations
+        "max_depth": 2,  # meters
         "t_end": Q_("10 kyr").to("seconds").magnitude,
         "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
         "dt_target_change": 100,  # target change per step (for dt adaptation)
-        "report_step": 1,  # how often to update plot
+        "report_step": 50,  # how often to update plot
         "BT0": Q_("4 cm^2/year").to("m^2/second").magnitude,
         "BT_depth": Q_("7.6 cm").to("meter").magnitude,  # Bioturbation depth in m
         "BT_attenuation": Q_("2 cm").to("meter").magnitude,  # xbm of Velde et al.

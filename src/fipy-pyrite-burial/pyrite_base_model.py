@@ -115,6 +115,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
             "dispro_so4_alpha": 1.02,  # about +20 mUr
             "dispro_hs_alpha": 0.993,  # about -7 mUr
             "dispro_so4_hs_split": 0.5,  # i.e. 2 parts SO4, 1 part H2S
+            "h2s_hs_alpha": 1.002,  # equilibrium fractionation factor between H2S and HS- for 32S
             "VCDT": 0.044162589,  # VCDT reference ratio
             "K_epsilon_msr": 0.2,  # limit MSR fractionation below 0.2 mmol/L
             "K_epsilon_hs_ox": 0.01,  # limit HS fractionation below 0.01 mmol/L
@@ -181,6 +182,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         mp.max_spacing,
         mp.reaction_zone,
     )
+    mp.z = z
     mp.grid_points = len(z)
     mp.phi = CellVariable(name="porosity", mesh=mesh, value=mp.phi)
 
