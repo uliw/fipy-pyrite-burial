@@ -209,7 +209,7 @@ def aerobic_respiration(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         coeff_o2,
         coeff_o2 * c.o2,
         mp=mp,
-        ctype="liquid",
+        ctype="solid_2_liquid",
         c=c,
     )
 
@@ -294,7 +294,7 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         coeff_so4,  # reaction coefficient
         coeff_so4 * c.so4,  # coeff * concentration
         mp=mp,
-        ctype="liquid_2_liquid",  # type
+        ctype="solid_2_liquid",  # type
         c=c,  # model parameters
     )
 
@@ -338,19 +338,19 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             coeff_so4_32,  # implicit coeff for sink
             coeff_so4_32 * c.so4_32,  # explicit rate for reporting
             mp=mp,
-            ctype="liquid_2_liquid",  # type
+            ctype="solid_2_liquid",  # type
             c=c,
         )
 
 
-def h2s_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """Reaction: 1 H2S + 0.5 O2 -> 1 S0."""
+def hs_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """Reaction: 1 HS + 0.5 O2 -> 1 S0."""
     # H2S Sink - LIQUID
     # Ref: H2S
-    coeff_ts2 = k.hs_ox * c.o2  #  * mp.hs_frac
+    coeff_ts2 = k.hs_ox * c.o2 * mp.hs_frac
 
     # O2 Sink (0.5x) - LIQUID
-    coeff_o2 = 0.5 * k.hs_ox * c.ts2  # * mp.hs_frac
+    coeff_o2 = 0.5 * k.hs_ox * c.ts2 * mp.hs_frac
     add_implicit_sink(
         LHS,
         RATES,
@@ -378,14 +378,11 @@ def h2s_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     if mp.isotopes:
         alpha = 1.0 + (mp.hs_ox_alpha - 1.0) * lim["ts2_alpha_explicit"]
-        # hs_32 = partition_equilibrium_isotope_32(
-        #     c.ts2_32, mp.hs_frac, mp.h2s_frac, mp.h2s_hs_alpha
-        # )
-        # coeff_ts2_32 = calculate_fractionated_coeff_32(
-        #     coeff_ts2, c.ts2 * mp.hs_frac, hs_32, alpha, eps=1e-20
-        # )
+        hs_32 = partition_equilibrium_isotope_32(
+            c.ts2_32, mp.hs_frac, mp.h2s_frac, mp.h2s_hs_alpha
+        )
         coeff_ts2_32 = calculate_fractionated_coeff_32(
-            coeff_ts2, c.ts2, c.ts2_32, alpha, eps=1e-20
+            coeff_ts2, c.ts2 * mp.hs_frac, hs_32, alpha, eps=1e-20
         )
 
         # S0_32 coupled to H2S_32
@@ -481,23 +478,23 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # Uncapped reaction rate driven by fe3 consumption [mmol/L_solid/s]
     rate_uncapped = k_base_val * hs_val * fe3_val
 
-    # # Total available ts2 reservoir over the next timestep (including chemical production)
-    # # RATES contains rates in bulk units (mmol/L_bulk/s), so we divide by porosity to get mmol/L_liquid/s
-    # ts2_prod_pw = RATES["ts2"] / (mp.phi + 1e-30)
-    # dt_val = getattr(mp, "current_dt", 0.0)
-    # dt_safe = np.maximum(dt_val, 1e-12)
-    # ts2_available = np.maximum(ts2_val + ts2_prod_pw * dt_safe, 0.0)
+    # Total available ts2 reservoir over the next timestep (including chemical production)
+    # RATES contains rates in bulk units (mmol/L_bulk/s), so we divide by porosity to get mmol/L_liquid/s
+    ts2_prod_pw = RATES["ts2"] / (mp.phi + 1e-30)
+    dt_val = getattr(mp, "current_dt", 0.0)
+    dt_safe = np.maximum(dt_val, 1e-12)
+    ts2_available = np.maximum(ts2_val + ts2_prod_pw * dt_safe, 0.0)
 
-    # # Limit by fe3 depletion (at most 70% per timestep)
-    # max_rate_fe3 = 0.7 * fe3_val / dt_safe
+    # Limit by fe3 depletion (at most 70% per timestep)
+    max_rate_fe3 = 0.7 * fe3_val / dt_safe
 
-    # # Limit by ts2 depletion (0.5 mole ts2 consumed per 1 mole fe3)
-    # # 0.5 * Rate * dt <= 0.7 * ts2_available -> Rate <= 1.4 * ts2_available / dt
-    # max_rate_ts2 = 1.4 * ts2_available / dt_safe
+    # Limit by ts2 depletion (0.5 mole ts2 consumed per 1 mole fe3)
+    # 0.5 * Rate * dt <= 0.7 * ts2_available -> Rate <= 1.4 * ts2_available / dt
+    max_rate_ts2 = 1.4 * ts2_available / dt_safe
 
-    # # Actual capped rate
-    # rate_actual = np.minimum(rate_uncapped, np.minimum(max_rate_fe3, max_rate_ts2))
-    rate_actual = rate_uncapped
+    # Actual capped rate
+    rate_actual = np.minimum(rate_uncapped, np.minimum(max_rate_fe3, max_rate_ts2))
+    # rate_actual = rate_uncapped
 
     # Single master coefficient based on fe3 [1/s]
     coeff_master = rate_actual / (fe3_val + 1e-30)
@@ -927,7 +924,7 @@ def pyrite_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         coeff=coeff_o2,
         rate=rate_o2,
         mp=mp,
-        ctype="liquid_2_liquid",
+        ctype="solid_2_liquid",
         c=c,
         stoich_ratio=2.0 / 3.5,
     )
@@ -1136,7 +1133,6 @@ def fes_precipitation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
         # fes_32: CROSS to ts2_32
         add_implicit_coupling_new(
-            "liquid_2_solid",
             CROSS,
             RATES,
             LHS,
@@ -1145,6 +1141,7 @@ def fes_precipitation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             coeff=k_rxn,
             rate=precip_rate_32,
             mp=mp,
+            ctype="liquid_2_solid",
             c=c,
             add_lhs_sink=False,
         )
@@ -1203,44 +1200,11 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     rate_cap_fe2 = 0.99 * fe2_available / dt_safe
     rate_cap_ts2 = 0.99 * ts2_available / dt_safe
     rate_pw = np.minimum(rate_pw_uncapped, np.minimum(rate_cap_fe2, rate_cap_ts2))
-    rate_pw = np.maximum(rate_pw, rate_pw * 0.0)
+    # rate_pw = np.maximum(rate_pw, rate_pw * 0.0)
 
     # Implicit coefficients based on solved variables
     fes_coeff = rate_pw / (fe2_total_val + 1e-5)
     hs_coeff = rate_pw / (ts2_val + 1e-5)
-
-    # calculate predicted consumption during the next time step.
-    # fe2_total is treated as a pseudo liquid, so concentration is in mmol/L_liquid
-    i = 252
-    fe2_c = fes_coeff * c.fe2_total * mp.current_dt
-    ts2_c = hs_coeff * c.ts2 * mp.current_dt
-    fe2_p = c.fe2_total + fe2_prod_pw * mp.current_dt
-    ts2_p = c.ts2 + ts2_prod_pw * mp.current_dt
-    if getattr(mp, "in_solver", False):
-        print(f"Current FeS concentration mmol/L_sol = {c.fes.value[i]:.2e}")
-        print(
-            f"Current Fe2_total concentration mmol/L_liq = {c.fe2_total.value[i]:.2e}"
-        )
-        print(
-            f"Current Fe2_porewater concentration mmol/L_liq = {fe2_pw_val.value[i]:.2e}"
-        )
-        print(f"Current H2S concentration mmol/L_liq = {hs_val.value[i]:.2e}")
-        print(f"z = {mp.z[i]:.2f}, driving_force = {driving_force.value[i]:.2e}")
-        print(
-            f"equilibrium_limiter = {equilibrium_limiter.value[i]:.2e}, rate = {rate_pw.value[i]:.2e}"
-        )
-        print(
-            f"H2S net chemical production rate mmol/L_liq/s = {ts2_prod_pw.value[i]:.2e}"
-        )
-        print(
-            f"H2S available reservoir over dt mmol/L_liq = {ts2_available.value[i]:.2e}"
-        )
-        print(
-            f"fe2_ predicted = {fe2_p.value[i]:.2e}, predicted Fe2 consumption = {fe2_c.value[i]:.2e}"
-        )
-        print(
-            f"ts2 predicted = {ts2_p.value[i]:.2e}, predicted ts2 consumption = {ts2_c.value[i]:.2e}\n"
-        )
 
     # Fe2 sink + FeS source: CROSS to fe2_new
     add_implicit_coupling_new(
@@ -1558,4 +1522,231 @@ def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             ctype="solid_2_liquid",
             c=c,
             add_lhs_sink=True,
+        )
+
+
+def fes_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """
+    FeS precipitation / dissolution with Newton-linearised saturation ratio Ω.
+
+    Precipitation (Ω ≥ 1):  Fe2⁺ + HS⁻  →  FeS(s)
+        R_prec = k_prec_eff · (Ω^{n+1} - 1)
+
+    Dissolution   (Ω < 1):  FeS(s)  →  Fe2⁺ + HS⁻
+        R_diss = k_diss · fes · (1 - Ω^{n+1})
+
+    Ω = (fe2_total · fe2_diss · ts2 · hs_frac) / (H⁺ · Ksp)
+
+    Newton linearisation around the current sweep iterate (*):
+        Ω^{n+1} ≈ ω* + dO_dFe2·(fe2^{n+1} − fe2*)
+                      + dO_dTS2·(ts2^{n+1} − ts2*)
+
+    Each branch maps to three contributions:
+        (a) implicit diagonal  → add_implicit_coupling_new / add_implicit_sink
+        (b) implicit cross     → direct CROSS.append (helpers only wire one diagonal per call)
+        (c) explicit residual  → add_explicit_source  (can be negative: corrects double-count)
+
+    Key differences vs. original fes_precipitation_terminal:
+        - No Michaelis-Menten limiter (stability from implicit scheme, not rate capping)
+        - No dt-dependent rate capping (eliminated by design)
+        - Dissolution branch added; requires k.fes_diss in the rate constant object
+        - Requires sweep loop: call .sweep() 3-10× per timestep until residuals converge
+    """
+    phi = mp.phi
+    fac_vol = (1.0 - phi) / phi  # converts solid-phase rate to porewater-equivalent
+
+    # ── Current sweep iterate ─────────────────────────────────────────────
+    fe2_val = np.maximum(c.fe2_total.value, 1e-20)
+    ts2_val = np.maximum(c.ts2.value, 1e-20)
+    fes_val = np.maximum(c.fes.value, 1e-20)
+
+    fe2_pw = fe2_val * mp.fe2_diss
+    hs_val = ts2_val * mp.hs_frac
+    omega_den = k.hplus * k.fes_sp + 1e-30
+    omega = fe2_pw * hs_val / omega_den
+
+    # ── ∂Ω/∂(transported variable) ───────────────────────────────────────
+    # ∂Ω/∂(fe2_total) = fe2_diss · hs_val  / omega_den
+    # ∂Ω/∂(ts2)       = fe2_pw   · hs_frac / omega_den
+    # Useful identity: dO_dFe2·fe2_val = dO_dTS2·ts2_val = ω*  (symmetry check)
+    dO_dFe2 = mp.fe2_diss * hs_val / omega_den
+    dO_dTS2 = fe2_pw * mp.hs_frac / omega_den
+
+    # Explicit residual after factoring out the two implicit terms:
+    #   omega_res = ω* − dO_dFe2·fe2* − dO_dTS2·ts2* = ω* − ω* − ω* = −ω*
+    # Kept as a general expression rather than the analytic shortcut for
+    # numerical safety near zero concentrations.
+    omega_res = omega - dO_dFe2 * fe2_val - dO_dTS2 * ts2_val
+
+    # ── Per-cell branch selector (no dt dependence) ───────────────────────
+    is_prec = (omega >= 1.0).astype(float)
+    is_diss = 1.0 - is_prec
+
+    # ══════════════════════════════════════════════════════════════════════
+    # PRECIPITATION BRANCH
+    #   R_prec = k_prec_eff · (Ω^{n+1} − 1)
+    #          ≈ k_prec_eff · [dO_dFe2·fe2  +  dO_dTS2·ts2  +  (omega_res − 1)]
+    #                          ──── (a) ────    ──── (b) ────    ──── (c) ────
+    # ══════════════════════════════════════════════════════════════════════
+    k_prec_eff = k.fes_isp * fac_vol * is_prec  # zero in dissolution cells
+
+    # ── (a) Implicit diagonal in fe2_total ───────────────────────────────
+    prec_coeff_fe2 = k_prec_eff * dO_dFe2  # [1/s]
+    prec_rate_fe2 = prec_coeff_fe2 * fe2_val
+
+    add_implicit_coupling_new(  # fes  +=  prec_coeff_fe2 · fe2_total (CROSS)
+        CROSS,
+        RATES,
+        LHS,  # fe2_total  −=  prec_coeff_fe2       (LHS diagonal)
+        target_species="fes",
+        source_species="fe2_total",
+        coeff=prec_coeff_fe2,
+        rate=prec_rate_fe2,
+        mp=mp,
+        ctype="liquid_2_solid",
+        add_lhs_sink=True,
+        stoich_ratio=1.0,
+    )
+
+    # ── (b) Implicit cross in ts2 ────────────────────────────────────────
+    prec_coeff_ts2 = k_prec_eff * dO_dTS2
+    prec_rate_ts2 = prec_coeff_ts2 * ts2_val
+
+    add_implicit_coupling_new(  # fes  +=  prec_coeff_ts2 · ts2       (CROSS)
+        CROSS,
+        RATES,
+        LHS,  # ts2 diagonal handled separately below
+        target_species="fes",
+        source_species="ts2",
+        coeff=prec_coeff_ts2,
+        rate=prec_rate_ts2,
+        mp=mp,
+        ctype="liquid_2_solid",
+        add_lhs_sink=False,
+        stoich_ratio=1.0,
+    )
+    add_implicit_sink(  # ts2  −=  prec_coeff_ts2 · ts2       (LHS diagonal)
+        LHS, RATES, "ts2", prec_coeff_ts2, prec_rate_ts2, mp=mp, ctype="liquid"
+    )
+
+    # ── Stoichiometric off-diagonal sinks ────────────────────────────────
+    # add_implicit_coupling_new wires one diagonal per call.
+    # The full Jacobian also requires:
+    #   fe2_total consumed proportionally to ts2  →  A[fe2, ts2] block
+    #   ts2       consumed proportionally to fe2  →  A[ts2, fe2] block
+    # Sign: negative = off-diagonal consumption.  Phase factor (φ) applied manually.
+    CROSS["fe2_total"].append(("ts2", -prec_coeff_ts2 * phi))
+    CROSS["ts2"].append(("fe2_total", -prec_coeff_fe2 * phi))
+
+    # ── (c) Explicit residual ─────────────────────────────────────────────
+    # prec_res_rate = k_prec_eff · (omega_res − 1) = k_prec_eff · (−ω* − 1)  < 0
+    # Negative by construction: corrects for the ω* that was double-counted in
+    # (a) and (b).  At convergence: (a) + (b) + (c) = R_prec exactly.
+    prec_res_rate = k_prec_eff * (omega_res - 1.0)
+
+    add_explicit_source(RHS, RATES, "fes", prec_res_rate, mp=mp, ctype="liquid_2_solid")
+    add_explicit_source(RHS, RATES, "fe2_total", -prec_res_rate, mp=mp, ctype="liquid")
+    add_explicit_source(RHS, RATES, "ts2", -prec_res_rate, mp=mp, ctype="liquid")
+
+    # ══════════════════════════════════════════════════════════════════════
+    # DISSOLUTION BRANCH
+    #   R_diss = k_diss · fes · (1 − Ω^{n+1})
+    #
+    # Full Newton linearisation:
+    #   R_diss ≈ k_diss · [(1−ω*)·fes^{n+1}              ← (a) fes self-implicit
+    #                    − fes* · dO_dFe2·fe2^{n+1}      ← (b) dissolution suppressed by Fe2
+    #                    − fes* · dO_dTS2·ts2^{n+1}      ← (c) dissolution suppressed by TS2
+    #                    + fes* · (dO_dFe2·fe2* + dO_dTS2·ts2*)]  ← (d) explicit
+    #
+    # (a) is the critical term that breaks the circular FeS dependency.
+    # (b,c,d) encode the Ω feedback: as Fe2/TS2 rise, Ω rises, dissolution slows.
+    # ══════════════════════════════════════════════════════════════════════
+    k_diss_eff = k.fes_isd * is_diss  # zero in precipitation cells
+
+    # ── (a) FeS self-implicit: the circular-dependency fix ────────────────
+    diss_coeff_fes = k_diss_eff * (1.0 - omega)  # positive since ω < 1 in diss cells
+    diss_rate_fes = diss_coeff_fes * fes_val
+
+    add_implicit_coupling_new(  # fe2_total  +=  diss_coeff_fes · fes  (CROSS)
+        CROSS,
+        RATES,
+        LHS,  # fes        −=  diss_coeff_fes        (LHS diagonal)
+        target_species="fe2_total",
+        source_species="fes",
+        coeff=diss_coeff_fes,
+        rate=diss_rate_fes,
+        mp=mp,
+        ctype="solid_2_liquid",
+        add_lhs_sink=True,
+        stoich_ratio=1.0,
+    )
+    add_implicit_coupling_new(  # ts2  +=  diss_coeff_fes · fes        (CROSS)
+        CROSS,
+        RATES,
+        LHS,  # fes diagonal already registered above
+        target_species="ts2",
+        source_species="fes",
+        coeff=diss_coeff_fes,
+        rate=diss_rate_fes,
+        mp=mp,
+        ctype="solid_2_liquid",
+        add_lhs_sink=False,
+        stoich_ratio=1.0,
+    )
+
+    # ── (b,c) Cross-suppression: dissolution rate decreases as Fe2/TS2 rise ─
+    # diss_cross_* = k_diss · fes* · ∂Ω/∂variable  [1/s]
+    diss_cross_fe2 = k_diss_eff * fes_val * dO_dFe2
+    diss_cross_ts2 = k_diss_eff * fes_val * dO_dTS2
+
+    # fes: positive cross = less net dissolution when Fe2/TS2 rise (source inhibition)
+    CROSS["fes"].append(("fe2_total", +diss_cross_fe2 * (1.0 - phi)))
+    CROSS["fes"].append(("ts2", +diss_cross_ts2 * (1.0 - phi)))
+    # fe2, ts2: negative cross = less source production as Fe2/TS2 rise
+    CROSS["fe2_total"].append(("fe2_total", -diss_cross_fe2 * phi))
+    CROSS["fe2_total"].append(("ts2", -diss_cross_ts2 * phi))
+    CROSS["ts2"].append(("fe2_total", -diss_cross_fe2 * phi))
+    CROSS["ts2"].append(("ts2", -diss_cross_ts2 * phi))
+
+    # ── (d) Explicit constant for dissolution ─────────────────────────────
+    # = k_diss · fes* · (dO_dFe2·fe2* + dO_dTS2·ts2*)
+    # = k_diss · fes* · 2ω*  (via the identity above)
+    diss_res_rate = k_diss_eff * fes_val * (dO_dFe2 * fe2_val + dO_dTS2 * ts2_val)
+
+    add_explicit_source(
+        RHS, RATES, "fe2_total", diss_res_rate, mp=mp, ctype="solid_2_liquid"
+    )
+    add_explicit_source(RHS, RATES, "ts2", diss_res_rate, mp=mp, ctype="solid_2_liquid")
+    add_explicit_source(RHS, RATES, "fes", -diss_res_rate, mp=mp, ctype="solid")
+
+    # ── Isotopes ──────────────────────────────────────────────────────────
+    if mp.isotopes:
+        hs_32 = partition_equilibrium_isotope_32(
+            c.ts2_32, mp.hs_frac, mp.h2s_frac, mp.h2s_hs_alpha
+        )
+        f32_hs = hs_32 / (hs_val + 1e-30)
+
+        # fes_32 precipitation: coupled to fe2_total, same coefficient scaled by isotope fraction
+        add_implicit_coupling_new(
+            CROSS,
+            RATES,
+            LHS,
+            target_species="fes_32",
+            source_species="fe2_total",
+            coeff=prec_coeff_fe2 * f32_hs,
+            rate=prec_rate_fe2 * f32_hs,
+            mp=mp,
+            ctype="liquid_2_solid",
+            add_lhs_sink=False,  # fe2_total diagonal already registered
+            stoich_ratio=1.0,
+        )
+        # ts2_32 self-implicit sink: same diagonal coefficient as bulk ts2
+        add_implicit_sink(
+            LHS,
+            RATES,
+            "ts2_32",
+            prec_coeff_ts2,
+            prec_rate_ts2 * f32_hs,
+            mp=mp,
+            ctype="liquid",
         )
