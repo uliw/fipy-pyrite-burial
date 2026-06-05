@@ -62,7 +62,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
             "process_monitor": "gui",  # gui | video | none
             "process_monitor": "video",  # gui | video | none
             "report_step": 2,  # how often to update plot
-            "backup_step": 10000,  # create backups every nth step
+            "backup_step": 1000,  # create backups every nth step
             "title": None,  # defaults to current time
             "start_time": 0,  # i.e., when starting from a previous state
             # --------- Model Geometry --------------------------- #
@@ -150,7 +150,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         [rn.aerobic_respiration, k],
         [rn.dissimilatory_iron_reduction, k],
         [rn.sulfate_reduction, k],
-        [rn.h2s_oxidation, k],
+        [rn.hs_oxidation, k],
         [rn.elemental_sulfur_oxidation, k],
         [rn.sulfide_mediated_iron_reduction, k],
         [rn.fe2_oxidation, k],
@@ -200,21 +200,25 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     # Species that are part of the transport system
     species_list_partial = [
         "so4",
-        "so4_32",
         "ts2",  # Total S2-
-        "ts2_32",  # Total S2- 32S
         "o2",
         "poc_fast",
         "poc_slow",
         "fe2_total",
         "fe3",
         "fes",
-        "fes_32",
         "s0",
-        "s0_32",
         "fes2",
-        "fes2_32",
     ]
+
+    if mp.isotopes:
+        species_list_partial = species_list_partial + [
+            "so4_32",
+            "ts2_32",  # Total S2- 32S
+            "fes_32",
+            "s0_32",
+            "fes2_32",
+        ]
 
     # Species that we use for reporting only
     report_species = [
@@ -249,7 +253,8 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     vol_ratio = mp.phi.value / (1.0 - mp.phi.value)
     mp.fe2_sorb = k.fe2_p_eq * vol_ratio * mp.fe2_diss
 
-    # calculate H2S/HS- speciation
+    # calculate H2S/HS- speciation. Note that H in mol/l, and different
+    # from k.hplus which is in mol/m^3.
     pKa1 = 7.0
     Ka1 = 10 ** (-pKa1)
     H = 10 ** (-mp.pH)
@@ -274,15 +279,16 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
 
     # ----- diffusion coefficients for liquid species ------ #
     D_mol.so4 = diff_coeff(T_profile, 4.88, 0.232, mp.phi)
-    D_mol.so4_32 = D_mol.so4
     D_mol.ts2 = diff_coeff(T_profile, 43.3, 0.85, mp.phi)
-    D_mol.ts2_32 = D_mol.ts2
     D_mol.fe2 = diff_coeff(T_profile, 27.7, 1, mp.phi)
     D_mol.o2 = (
         (0.2604 + 0.006363 * ((T_profile + 273.15) / 1))
         * 1e-9
         / (1 - np.log(mp.phi.value**2))
     )
+    if mp.isotopes:
+        D_mol.so4_32 = D_mol.so4
+        D_mol.ts2_32 = D_mol.ts2
 
     # -- Bioturbation and Irrigation Profiles (Robust Sigmoid) --
     D_mol.D_irr = compute_bio_irrigation_alpha(z, mp.BI0, mp.BI_depth)
@@ -295,21 +301,27 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     # -----------------------------------------------------------------------------
     bc_map = {
         "so4": {"top": mp.bc_so4, "type": "dissolved"},
-        "so4_32": {"top": mp.bc_so4_32, "type": "dissolved"},
         "ts2": {"top": mp.bc_ts2, "type": "dissolved"},
-        "ts2_32": {"top": mp.bc_ts2, "type": "dissolved"},
         "poc_fast": {"top": mp.bc_om_fast, "type": "particulate"},
         "poc_slow": {"top": mp.bc_om_slow, "type": "particulate"},
         "o2": {"top": mp.bc_o2, "type": "dissolved"},
         "s0": {"top": mp.bc_s0, "type": "particulate"},
-        "s0_32": {"top": mp.bc_s0, "type": "particulate"},
         "fe2_total": {"top": mp.bc_fe2, "type": "dissolved"},
         "fe3": {"top": mp.bc_fe3, "type": "particulate"},
         "fes": {"top": 0.0, "type": "particulate"},
-        "fes_32": {"top": 0.0, "type": "particulate"},
         "fes2": {"top": 0.0, "type": "particulate"},
-        "fes2_32": {"top": 0.0, "type": "particulate"},
     }
+
+    if mp.isotopes:
+        bc_map.update(
+            {
+                "so4_32": {"top": mp.bc_so4_32, "type": "dissolved"},
+                "ts2_32": {"top": mp.bc_ts2, "type": "dissolved"},
+                "s0_32": {"top": mp.bc_s0, "type": "particulate"},
+                "fes_32": {"top": 0.0, "type": "particulate"},
+                "fes2_32": {"top": 0.0, "type": "particulate"},
+            }
+        )
 
     for species_name, props in bc_map.items():
         var = getattr(c, species_name)
