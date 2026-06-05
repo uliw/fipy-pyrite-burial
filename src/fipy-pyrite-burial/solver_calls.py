@@ -410,7 +410,9 @@ def run_non_steady_state_solver_coupled(
                     converged = True
 
                 except Exception as e:
-                    tb_str = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
+                    tb_str = "".join(
+                        traceback.format_exception(type(e), e, e.__traceback__)
+                    )
                     print(
                         f"  Step failed at dt={get_time_units(current_dt):.2f~P}:\n\n {tb_str}\n Cutting dt."
                     )
@@ -457,18 +459,31 @@ def run_non_steady_state_solver_coupled(
                 fe_total_bulk = phi * c.fe2_total + (1 - phi) * (c.fe3 + c.fes + c.fes2)
                 m_fe = np.sum(dz * fe_total_bulk[:-1]).value
                 time_str = f" Time: {get_time_units(total_time):.2f~P}"
-                d34s = get_total_delta(c, mp)
-                _log(
-                    f"Step {step:4d}, {time_str}, "
-                    f"dt: {get_time_units(current_dt):.2f~P}, RMS Chg: {rms_change:.2e}, "
-                    f"d34S = {d34s:.2f}, "
-                    f"Total Fe {m_fe:.2e}"
-                )
-                d34S = get_delta(2 * c.fes2[-1], c.fes2_32[-1], mp.VCDT)
-                if mp.title is None:
-                    title_str = time_str + r", $\delta^{34}$S = " + f"{d34s:.1f} [mUr]"
+                if mp.isotopes:
+                    d34s = get_total_delta(c, mp)
+                    _log(
+                        f"Step {step:4d}, {time_str}, "
+                        f"dt: {get_time_units(current_dt):.2f~P}, RMS Chg: {rms_change:.2e}, "
+                        f"d34S = {d34s:.2f}, "
+                        f"Total Fe {m_fe:.2e}"
+                    )
+                    d34S = get_delta(2 * c.fes2[-1], c.fes2_32[-1], mp.VCDT)
+                    if mp.title is None:
+                        title_str = (
+                            time_str + r", $\delta^{34}$S = " + f"{d34s:.1f} [mUr]"
+                        )
+                    else:
+                        title_str = mp.title
                 else:
-                    title_str = mp.title
+                    _log(
+                        f"Step {step:4d}, {time_str}, "
+                        f"dt: {get_time_units(current_dt):.2f~P}, RMS Chg: {rms_change:.2e}, "
+                        f"Total Fe {m_fe:.2e}"
+                    )
+                    if mp.title is None:
+                        title_str = time_str
+                    else:
+                        title_str = mp.title
 
                 if plot_queue is not None:
                     write_to_queue_async(
