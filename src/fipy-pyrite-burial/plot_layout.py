@@ -19,7 +19,12 @@ def get_layout(df):
     from diff_lib import solid_conc_to_wt_percent, liquid_conc_to_wt_percent
 
     lt = 2
-    
+
+    if "d_so4" in df.columns:
+        isotopes = True
+    else:
+        isotopes = False
+
     # define color scheme
     poc_attr = {"color": "forestgreen", "lw": lt}
     o2_attr = {"color": "#AA4499", "lw": lt}
@@ -122,23 +127,29 @@ def get_layout(df):
             # "yscale": "symlog, linthresh=1e-14,linscale=0,1,base=10",
             # "right": [df.D_irr, "D_irr", {"color": "C8"}],
         },
-        # -------------------------------- 3 panel ----------------------- #
-        "third_subplot": {
-            "xaxis": [df.z, "Depth [m]"],
-            "left": [
-                [df.d_so4, r"SO$_{4}$", so4_attr_nf],
-                [df.d_ts2, r"TS$^{2-}$", ts2_attr],
-                [df.d_fes, r"FeS", fes_attr],
-                [df.d_fes2, r"FeS$_{2}$", fes2_attr_nf],
-                [df.d_s0, r"S$^{0}$", s0_attr],
-            ],
-            "left_ylabel": r"$\delta^{34}$ [mUr VCDT]",
-            "xscale": "log",
-            "xlim": (1e-4, 2),
-            # "ylim": (-15, 75),
-            # "right": [[df.d_h2s, "d_h2s", {"color": "C1"}]],
-            # "yscale": "log",
-            "options-left": "set_ylim(-30, 75)",
-        },
     }
+    if isotopes:
+        plt_desc.update(
+            {
+                # -------------------------------- 3 panel ----------------------- #
+                "third_subplot": {
+                    "xaxis": [df.z, "Depth [m]"],
+                    "left": [
+                        [df.d_so4, r"SO$_{4}$", so4_attr_nf],
+                        [df.d_ts2, r"TS$^{2-}$", ts2_attr],
+                        [df.d_fes, r"FeS", fes_attr],
+                        [df.d_fes2, r"FeS$_{2}$", fes2_attr_nf],
+                        [df.d_s0, r"S$^{0}$", s0_attr],
+                    ],
+                    "left_ylabel": r"$\delta^{34}$ [mUr VCDT]",
+                    "xscale": "log",
+                    "xlim": (1e-4, 2),
+                    # "ylim": (-15, 75),
+                    # "right": [[df.d_h2s, "d_h2s", {"color": "C1"}]],
+                    # "yscale": "log",
+                    "options-left": "set_ylim(-40, 75)",
+                },
+            }
+        )
+
     return plt_desc
