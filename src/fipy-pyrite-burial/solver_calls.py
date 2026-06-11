@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 import traceback
 import math
+import gc
 
 # import numpy as np
 from fipy.tools import numerix as np
@@ -254,7 +255,6 @@ def _assemble_coupled_equation(
     # RATES_eq is only for diagnostic merging; since RATES is discarded by
     # the caller, skip the merge loop entirely.
     RATES_eq = {s: np.zeros_like(c.so4) for s in species_list_partial}
-    equilibrium_reactions(mp, c, k, None, RATES_eq, current_dt)
 
     # 2. Get Kinetic Reaction Terms
     mp.in_solver = True
@@ -390,7 +390,7 @@ def run_non_steady_state_solver_coupled(
             while not converged:
                 mp.current_dt = current_dt
                 try:
-                    coupled_eq, _ = _assemble_coupled_equation(
+                    coupled_eq, RATES = _assemble_coupled_equation(
                         mp,
                         c,
                         k,
@@ -408,6 +408,12 @@ def run_non_steady_state_solver_coupled(
                         # underRelaxation=0.5, # currently failing
                     )
                     converged = True
+                    # post transport clips
+                    mp.in_clip = True
+                    try:
+                        equilibrium_reactions(mp, c, k, None, RATES, current_dt)
+                    finally:
+                        mp.in_clip = False
 
                 except Exception as e:
                     tb_str = "".join(
@@ -450,6 +456,7 @@ def run_non_steady_state_solver_coupled(
                 target_error=adaptive_target,
             )
             if step % mp.backup_step == 0:
+                gc.collect()
                 save_state(c, f"{mp.plot_name}_bak.npz")
 
             # Reporting

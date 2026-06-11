@@ -77,7 +77,7 @@ def get_layout(df):
             ],
             "yscale": "log",
             "xscale": "log",
-            "ylim": (1e-6, 1e2),
+            "ylim": (1e-6, 1e3),
             "xlim": (1e-4, 2),
             "left_ylabel": r"Concentration [mmol/L$_{PW}$]",
             # right 1

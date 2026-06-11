@@ -378,7 +378,12 @@ def save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions):
     """
     Save the model results to a CSV file (Synchronous).
     """
+    from reactions_new import equilibrium_reactions
+
     f_final, RATES = diagenetic_reactions(mp, c, k, data_container())
+    f_final, RATES = equilibrium_reactions(
+        mp, c, k, f_final, RATES, getattr(mp, "current_dt", 0.0)
+    )
     return _save_data_to_disk(mp, c, k, species_list, z, D_mol, f_final)
 
 
