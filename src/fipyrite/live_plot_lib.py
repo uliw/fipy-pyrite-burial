@@ -72,7 +72,7 @@ class LivePlotter:
             matplotlib.use("TkAgg")
         else:
             matplotlib.use("Agg")
-        import plot_data_new
+        import fipyrite.plot_data_new as plot_data_new
         from matplotlib.animation import FFMpegWriter
 
         print(
@@ -231,13 +231,13 @@ def capture_state(
     z: Any,
     D_mol: Any,
     diagenetic_reactions: Any,
+    equilibrium_reactions: Any,
     current_dt: float,
 ) -> dict[str, np.ndarray]:
     """
     Capture the current state of the model as a dictionary of numpy arrays.
     """
-    import diff_lib
-    from reactions_new import equilibrium_reactions
+    from . import diff_lib
 
     # 1. Capture current rates in the main thread (thread-safe snap)
     f_final, RATES = diagenetic_reactions(mp_params, c, k, diff_lib.data_container())
@@ -300,6 +300,7 @@ def write_to_queue_async(
     z: Any,
     D_mol: Any,
     diagenetic_reactions: Any,
+    equilibrium_reactions: Any,
     current_dt: float,
     title: str,
 ) -> None:
@@ -307,7 +308,7 @@ def write_to_queue_async(
     Simultaneously snaps model state and sends it to the plot_queue.
     """
     data = capture_state(
-        mp_params, c, k, species_list, z, D_mol, diagenetic_reactions, current_dt
+        mp_params, c, k, species_list, z, D_mol, diagenetic_reactions, equilibrium_reactions, current_dt
     )
 
     # 3. Send to queue (as a simple dict of numpy arrays, which is picklable)

@@ -374,12 +374,10 @@ def make_grid(L, initial_spacing, max_spacing, r=1.05):
     return mesh, z_centers
 
 
-def save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions):
+def save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions, equilibrium_reactions):
     """
     Save the model results to a CSV file (Synchronous).
     """
-    from reactions_new import equilibrium_reactions
-
     f_final, RATES = diagenetic_reactions(mp, c, k, data_container())
     f_final, RATES = equilibrium_reactions(
         mp, c, k, f_final, RATES, getattr(mp, "current_dt", 0.0)
@@ -860,14 +858,13 @@ def save_data_async(
     z,
     D_mol,
     diagenetic_reactions,
+    equilibrium_reactions,
     current_dt,
     title=None,
 ) -> None:
     """
     Schedule a background write of model results to CSV and return immediately.
     """
-    from reactions_new import equilibrium_reactions
-
     # 1. Capture current rates in the main thread (FiPy objects aren't thread-safe)
     f_final, RATES = diagenetic_reactions(mp, c, k, data_container())
     f_final, RATES = equilibrium_reactions(mp, c, k, f_final, RATES, current_dt)
@@ -1028,7 +1025,7 @@ def get_total_delta(c, mp, index=-1):
     boundary. Note that we have to count the mass of FeS2 since it has 2 S, however,
     FeS2_32 is already corrected, so we do not mutiply it.
     """
-    from diff_lib import get_delta
+    from .diff_lib import get_delta
 
     phi_val = getattr(mp.phi, "value", mp.phi)
     phi = phi_val[index] if hasattr(phi_val, "__getitem__") else phi_val

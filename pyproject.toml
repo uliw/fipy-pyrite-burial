@@ -3,7 +3,7 @@ requires = ["setuptools>=64", "setuptools-scm[toml]>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "fipy-pyrite-burial"
+name = "fipyrite"
 version = "0.1.0"
 description = "A reaction transport model of pyrite formation"
 readme = "README.md"

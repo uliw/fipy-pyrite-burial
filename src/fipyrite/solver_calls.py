@@ -18,9 +18,8 @@ from fipy.terms.diffusionTerm import DiffusionTerm
 from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
 from fipy.terms.transientTerm import TransientTerm
 
-from diff_lib import get_time_units, data_container, save_data_async
-from live_plot_lib import write_to_queue_async
-from reactions_new import equilibrium_reactions
+from .diff_lib import get_time_units, data_container, save_data_async, save_data, save_state
+from .live_plot_lib import write_to_queue_async
 
 if TYPE_CHECKING:
     from fipy.meshes.mesh import Mesh
@@ -246,6 +245,7 @@ def _assemble_coupled_equation(
     passive_eqs: Dict[str, Any],
     species_struct: List[Dict[str, Any]],
     diagenetic_reactions: Any,
+    equilibrium_reactions: Any,
     species_list_partial: List[str],
 ) -> Tuple[Any, Dict[str, np.ndarray]]:
     """
@@ -317,6 +317,7 @@ def run_non_steady_state_solver_coupled(
     species_list_partial: List[str],
     k: Any,
     diagenetic_reactions: Any,
+    equilibrium_reactions: Any,
     mesh: Mesh,
     D_mol: Any,
     bc_map: Dict[str, Any],
@@ -332,7 +333,7 @@ def run_non_steady_state_solver_coupled(
     3. Adapts the time step using a PID-controlled logic.
     """
     #     import numpy as np
-    from diff_lib import get_delta, get_total_delta, save_state
+    from .diff_lib import get_delta, get_total_delta, save_state
 
     start_wall = time.time()
     solver = _get_solver(mp)
@@ -383,7 +384,17 @@ def run_non_steady_state_solver_coupled(
 
             # updateOld() stores current -> var.old; used below for RMS and restore
             for s_obj in species_struct:
+                # breakpoint()
+                if s_obj["name"] == "so4":
+                    so4 = s_obj["var"].value[1000]
+                    print(f"so4 before update {so4:.2f}")
+
+                # breakpoint()
                 s_obj["var"].updateOld()
+               
+                if s_obj["name"] == "so4":
+                    so4 = s_obj["var"].value[1000]
+                    print(f"so4 after update  {so4:.2f}")
 
             # --- Solve Step (with automatic retry on failure) ---
             converged = False
@@ -399,6 +410,7 @@ def run_non_steady_state_solver_coupled(
                         passive_eqs,
                         species_struct,
                         diagenetic_reactions,
+                        equilibrium_reactions,
                         species_list_partial,
                     )
 
@@ -408,12 +420,18 @@ def run_non_steady_state_solver_coupled(
                         # underRelaxation=0.5, # currently failing
                     )
                     converged = True
+                    if hasattr(c, "so4"):
+                        print(f"so4 after sweep {c.so4.value[1000]:.2f}")
+                        
                     # post transport clips
                     mp.in_clip = True
                     try:
                         equilibrium_reactions(mp, c, k, None, RATES, current_dt)
                     finally:
                         mp.in_clip = False
+                        
+                    if hasattr(c, "so4"):
+                        print(f"so4 after clip {c.so4.value[1000]:.2f}\n")
 
                 except Exception as e:
                     tb_str = "".join(
@@ -502,6 +520,7 @@ def run_non_steady_state_solver_coupled(
                         z,
                         D_mol,
                         diagenetic_reactions,
+                        equilibrium_reactions,
                         current_dt,
                         title_str,
                     )
@@ -514,6 +533,7 @@ def run_non_steady_state_solver_coupled(
                         z,
                         D_mol,
                         diagenetic_reactions,
+                        equilibrium_reactions,
                         current_dt,
                         title=title_str,
                     )
@@ -544,6 +564,17 @@ def run_non_steady_state_solver_coupled(
         f"Final Report: {status} in {step} steps. Total Wall Time: {time.time() - start_wall:.2f}s"
     )
     _log_file.close()
+
+    # Always write the final data and state synchronously to prevent data loss on termination/interrupt
+    try:
+        csv_file = f"{mp.plot_name}.csv"
+        state_file = f"{mp.plot_name}_state.npz"
+        print(f"Saving final results to {csv_file} and state to {state_file} ...", flush=True)
+        save_data(mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, equilibrium_reactions)
+        save_state(c, state_file)
+    except Exception as e:
+        print(f"Error during final synchronous save: {e}", flush=True)
+
     if plot_queue is not None:
         write_to_queue_async(
             plot_queue,
@@ -554,12 +585,9 @@ def run_non_steady_state_solver_coupled(
             z,
             D_mol,
             diagenetic_reactions,
+            equilibrium_reactions,
             current_dt,
             title_str,
-        )
-    else:
-        save_data_async(
-            mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, current_dt
         )
 
     return step, rms_change
