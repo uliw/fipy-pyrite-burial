@@ -1059,19 +1059,13 @@ def add_implicit_sink(
     coeff,
     rate,
     mp,
-    ctype,
+    has_solid: bool,
     c=None,
     reaction=None,
 ):
-    """Add an implicit consumption term to the LHS matrix.
-
-    ``ctype`` is retained for documentation (indicates rate_phase_2_species_phase).
-    """
+    """Add an implicit consumption term to the LHS matrix."""
     phi = mp.phi
-    if ctype in ["solid", "solid_2_solid", "solid_2_liquid"]:
-        fac = 1.0 - phi
-    else:
-        fac = phi
+    fac = (1.0 - phi) if has_solid else phi
 
     bulk_rate = rate * fac
     LHS[species] = LHS[species] - coeff * fac
@@ -1089,21 +1083,14 @@ def add_explicit_source(
     species,
     rate,
     mp,
-    ctype,
+    has_solid: bool,
     update_rates=True,
     c=None,
     reaction=None,
 ):
-    """Add a production term to the RHS vector.
-
-    Incoming ``rate`` is in phase-specific units and is scaled by
-    the target species' phase volume fraction to convert to bulk units.
-    """
+    """Add a production term to the RHS vector."""
     phi = mp.phi
-    if ctype in ["solid", "solid_2_solid", "liquid_2_solid"]:
-        fac = 1.0 - phi
-    else:
-        fac = phi
+    fac = (1.0 - phi) if has_solid else phi
 
     scaled_rate = rate * fac
     RHS[species] = RHS[species] + scaled_rate
@@ -1126,22 +1113,15 @@ def add_implicit_coupling_new(
     coeff,
     rate,
     mp,
-    ctype,
+    has_solid: bool,
     c=None,
     add_lhs_sink=True,
     stoich_ratio=1.0,
     reaction=None,
 ):
-    """Add a coupled implicit source term with optional stoichiometry.
-
-    Both the coupling term and the sink term are scaled by the source
-    species' phase volume fraction (fac) to convert to bulk units.
-    """
+    """Add a coupled implicit source term with optional stoichiometry."""
     phi = mp.phi
-    if ctype.startswith("solid"):
-        fac = 1.0 - phi
-    else:
-        fac = phi
+    fac = (1.0 - phi) if has_solid else phi
 
     cross_coeff = coeff * stoich_ratio * fac
     CROSS[target_species].append((source_species, cross_coeff))
