@@ -1043,7 +1043,7 @@ def pyrite_formation_fes_ts2(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             coeff=coeff_ts2,
             rate=coeff_ts2 * c.ts2_32,
             mp=mp,
-            ctype="liquid_2_solid",
+            ctype="solid_2_solid", # note this only implies that the reaction is relative to fes2!
             c=c,
             add_lhs_sink=False,  # Already added by add_implicit_sink above
         )
