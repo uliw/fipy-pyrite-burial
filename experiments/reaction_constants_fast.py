@@ -36,16 +36,8 @@ def get_reaction_constants(
         phi = phi.value
 
     velde: dict = {
-        # "poc_o2": [5e-11, "m^3/(mol*second)", "m^3/(mol*second)"],  # POC + O2 -> CO2x
-        # "poc_so4": [5e-11, "m^3/(mol*second)", "m^3/(mol*second)"],  # POC + SO4 -> CO2
         "poc_fast": [10, "1/year", "1/second"],  # highly reactive OM
         "poc_slow": [0.1, "1/year", "1/second"],  # reactive OM, Velde et al
-        # "poc_slow": [
-        #     1.2e-8,
-        #     "1/second",
-        #     "1/second",
-        #     bulk,
-        # ],  # reactive OM, Fossing et al.
         "fe2_p_eq": [
             696,
             "dimensionless",
@@ -56,11 +48,11 @@ def get_reaction_constants(
             "m^3/(mol*second)",
             "m^3/(mol*second)",
         ],  # FeS2 + O2 -> SO4, Halevy et al
-        "fes_s0": [
+        "fes_s0": [  # FeS + S0 -> FeS2
             5e-8,
             "m^3/(mol*second)",
             "m^3/(mol*second)",
-        ],  # FeS + S0 -> FeS2, TBD ???
+        ],  # FeS + HS -> FeS2
         "fes_ts2": [
             5e-8,
             "m^3/(mol*second)",
@@ -112,3 +104,4 @@ if __name__ == "__main__":
         print(f"{k} = {n.magnitude:.2e} [{n.units:~P}]")
 
     print(f"k.fes_sp * k.hplus: {k_values['fes_sp'] * k_values['hplus']:.2e}")
+    print(f"k.hplus: {k_values['hplus']:.2e}")
