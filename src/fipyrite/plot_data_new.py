@@ -90,14 +90,24 @@ def plot(
     # Load measured data if path provided
     df2 = _load_measured_data(measured_data_path)
 
-    # Create figure and subplots
+    # Create figure and subplots with constrained layout
     if fig_handle is None:
-        fig, axes = plt.subplots(n_subplots, 1)
+        try:
+            fig, axes = plt.subplots(n_subplots, 1, layout="constrained")
+        except TypeError:
+            fig, axes = plt.subplots(n_subplots, 1, constrained_layout=True)
         if n_subplots == 1:
             axes = [axes]
     else:
         fig = fig_handle
         fig.clear()
+        if hasattr(fig, "set_layout_engine"):
+            fig.set_layout_engine("constrained")
+        else:
+            try:
+                fig.set_constrained_layout(True)
+            except Exception:
+                pass
         axes = fig.subplots(n_subplots, 1)
         if n_subplots == 1:
             axes = [axes]
@@ -121,8 +131,10 @@ def plot(
         )
         max_right_axes = max(max_right_axes, n_right)
 
-    # Grow figure width by 1 inch per right axis
-    fig_width += max_right_axes
+    # Grow figure width only for extra right axes beyond the first one
+    # Each extra right axis is offset by 60 points (~0.83 inches)
+    extra_right_axes = max(0, max_right_axes - 1)
+    fig_width += extra_right_axes * 0.83
 
     if fig_handle is None:
         fig.set_size_inches(fig_width, 2 + 2 * n_subplots)
@@ -236,20 +248,30 @@ def plot(
             ax_main = ax_objects[idx]
             ax_main.set_xlim(0, display_length)
 
-    fig.tight_layout()
+    # Determine if constrained layout is active
+    is_constrained = False
+    if hasattr(fig, "get_layout_engine"):
+        is_constrained = fig.get_layout_engine() is not None
+    elif hasattr(fig, "get_constrained_layout"):
+        is_constrained = fig.get_constrained_layout()
+
+    if not is_constrained:
+        fig.tight_layout()
     if outfile:
         # Save current size to restore it later (preserves GUI window state)
         original_size = fig.get_size_inches()
 
         # Set figure size strictly for PDF output to ensure independence from GUI/handle state
         fig.set_size_inches(fig_width, 2 + 2 * n_subplots)
-        fig.tight_layout()
+        if not is_constrained:
+            fig.tight_layout()
         fig.savefig(outfile, bbox_inches="tight")
 
         # Restore original size if the figure is meant to stay open or be shown
         if show or keep_open:
             fig.set_size_inches(*original_size)
-            fig.tight_layout()
+            if not is_constrained:
+                fig.tight_layout()
 
     if show:
         plt.show()
@@ -350,8 +372,9 @@ def _setup_subplot_axes(ax_main, subplot_config):
 
             # Create ONE twin axis for this key
             twin_ax = ax_main.twinx()
-            # Position the spine based on the axis index
-            twin_ax.spines.right.set_position(("axes", 1.0 + 0.12 * current_axis_idx))
+            # Position the spine outward based on the axis index (60 points ~ 0.83 inches)
+            # The first axis (idx 0) is at the default position ("outward", 0)
+            twin_ax.spines.right.set_position(("outward", 60 * current_axis_idx))
 
             for series_idx, series in enumerate(series_list):
                 right_axes.append((twin_ax, key, series_idx, series))
