@@ -404,6 +404,12 @@ def _save_data_to_disk(mp, c, k, species_list, z, D_mol, f_final):
         res_tuple = getattr(f_final, species_name)
         data[f"f_{species_name}"] = get_v(res_tuple[2])
 
+    # Export process-specific rates dynamically
+    for key in f_final.keys():
+        if key not in species_list:
+            res_tuple = getattr(f_final, key)
+            data[f"f_{key}"] = get_v(res_tuple[2])
+
     # 2. Save all items in D_mol (diffusion coefficients)
     for d_name, d_val in D_mol.items():
         key = f"D_{d_name}" if d_name in species_list else d_name
@@ -879,7 +885,7 @@ def save_data_async(
 
     c_snap = data_container({s: snap(getattr(c, s)) for s in species_list})
     f_snap = data_container(
-        {s: (None, None, snap(getattr(f_final, s)[2])) for s in species_list}
+        {key: (None, None, snap(getattr(f_final, key)[2])) for key in f_final.keys()}
     )
     D_mol_snap = data_container({key: snap(val) for key, val in D_mol.items()})
 
@@ -1055,6 +1061,7 @@ def add_implicit_sink(
     mp,
     ctype,
     c=None,
+    reaction=None,
 ):
     """Add an implicit consumption term to the LHS matrix.
 
@@ -1066,8 +1073,14 @@ def add_implicit_sink(
     else:
         fac = phi
 
+    bulk_rate = rate * fac
     LHS[species] = LHS[species] - coeff * fac
-    RATES[species] -= rate * fac
+    RATES[species] -= bulk_rate
+    if reaction is not None:
+        key = f"r_{reaction}_{species}"
+        if key not in RATES:
+            RATES[key] = np.zeros_like(bulk_rate)
+        RATES[key] -= bulk_rate
 
 
 def add_explicit_source(
@@ -1079,6 +1092,7 @@ def add_explicit_source(
     ctype,
     update_rates=True,
     c=None,
+    reaction=None,
 ):
     """Add a production term to the RHS vector.
 
@@ -1096,6 +1110,11 @@ def add_explicit_source(
     if update_rates:
         RATES[species] += getattr(scaled_rate, "value", scaled_rate)
         RATES[species] += scaled_rate
+    if reaction is not None:
+        key = f"r_{reaction}_{species}"
+        if key not in RATES:
+            RATES[key] = np.zeros_like(scaled_rate)
+        RATES[key] += getattr(scaled_rate, "value", scaled_rate)
 
 
 def add_implicit_coupling_new(
@@ -1111,6 +1130,7 @@ def add_implicit_coupling_new(
     c=None,
     add_lhs_sink=True,
     stoich_ratio=1.0,
+    reaction=None,
 ):
     """Add a coupled implicit source term with optional stoichiometry.
 
@@ -1126,11 +1146,23 @@ def add_implicit_coupling_new(
     cross_coeff = coeff * stoich_ratio * fac
     CROSS[target_species].append((source_species, cross_coeff))
 
+    bulk_rate = rate * fac
     if add_lhs_sink:
         LHS[source_species] = LHS[source_species] - coeff * fac
-        RATES[source_species] -= rate * fac
+        RATES[source_species] -= bulk_rate
+        if reaction is not None:
+            key_src = f"r_{reaction}_{source_species}"
+            if key_src not in RATES:
+                RATES[key_src] = np.zeros_like(bulk_rate)
+            RATES[key_src] -= bulk_rate
 
-    RATES[target_species] += rate * fac * stoich_ratio
+    scaled_target_rate = bulk_rate * stoich_ratio
+    RATES[target_species] += scaled_target_rate
+    if reaction is not None:
+        key_tgt = f"r_{reaction}_{target_species}"
+        if key_tgt not in RATES:
+            RATES[key_tgt] = np.zeros_like(scaled_target_rate)
+        RATES[key_tgt] += scaled_target_rate
 
 
 def calculate_fractionated_coeff_32(coeff_total, c_total, c_32, alpha, eps=1e-20):
