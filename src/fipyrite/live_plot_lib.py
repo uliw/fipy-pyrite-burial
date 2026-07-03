@@ -259,6 +259,12 @@ def capture_state(
         res_tuple = getattr(f_final, species_name)
         data[f"f_{species_name}"] = snap(res_tuple[2])
 
+    # Capture process-specific rates dynamically
+    for key in f_final.keys():
+        if key not in species_list:
+            res_tuple = getattr(f_final, key)
+            data[f"f_{key}"] = snap(res_tuple[2])
+
     # Diffusion coefficients
     for d_name, d_val in D_mol.items():
         key = f"D_{d_name}" if d_name in species_list else d_name
