@@ -26,13 +26,13 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     # import numpy as np
     import pandas as pd
     import pint
+
+    # from reactions_new import diagenetic_reactions
+    import reactions_new as rn
     from fipy import CellVariable
     from fipy.tools import numerix as np
 
     import fipyrite.plot_data_new as plot_data_new
-
-    # from reactions_new import diagenetic_reactions
-    import reactions_new as rn
     from fipyrite.diff_lib import (
         check_peclet_numbers,
         compute_bio_irrigation_alpha,
@@ -44,7 +44,6 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         read_state,
     )
     from fipyrite.live_plot_lib import LivePlotter, capture_state
-    from reaction_constants import get_reaction_constants
     from fipyrite.solver_calls import (
         run_non_steady_state_solver_coupled,
     )
@@ -52,89 +51,92 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
 
-    mp = data_container(
-        {
-            # -------- File Names & output --------------------
-            "plot_name": f"{experiment}",
-            "state_data": f"{experiment}_state.npz",
-            "layout_file": "plot_layout.py",
-            "process_monitor": "none",  # gui | video | none
-            "process_monitor": "gui",  # gui | video | none
-            "process_monitor": "video",  # gui | video | none
-            "report_step": 2,  # how often to update plot
-            "backup_step": 1000,  # create backups every nth step
-            "title": None,  # defaults to current time
-            "start_time": 0,  # i.e., when starting from a previous state
-            # --------- Model Geometry --------------------------- #
-            "max_depth": 2,  # meters
-            "initial_spacing": 0.0001,  # meters
-            "reaction_zone_spacing": 0.0001,  # meters
-            "max_spacing": 0.1,  # meters, None = no cap
-            "reaction_zone": (0.0, 0.1),  # in meters
-            # ------ boundary conditions ------------------------ #
-            "temp": [10.0, 10.1],  # temp top, bottom, in C
-            "w": Q_("0.2 cm/yr").to("m/s").m,  # sedimentation rate in m/s
-            "advection": 0,  # upward directed flow component
-            "pH": 7.5,  # porewater pH, Velde et al.
-            "phi": 0.8,
-            "bc_o2": 0.28,  # mmmol/l
-            "bc_so4": 28.2,  # mmol/l
-            "bc_ts2": 0.0,  # mmol/l # Total S2-
-            "bc_s0": 0.0,  # mmol/l
-            "bc_om_fast": Q_("365 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
-            "bc_om_slow": Q_("183 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
-            "bc_fe3": Q_("12 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
-            "bc_fe2": 0,  # wt% Fe2
-            "bc_fe2_p": 0,  # wt% sorbed Fe2
-            "om_o2_consumption": 1.27,  # 1.27, Velde uses 1.0
-            # ---------  Monod constants -------------------------- #
-            # Note, unlike the k-values in reaction_constants.py
-            # These may need to be corrected to phase specific values
-            # i.e., Velde et al report their k-values in bulk units
-            # since phi is not yet known, we apply this correction
-            # in the reactions_new.py file.
-            "K_o2": Q_("0.001 umol/cm^3").to("mol/m^3").m,  # Monod constant
-            "K_ts2": Q_("0.1 umol/cm^3").to("mol/m^3").m,  # Monod constant
-            "K_so4": Q_("0.9 umol/cm^3").to("mol/m^3").m,  # Monod constant
-            "K_fe3_diss_red": Q_("10.4 umol/cm^3")
-            .to("mol/m^3")
-            .m,  # Monod constant diss Fe3 reduc
-            "K_fe3": 1e-3,  # Monod constant Fe3 H2S reduc
-            # -------- benthic activity ---------------------------- #
-            "BT0": Q_("4 cm^2/year").to("m^2/second").magnitude * 0,
-            "BT_depth": Q_("7.6 cm").to("meter").magnitude,  # Bioturbation depth in m
-            "BT_attenuation": Q_("2 cm").to("meter").magnitude,  # xbm of Velde et al.
-            "BI0": 1e-6 * 0,  # should be < 1e-5
-            "BI_depth": 0.0,  # Irrigation depth (0 = off)
-            # --------- Isotopes ----------------------------------- #
-            "isotopes": True,
-            "so4_d": 21,  # seawater delta
-            "msr_alpha": 1.07,  # MSR enrichment factor in mUr
-            "hs_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
-            "s0_ox_alpha": 1,  # sulfide oxidation enrichment factor in mUr
-            "dispro_so4_alpha": 1.02,  # about +20 mUr
-            "dispro_hs_alpha": 0.993,  # about -7 mUr
-            "dispro_so4_hs_split": 0.5,  # i.e. 2 parts SO4, 1 part H2S
-            "h2s_hs_alpha": 1.002,  # equilibrium fractionation factor between H2S and HS- for 32S
-            "VCDT": 0.044162589,  # VCDT reference ratio
-            "K_epsilon_msr": 0.2,  # limit MSR fractionation below 0.2 mmol/L
-            "K_epsilon_hs_ox": 0.01,  # limit HS fractionation below 0.01 mmol/L
-            # --------- Solver Parameters -------------------------- #
-            "max_steps": 20,  # max number of iterations
-            "t_end": Q_("1 kyr").to("seconds").magnitude,
-            "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
-            "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
-            "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
-            "tolerance": 1e-12,  # convergence criterion
-            "dt_tolerance": 1e-12,  # steady state threshold (stop simulation)
-            "dt_target_change": 100,  # target change per step (for dt adaptation)
-            "solver_backend": "default",  # see solver_calls for options
-            # "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
-            # ---------  Other ------------------------------------ #
-            "current_dt": 0.0,  # place holder
-            "display_length": 2,  #
-        }
-    )
+    mp = data_container({
+        # -------- File Names & output --------------------
+        "plot_name": f"{experiment}",
+        "state_data": None,  # f"{experiment}_state.npz",
+        "layout_file": "plot_layout.py",
+        "process_monitor": "none",  # gui | video | none
+        "process_monitor": "gui",  # gui | video | none
+        "process_monitor": "video",  # gui | video | none
+        "report_step": 10,  # how often to update plot
+        "backup_step": 1000,  # create backups every nth step
+        "title": None,  # defaults to current time
+        "start_time": 0,  # i.e., when starting from a previous state
+        # --------- Model Geometry --------------------------- #
+        "max_depth": 2,  # meters
+        "initial_spacing": 0.0001,  # meters
+        "reaction_zone_spacing": 0.0001,  # meters
+        "max_spacing": 0.1,  # meters, None = no cap
+        "reaction_zone": (0.0, 0.1),  # in meters
+        # ------ boundary conditions ------------------------ #
+        "temp": [10.0, 10.1],  # temp top, bottom, in C
+        "w": Q_("0.2 cm/yr").to("m/s").m,  # sedimentation rate in m/s
+        "advection": 0,  # upward directed flow component
+        "pH": 7.5,  # porewater pH, Velde et al.
+        "phi": 0.8,
+        "bc_o2": 0.28,  # mmmol/l
+        "bc_so4": 28.2,  # mmol/l
+        "bc_ts2": 0.0,  # mmol/l # Total S2-
+        "bc_s0": 0.0,  # mmol/l
+        "bc_om_fast": Q_("365 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
+        "bc_om_slow": Q_("183 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
+        "bc_fe3": Q_("12 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
+        "bc_fe2": 0,  # wt% Fe2
+        "bc_fe2_p": 0,  # wt% sorbed Fe2
+        "om_o2_consumption": 1.27,  # 1.27, Velde uses 1.0
+        # ---------  Monod constants -------------------------- #
+        # Note, unlike the k-values in reaction_constants.py
+        # These may need to be corrected to phase specific values
+        # i.e., Velde et al report their k-values in bulk units
+        # since phi is not yet known, we apply this correction
+        # in the reactions_new.py file.
+        "K_o2": Q_("0.001 umol/cm^3").to("mol/m^3").m,  # Monod constant
+        "K_ts2": Q_("0.1 umol/cm^3").to("mol/m^3").m,  # Monod constant
+        "K_so4": Q_("0.9 umol/cm^3").to("mol/m^3").m,  # Monod constant
+        "K_fe3_diss_red": Q_("10.4 umol/cm^3")
+        .to("mol/m^3")
+        .m,  # Monod constant diss Fe3 reduc
+        "K_fe3": 1e-3,  # Monod constant Fe3 H2S reduc
+        # -------- benthic activity ---------------------------- #
+        "BT0": Q_("4 cm^2/year").to("m^2/second").magnitude * 0,
+        "BT_depth": Q_("7.6 cm").to("meter").magnitude,  # Bioturbation depth in m
+        "BT_attenuation": Q_("2 cm").to("meter").magnitude,  # xbm of Velde et al.
+        "BI0": 1e-6 * 0,  # should be < 1e-5
+        "BI_depth": 0.0,  # Irrigation depth (0 = off)
+        # --------- Isotopes ----------------------------------- #
+        "isotopes": True,
+        "so4_d": 21,  # seawater delta
+        "msr_alpha": 1.07,  # MSR enrichment factor in mUr
+        "hs_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
+        "s0_ox_alpha": 1,  # sulfide oxidation enrichment factor in mUr
+        "dispro_so4_alpha": 1.02,  # about +20 mUr
+        "dispro_hs_alpha": 0.993,  # about -7 mUr
+        "dispro_so4_hs_split": 0.5,  # i.e. 2 parts SO4, 1 part H2S
+        "h2s_hs_alpha": 1.002,  # equilibrium fractionation factor between H2S and HS- for 32S
+        "VCDT": 0.044162589,  # VCDT reference ratio
+        "K_epsilon_msr": 0.2,  # limit MSR fractionation below 0.2 mmol/L
+        "K_epsilon_hs_ox": 0.01,  # limit HS fractionation below 0.01 mmol/L
+        # --------- Solver Parameters -------------------------- #
+        "max_steps": 20,  # max number of iterations
+        "t_end": Q_("1 kyr").to("seconds").magnitude,
+        "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
+        "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
+        "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
+        "tolerance": 1e-12,  # convergence criterion
+        "dt_tolerance": 1e-12,  # steady state threshold (stop simulation)
+        "dt_target_change": 100,  # target change per step (for dt adaptation)
+        "solver_backend": "default",  # see solver_calls for options
+        # "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
+        # ---------  Other ------------------------------------ #
+        "current_dt": 0.0,  # place holder
+        "display_length": 2,  #
+    })
+
+    if "reaction_constants" in p_dict:
+        get_reaction_constants = p_dict["reaction_constants"]
+    else:
+        from reaction_constants_slow import get_reaction_constants
 
     # get initial k-values.
     # Use pH and phi from p_dict if it exists, otherwise use the default from mp.
@@ -170,7 +172,6 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
 
     # update with values passed from calling program
     mp.update(p_dict)
-
 
     # -----------------------------------------------------------------------------
     # 2. MESH GENERATION (Variable Grid)
@@ -314,15 +315,13 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     }
 
     if mp.isotopes:
-        bc_map.update(
-            {
-                "so4_32": {"top": mp.bc_so4_32, "type": "dissolved"},
-                "ts2_32": {"top": mp.bc_ts2, "type": "dissolved"},
-                "s0_32": {"top": mp.bc_s0, "type": "particulate"},
-                "fes_32": {"top": 0.0, "type": "particulate"},
-                "fes2_32": {"top": 0.0, "type": "particulate"},
-            }
-        )
+        bc_map.update({
+            "so4_32": {"top": mp.bc_so4_32, "type": "dissolved"},
+            "ts2_32": {"top": mp.bc_ts2, "type": "dissolved"},
+            "s0_32": {"top": mp.bc_s0, "type": "particulate"},
+            "fes_32": {"top": 0.0, "type": "particulate"},
+            "fes2_32": {"top": 0.0, "type": "particulate"},
+        })
 
     for species_name, props in bc_map.items():
         var = getattr(c, species_name)
