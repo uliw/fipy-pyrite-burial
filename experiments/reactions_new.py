@@ -24,6 +24,7 @@ def equilibrium_reactions(mp, c, k, f, RATES, dt):
     transport matrix has been solved.
     """
     import inspect
+
     for r in mp.instantenous_reactions:
         sig = inspect.signature(r[0])
         if "f" in sig.parameters:
@@ -162,6 +163,11 @@ def diagenetic_reactions(mp, c, k, f):
                 cross_term += ImplicitSourceTerm(coeff=coeff_val, var=c[source_name])
 
         setattr(f, s, (lhs_coeff, RHS[s], RATES[s], cross_term))
+
+    # Pack process-specific rates dynamically
+    for key, val in RATES.items():
+        if key not in species_list:
+            setattr(f, key, (None, None, val, None))
 
     return f, RATES
 
@@ -379,6 +385,7 @@ def hs_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         mp=mp,
         ctype="liquid_2_solid",
         c=c,
+        reaction="hs_oxidation",
     )
 
     if mp.isotopes:
@@ -516,6 +523,7 @@ def sulfide_mediated_iron_reduction_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         mp=mp,
         ctype="solid",
         c=c,
+        reaction="sulfide_mediated_iron_reduction",
     )
 
     # ------------------------------------------------------------------
@@ -534,6 +542,7 @@ def sulfide_mediated_iron_reduction_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         c=c,
         add_lhs_sink=False,
         stoich_ratio=1.0,
+        reaction="sulfide_mediated_iron_reduction",
     )
 
     # ------------------------------------------------------------------
@@ -552,6 +561,7 @@ def sulfide_mediated_iron_reduction_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         c=c,
         add_lhs_sink=False,
         stoich_ratio=-0.5,
+        reaction="sulfide_mediated_iron_reduction",
     )
 
     # ------------------------------------------------------------------
@@ -570,6 +580,7 @@ def sulfide_mediated_iron_reduction_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         c=c,
         add_lhs_sink=False,
         stoich_ratio=1.0,
+        reaction="sulfide_mediated_iron_reduction",
     )
 
     # ------------------------------------------------------------------
@@ -628,6 +639,20 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     import numpy as np
 
+    # #  Suppress iron reduction in regions where FeS precipitation takes
+    # #  precedence
+    # #  Calculate FeS supersaturation
+    # fe2_pw = c.fe2_total.value * mp.fe2_diss
+    # hs_val = c.ts2.value * mp.hs_frac
+    # omega = (fe2_pw * hs_val) / (k.hplus * k.fes_sp + 1e-30)
+    # # Create a penalty factor (0 to 1)
+    # # If omega > 1 (supersaturated), penalty drops quickly towards 0.
+    # # If omega <= 1, penalty is 1 (normal iron reduction).
+    # # fes_inhibit = 1.0 / np.maximum(omega, 1.0)
+    # # OR a steeper version:
+    # fes_inhibit = np.exp(-np.maximum(omega - 1.0, 0.0))
+    fes_inhibit = 1
+
     fe3_val = c.fe3.value
     ts2_val = c.ts2.value
 
@@ -636,7 +661,7 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     #    k_eff already contains hs_frac and fe3_implicit limiter
     # ------------------------------------------------------------------
     k_eff = (
-        k.fe3_hs * mp.hs_frac * lim["o2_inhibit"] * lim["fe3_implicit"]
+        k.fe3_hs * mp.hs_frac * lim["o2_inhibit"] * lim["fe3_implicit"] * fes_inhibit
     )  # suppresses coeff as fe3 → 0
 
     coeff_ts2 = 0.5 * k_eff * fe3_val  # [1/s, L_pw] — ts2 master coeff
@@ -652,6 +677,7 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         coeff_ts2 * ts2_val,
         mp=mp,
         ctype="liquid",
+        reaction="sulfide_mediated_iron_reduction",
     )
 
     # ------------------------------------------------------------------
@@ -670,6 +696,7 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         c=c,
         add_lhs_sink=False,
         stoich_ratio=1.0,
+        reaction="sulfide_mediated_iron_reduction",
     )
 
     # ------------------------------------------------------------------
@@ -679,7 +706,14 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     #    bounding the off-diagonal magnitude automatically
     # ------------------------------------------------------------------
     CROSS["fe3"].append(("ts2", -2.0 * coeff_ts2 / mp.fac_s))  # liquid→solid conversion
-    RATES["fe3"] -= 2.0 * coeff_ts2 * ts2_val / mp.fac_s  # reporting
+    rate_fe3 = 2.0 * coeff_ts2 * ts2_val / mp.fac_s
+    RATES["fe3"] -= rate_fe3  # reporting
+
+    # Save reaction-specific rate for fe3
+    key_fe3 = "r_sulfide_mediated_iron_reduction_fe3"
+    if key_fe3 not in RATES:
+        RATES[key_fe3] = np.zeros_like(rate_fe3)
+    RATES[key_fe3] -= rate_fe3
 
     # ------------------------------------------------------------------
     # 5. fe2 source — cross-coupled to ts2_new (2 fe2 per 1 ts2 consumed)
@@ -697,6 +731,7 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         c=c,
         add_lhs_sink=False,
         stoich_ratio=2.0,  # 2 Fe2+ per HS- consumed
+        reaction="sulfide_mediated_iron_reduction",
     )
 
     # ------------------------------------------------------------------
@@ -1198,6 +1233,7 @@ def fes_precipitation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         update_rates=False,
         mp=mp,
         ctype="liquid",
+        reaction="fes_precipitation",
     )
 
     # ------------------------------------------------------------------
@@ -1376,10 +1412,20 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         c=c,
         add_lhs_sink=True,
         stoich_ratio=1.0,
+        reaction="fes_precipitation",
     )
 
     # TS2 sink: self-implicit
-    add_implicit_sink(LHS, RATES, "ts2", hs_coeff, rate_pw, mp=mp, ctype="liquid")
+    add_implicit_sink(
+        LHS,
+        RATES,
+        "ts2",
+        hs_coeff,
+        rate_pw,
+        mp=mp,
+        ctype="liquid",
+        reaction="fes_precipitation",
+    )
 
     if mp.isotopes:
         hs_32 = partition_equilibrium_isotope_32(
@@ -1932,6 +1978,7 @@ def fes_equilibrium_clip(c, k, mp, dt, RATES, f=None):
     Note: dissolution (τ ≈ 0.3 yr) is not included here; add an explicit
     first-order step if under-prediction of FeS dissolution matters.
     """
+
     def update_rate(species, delta_val):
         if RATES is not None and species in RATES:
             RATES[species] = RATES[species] + delta_val
@@ -1998,12 +2045,17 @@ def fes_equilibrium_clip(c, k, mp, dt, RATES, f=None):
     c.fe2_total.setValue(fe2_val - delta)
     c.ts2.setValue(ts2_val - delta)
     c.fes.setValue(fes_val + fes_delta_solid)
+    i = 1000
+    print(
+        f"HS_bulk = {hs_val[i]:.2e}, Fe2_liq = {fe2_pw[i]:.2f}\n"
+        f"fes value {fes_val[i]:.2e}, fes_delta = {fes_delta_solid[i]:.2e}, omega = {omega[i]:.2f}\n"
+    )
 
     # ── calculate rates, cache them, and update RATES dict ────────────────
     rate_bulk = delta * phi_val / (dt + 1e-20)
     mp.fes_clip_rate = rate_bulk
 
-    print(f"Max clip rate = {np.max(mp.fes_clip_rate):.2e} mmol/L/s")
+    # print(f"Max clip rate = {np.max(mp.fes_clip_rate):.2e} mmol/L/s")
     update_rate("fe2_total", -rate_bulk)
     update_rate("ts2", -rate_bulk)
     update_rate("fes", rate_bulk)
