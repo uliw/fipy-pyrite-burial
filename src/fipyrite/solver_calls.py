@@ -384,17 +384,7 @@ def run_non_steady_state_solver_coupled(
 
             # updateOld() stores current -> var.old; used below for RMS and restore
             for s_obj in species_struct:
-                # breakpoint()
-                if s_obj["name"] == "so4":
-                    so4 = s_obj["var"].value[1000]
-                    print(f"so4 before update {so4:.2f}")
-
-                # breakpoint()
                 s_obj["var"].updateOld()
-               
-                if s_obj["name"] == "so4":
-                    so4 = s_obj["var"].value[1000]
-                    print(f"so4 after update  {so4:.2f}")
 
             # --- Solve Step (with automatic retry on failure) ---
             converged = False
@@ -417,11 +407,9 @@ def run_non_steady_state_solver_coupled(
                     coupled_eq.sweep(
                         dt=current_dt,
                         solver=solver,
-                        # underRelaxation=0.5, # currently failing
+                        # underRelaxation=0.9, # currently failing
                     )
                     converged = True
-                    if hasattr(c, "so4"):
-                        print(f"so4 after sweep {c.so4.value[1000]:.2f}")
                         
                     # post transport clips
                     mp.in_clip = True
@@ -430,9 +418,6 @@ def run_non_steady_state_solver_coupled(
                     finally:
                         mp.in_clip = False
                         
-                    if hasattr(c, "so4"):
-                        print(f"so4 after clip {c.so4.value[1000]:.2f}\n")
-
                 except Exception as e:
                     tb_str = "".join(
                         traceback.format_exception(type(e), e, e.__traceback__)
