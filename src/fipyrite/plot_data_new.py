@@ -100,6 +100,12 @@ def plot(
             axes = [axes]
     else:
         fig = fig_handle
+        for ax in fig.axes:
+            try:
+                ax.set_xscale("linear")
+                ax.set_yscale("linear")
+            except Exception:
+                pass
         fig.clear()
         if hasattr(fig, "set_layout_engine"):
             fig.set_layout_engine("constrained")
@@ -246,7 +252,10 @@ def plot(
     for idx, (subplot_key, subplot_config) in enumerate(valid_subplots.items()):
         if "xlim" not in subplot_config:
             ax_main = ax_objects[idx]
-            ax_main.set_xlim(0, display_length)
+            if ax_main.get_xscale() == "log":
+                ax_main.set_xlim(1e-4, display_length)
+            else:
+                ax_main.set_xlim(0, display_length)
 
     # Determine if constrained layout is active
     is_constrained = False
