@@ -236,78 +236,97 @@ def _build_passive_eqs(
     return species_struct, passive_eqs
 
 
-def _assemble_coupled_equation(
+def _setup_static_coupled_equation(
     mp: Any,
     c: Any,
     k: Any,
     mesh: Mesh,
-    current_dt: float,
     passive_eqs: Dict[str, Any],
     species_struct: List[Dict[str, Any]],
     diagenetic_reactions: Any,
-    equilibrium_reactions: Any,
     species_list_partial: List[str],
-) -> Tuple[Any, Dict[str, np.ndarray]]:
+) -> Tuple[Any, Dict[str, CellVariable], Dict[str, CellVariable], Dict[str, Dict[str, CellVariable]]]:
     """
-    Calculate reaction terms and assemble the full coupled equation system.
+    Setup static coefficient variables and compile the coupled equation system once.
     """
-    # 1. Handle Instantaneous Equilibrium
-    # RATES_eq is only for diagnostic merging; since RATES is discarded by
-    # the caller, skip the merge loop entirely.
-    RATES_eq = {s: np.zeros_like(c.so4) for s in species_list_partial}
+    from .diff_lib import data_container
+    f_dummy = data_container()
 
-    # 2. Get Kinetic Reaction Terms
+    # Discover the coupling structure using a dummy run
     mp.in_solver = True
     try:
-        f_res, RATES = diagenetic_reactions(mp, c, k, f=data_container())
+        f_res, _ = diagenetic_reactions(mp, c, k, f=f_dummy)
     finally:
         mp.in_solver = False
 
-    # 4. Build individual equations and couple them
-    #
-    # res_tuple layout (produced by diagenetic_reactions() in reactions_new.py):
-    #   res_tuple[0]  lhs_coeff   – diagonal (self) implicit-sink coefficient
-    #   res_tuple[1]  rhs_source  – explicit source / RHS vector
-    #   res_tuple[2]  rates       – rate array for diagnostic reporting
-    #   res_tuple[3]  cross_term  – sum of off-diagonal FiPy ImplicitSourceTerm objects
-    #
-    # Cross-term data flow:
-    #   1. add_implicit_coupling_new() in diff_lib.py appends (source_species, coeff*fac)
-    #      to CROSS[target_species], where fac encodes the phase-conversion factor.
-    #   2. diagenetic_reactions() in reactions_new.py converts each CROSS entry into
-    #      ImplicitSourceTerm(coeff=coeff*fac, var=c[source_species]) and sums them into
-    #      cross_term (= res_tuple[3]).
-    #   3. Here, cross_term is added to the RHS of the target species' FiPy equation.
-    #      Because var=c[source_species] differs from the equation's own species variable,
-    #      FiPy places the term in the off-diagonal block of the coupled block matrix when
-    #      the per-species equations are joined with the & operator below.
+    LHS_vars = {}
+    RHS_vars = {}
+    CROSS_vars = {}  # species -> {source_species: CellVariable}
+
     eqs = []
     for s_obj in species_struct:
         name = s_obj["name"]
-        res_tuple = getattr(f_res, name)
 
-        # Ensure RHS_Source is rank 0 for scalar variables
-        rhs_source = res_tuple[1]
-        if hasattr(rhs_source, "shape") and rhs_source.shape != ():
-            rhs_source = CellVariable(mesh=mesh, value=rhs_source)
+        # Pre-allocate static variables
+        LHS_vars[name] = CellVariable(mesh=mesh, value=0.0)
+        RHS_vars[name] = CellVariable(mesh=mesh, value=0.0)
+        CROSS_vars[name] = {}
 
-        # Wrap the diagonal reaction coefficient into a FiPy ImplicitSourceTerm
-        lhs_coeff = res_tuple[0]
-        # Ensure numpy arrays are wrapped in CellVariable for correct rank, but preserve FiPy expressions
-        if isinstance(lhs_coeff, np.ndarray) and lhs_coeff.shape != ():
-            lhs_coeff = CellVariable(mesh=mesh, value=lhs_coeff)
+        # Build coupled off-diagonal terms
+        cross_list = f_res.raw_CROSS.get(name, [])
+        cross_term = 0.0
+        for source_name, _ in cross_list:
+            v_cross = CellVariable(mesh=mesh, value=0.0)
+            CROSS_vars[name][source_name] = v_cross
+            cross_term += ImplicitSourceTerm(coeff=v_cross, var=c[source_name])
 
-        # Diagonal (self) implicit sink for this species
-        lhs_reaction = ImplicitSourceTerm(coeff=lhs_coeff, var=s_obj["var"])
-        # res_tuple[3] is the off-diagonal cross-coupling term (other-species sources)
-        eq = passive_eqs[name] == lhs_reaction + res_tuple[3] + rhs_source
+        lhs_reaction = ImplicitSourceTerm(coeff=LHS_vars[name], var=s_obj["var"])
+        eq = passive_eqs[name] == lhs_reaction + cross_term + RHS_vars[name]
         eqs.append(eq)
 
-    # Bundle using bitwise AND (FiPy coupling)
-    # This merges all per-species equations into a single coupled block system where
-    # each off-diagonal ImplicitSourceTerm (from res_tuple[3]) occupies the
-    # corresponding off-diagonal block in the global sparse matrix.
-    return reduce(lambda a, b: a & b, eqs), RATES
+    coupled_eq = reduce(lambda a, b: a & b, eqs)
+    return coupled_eq, LHS_vars, RHS_vars, CROSS_vars
+
+
+def _update_static_coefficients(
+    mp: Any,
+    c: Any,
+    k: Any,
+    diagenetic_reactions: Any,
+    LHS_vars: Dict[str, CellVariable],
+    RHS_vars: Dict[str, CellVariable],
+    CROSS_vars: Dict[str, Dict[str, CellVariable]],
+    species_list_partial: List[str],
+) -> Dict[str, np.ndarray]:
+    """
+    Calculate new reaction rates and update the static coefficient variables in-place.
+    """
+    from .diff_lib import data_container
+    f_res = data_container()
+
+    mp.in_solver = True
+    try:
+        f_res, RATES = diagenetic_reactions(mp, c, k, f=f_res)
+    finally:
+        mp.in_solver = False
+
+    def get_val(val):
+        if hasattr(val, "value"):
+            return val.value
+        return val
+
+    for s in species_list_partial:
+        # Update diagonal coefficient
+        LHS_vars[s].setValue(get_val(f_res.raw_LHS[s]))
+        # Update explicit source
+        RHS_vars[s].setValue(get_val(f_res.raw_RHS[s]))
+        # Update off-diagonal couplings
+        cross_list = f_res.raw_CROSS[s]
+        for source_name in CROSS_vars[s].keys():
+            coeff = next(val for src, val in cross_list if src == source_name)
+            CROSS_vars[s][source_name].setValue(get_val(coeff))
+
+    return RATES
 
 
 def run_non_steady_state_solver_coupled(
@@ -371,6 +390,18 @@ def run_non_steady_state_solver_coupled(
         mp, c, mesh, D_mol, bc_map, species_list_partial
     )
 
+    # Setup static coupled equation and coefficient variables (Option C)
+    coupled_eq, LHS_vars, RHS_vars, CROSS_vars = _setup_static_coupled_equation(
+        mp,
+        c,
+        k,
+        mesh,
+        passive_eqs,
+        species_struct,
+        diagenetic_reactions,
+        species_list_partial,
+    )
+
     step = 0
     total_time = mp.start_time
     status = "Maximum steps or simulation time reached"
@@ -391,16 +422,15 @@ def run_non_steady_state_solver_coupled(
             while not converged:
                 mp.current_dt = current_dt
                 try:
-                    coupled_eq, RATES = _assemble_coupled_equation(
+                    # Update static coefficient variables in-place
+                    RATES = _update_static_coefficients(
                         mp,
                         c,
                         k,
-                        mesh,
-                        current_dt,
-                        passive_eqs,
-                        species_struct,
                         diagenetic_reactions,
-                        equilibrium_reactions,
+                        LHS_vars,
+                        RHS_vars,
+                        CROSS_vars,
                         species_list_partial,
                     )
 
