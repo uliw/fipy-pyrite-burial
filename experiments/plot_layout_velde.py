@@ -74,7 +74,7 @@ def get_layout(df):
             #     "alpha": 0.6,
             # },
             "fig_width": 6,  # inches
-            "xaxis": [df.z *100, "Depth [cm]"],
+            "xaxis": [df.z * 100, "Depth [cm]"],
             # left axis
             "left": [
                 # [df.c_so4, r"SO$_{4}$", so4_attr],
@@ -91,7 +91,6 @@ def get_layout(df):
                 [fe3_v, r"Fe$^{3+}$ [$\mu$mol/g]", fe3_attr],
                 [fes_v, r"FeS [$\mu$mol/g]", fes_attr],
                 # [fe2_s_v, r"Fe2 [$\mu$mol/g]", fe2_s_attr],
-               
                 # [fes_v, r"FeS [$\mu$mol/g]", fes_attr],
             ],
             #    [fes2_fe, r"FeS$_{2}$ [wt% Fe]", fes2_attr],
@@ -129,7 +128,8 @@ def get_layout(df):
                 [df.D_bio * 1e6, r"1e6 $\times$ D$_{bio}$ [$m^{2}/s$]", dbio_attr],
                 [df.D_irr, "1e6 $\times$ D$_{irr}$ [1/s]", dirr_attr],
                 # [df.f_o2, "O2", {"color": "C3"}],
-                [df.f_poc_slow + df.f_poc_fast, r"POC", poc_attr],
+                [df.f_poc_slow, r"POC", poc_attr],
+                [df.f_poc_fast, r"POC", poc_attr],
                 # [df.f_fe2_p, "f_fe2+p", {"color": "C9"}],
             ],
             "left_ylabel": r"reaction rate [mol m$^{-3}s^{-1}$]",

@@ -11,30 +11,37 @@ liter of bulk sediment does.  ​
 """
 
 if __name__ == "__main__":
+    from pathlib import Path
+
     import pint
     import reactions_new as rn
-    from fipyrite.diff_lib import get_total_delta, save_data, save_state, data_container
-    from reaction_constants import get_reaction_constants
     from pyrite_base_model import pyrite_model
+    from reaction_constants_fast import get_reaction_constants
+
+    from fipyrite.diff_lib import data_container, get_total_delta, save_data, save_state
+
+    import faulthandler
+    faulthandler.enable()
 
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
 
-    experiment = "pyrite_year_test"
+    # set experiment name equal to script name
+    experiment = Path(__file__).stem
     state_out = f"{experiment}_state.npz"
 
     p_dict = {
         "experiment": experiment,
-        "state_data": None,  # w"pyrite_year_test_state.npz",  # None
+        # "state_data": "run_pyrite_model_year_test_slow_isotopes_full_bak.npz",
         "process_monitor": "gui",  # gui | video | none
         "layout_file": "plot_layout_velde.py",
         "layout_file": "plot_layout.py",
         # Solver Parameters
-        "max_steps": 500,  # max number of iterations
-        "max_depth": 2,  # meters
+        "max_steps": 400,  # max number of iterations
+        "max_depth": 1,  # meters
         "t_end": Q_("10 kyr").to("seconds").magnitude,
-        "dt_min": Q_("1 minute").to("seconds").magnitude,  # time step in years
-        "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
+        "dt_min": Q_("1 day").to("seconds").magnitude,  # time step in years
+        "dt_init": Q_("1 year").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
         "dt_target_change": 100,  # target change per step (for dt adaptation)
         "report_step": 1,  # how often to update plot
@@ -42,8 +49,9 @@ if __name__ == "__main__":
         "BT_depth": Q_("7.6 cm").to("meter").magnitude,  # Bioturbation depth in m
         "BT_attenuation": Q_("2 cm").to("meter").magnitude,  # xbm of Velde et al.
         "om_o2_consumption": 1,  # Velde uses a 1:1 ratio
-        "isotopes": False,
+        "isotopes": True,
         # "bc_om_fast": Q_("1000 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
+        "reaction_constants": get_reaction_constants,  # see imports to select a different one
     }
 
     k = data_container()
@@ -51,24 +59,25 @@ if __name__ == "__main__":
 
     p_dict["diagenetic_reactions"] = [
         [rn.aerobic_respiration, k],
-        # [rn.dissimilatory_iron_reduction, k],
+        [rn.dissimilatory_iron_reduction, k],
         [rn.sulfate_reduction, k],
-        # [rn.hs_oxidation, k],
-        # [rn.elemental_sulfur_oxidation, k],
-        # [rn.sulfide_mediated_iron_reduction, k],
-        # [rn.fe2_oxidation, k],
-        # [rn.fes_precipitation, k],
-        # [rn.fes_dissolution, k],
-        # [rn.fes_oxidation, k],
-        # [rn.pyrite_formation_s0, k],
-        # [rn.pyrite_formation_fes_ts2, k],
-        # [rn.pyrite_oxidation, k],
-        # [rn.s0_disproportionation, k],
+        [rn.hs_oxidation, k],
+        [rn.elemental_sulfur_oxidation, k],
+        [rn.sulfide_mediated_iron_reduction_old, k],
+        [rn.fe2_oxidation, k],
+        [rn.fes_precipitation_terminal, k],
+        [rn.fes_dissolution, k],
+        # [rn.fes_precipitation_dissolution_linearized, k],
+        [rn.fes_oxidation, k],
+        [rn.pyrite_formation_s0, k],
+        [rn.pyrite_formation_fes_ts2, k],
+        [rn.pyrite_oxidation, k],
+        [rn.s0_disproportionation, k],
     ]
 
     p_dict["instantenous_reactions"] = [
-        # [rn.fe2_sorption_clip, 1.0],
         # [rn.fes_equilibrium_clip, k],
+        # [rn.fe2_sorption_clip, 1.0],
     ]
 
     (
@@ -87,7 +96,9 @@ if __name__ == "__main__":
     # -----------------------------------------------------------------------------
     # 8. EXPORT DATA
     # -----------------------------------------------------------------------------
-    df, fqfn = save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions, rn.equilibrium_reactions)
+    df, fqfn = save_data(
+        mp, c, k, species_list, z, D_mol, diagenetic_reactions, rn.equilibrium_reactions
+    )
 
     if mp.isotopes:
         print(f"d34S = {get_total_delta(c, mp):.2f}")

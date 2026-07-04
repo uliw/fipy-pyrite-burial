@@ -140,6 +140,7 @@ def get_layout(df):
                 # [df.f_o2, "O2", {"color": "C3"}],
                 [df.f_poc_slow + df.f_poc_fast, r"POC", poc_attr],
                 [df.f_fe2_p, "f_fe2+p", {"color": "C9"}],
+                [df.f_s0, "f_S0", s0_attr],
             ],
             "left_ylabel": r"reaction rate [mol m$^{-3}s^{-1}$]",
             "xscale": "log",
