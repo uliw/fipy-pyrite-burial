@@ -169,6 +169,11 @@ def diagenetic_reactions(mp, c, k, f):
         if key not in species_list:
             setattr(f, key, (None, None, val, None))
 
+    # Store raw accumulators for static allocation (Option C)
+    object.__setattr__(f, "raw_LHS", LHS)
+    object.__setattr__(f, "raw_CROSS", CROSS)
+    object.__setattr__(f, "raw_RHS", RHS)
+
     return f, RATES
 
 
