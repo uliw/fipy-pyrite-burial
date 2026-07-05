@@ -245,7 +245,7 @@ def _setup_static_coupled_equation(
     species_struct: List[Dict[str, Any]],
     diagenetic_reactions: Any,
     species_list_partial: List[str],
-) -> Tuple[Any, Dict[str, CellVariable], Dict[str, CellVariable], Dict[str, Dict[str, CellVariable]]]:
+) -> Tuple[Any, Dict[str, CellVariable], Dict[str, CellVariable], Dict[str, List[CellVariable]]]:
     """
     Setup static coefficient variables and compile the coupled equation system once.
     """
@@ -261,7 +261,7 @@ def _setup_static_coupled_equation(
 
     LHS_vars = {}
     RHS_vars = {}
-    CROSS_vars = {}  # species -> {source_species: CellVariable}
+    CROSS_vars = {}  # species -> list of CellVariable
 
     eqs = []
     for s_obj in species_struct:
@@ -270,14 +270,14 @@ def _setup_static_coupled_equation(
         # Pre-allocate static variables
         LHS_vars[name] = CellVariable(mesh=mesh, value=0.0)
         RHS_vars[name] = CellVariable(mesh=mesh, value=0.0)
-        CROSS_vars[name] = {}
+        CROSS_vars[name] = []
 
         # Build coupled off-diagonal terms
         cross_list = f_res.raw_CROSS.get(name, [])
         cross_term = 0.0
         for source_name, _ in cross_list:
             v_cross = CellVariable(mesh=mesh, value=0.0)
-            CROSS_vars[name][source_name] = v_cross
+            CROSS_vars[name].append(v_cross)
             cross_term += ImplicitSourceTerm(coeff=v_cross, var=c[source_name])
 
         lhs_reaction = ImplicitSourceTerm(coeff=LHS_vars[name], var=s_obj["var"])
@@ -295,7 +295,7 @@ def _update_static_coefficients(
     diagenetic_reactions: Any,
     LHS_vars: Dict[str, CellVariable],
     RHS_vars: Dict[str, CellVariable],
-    CROSS_vars: Dict[str, Dict[str, CellVariable]],
+    CROSS_vars: Dict[str, List[CellVariable]],
     species_list_partial: List[str],
 ) -> Dict[str, np.ndarray]:
     """
@@ -322,9 +322,8 @@ def _update_static_coefficients(
         RHS_vars[s].setValue(get_val(f_res.raw_RHS[s]))
         # Update off-diagonal couplings
         cross_list = f_res.raw_CROSS[s]
-        for source_name in CROSS_vars[s].keys():
-            coeff = next(val for src, val in cross_list if src == source_name)
-            CROSS_vars[s][source_name].setValue(get_val(coeff))
+        for v_cross, (source_name, coeff) in zip(CROSS_vars[s], cross_list):
+            v_cross.setValue(get_val(coeff))
 
     return RATES
 
