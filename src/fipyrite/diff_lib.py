@@ -76,6 +76,43 @@ class data_container(dict):
             )
 
 
+class ArrayProxy:
+    def __init__(self, val):
+        self.value = val
+    def __getattr__(self, name):
+        return getattr(self.value, name)
+    def __add__(self, other):
+        val = other.value if hasattr(other, 'value') else other
+        return ArrayProxy(self.value + val)
+    def __radd__(self, other):
+        val = other.value if hasattr(other, 'value') else other
+        return ArrayProxy(val + self.value)
+    def __sub__(self, other):
+        val = other.value if hasattr(other, 'value') else other
+        return ArrayProxy(self.value - val)
+    def __rsub__(self, other):
+        val = other.value if hasattr(other, 'value') else other
+        return ArrayProxy(val - self.value)
+    def __mul__(self, other):
+        val = other.value if hasattr(other, 'value') else other
+        return ArrayProxy(self.value * val)
+    def __rmul__(self, other):
+        val = other.value if hasattr(other, 'value') else other
+        return ArrayProxy(val * self.value)
+    def __truediv__(self, other):
+        val = other.value if hasattr(other, 'value') else other
+        return ArrayProxy(self.value / val)
+    def __rtruediv__(self, other):
+        val = other.value if hasattr(other, 'value') else other
+        return ArrayProxy(val / self.value)
+    def __pow__(self, power):
+        return ArrayProxy(self.value ** power)
+    def __neg__(self):
+        return ArrayProxy(-self.value)
+    def __getitem__(self, idx):
+        return self.value[idx]
+
+
 def diff_coeff(T, m0, m1, phi):
     """Calculate the diffusion coeefficien in m^2/s.
 
@@ -378,7 +415,10 @@ def save_data(mp, c, k, species_list, z, D_mol, diagenetic_reactions, equilibriu
     """
     Save the model results to a CSV file (Synchronous).
     """
-    f_final, RATES = diagenetic_reactions(mp, c, k, data_container())
+    c_numpy = data_container({s: ArrayProxy(val.value) for s, val in c.items()})
+    mp_numpy = data_container(mp)
+    mp_numpy.phi = ArrayProxy(mp.phi.value)
+    f_final, RATES = diagenetic_reactions(mp_numpy, c_numpy, k, data_container())
     f_final, RATES = equilibrium_reactions(
         mp, c, k, f_final, RATES, getattr(mp, "current_dt", 0.0)
     )
@@ -872,7 +912,10 @@ def save_data_async(
     Schedule a background write of model results to CSV and return immediately.
     """
     # 1. Capture current rates in the main thread (FiPy objects aren't thread-safe)
-    f_final, RATES = diagenetic_reactions(mp, c, k, data_container())
+    c_numpy = data_container({s: ArrayProxy(val.value) for s, val in c.items()})
+    mp_numpy = data_container(mp)
+    mp_numpy.phi = ArrayProxy(mp.phi.value)
+    f_final, RATES = diagenetic_reactions(mp_numpy, c_numpy, k, data_container())
     f_final, RATES = equilibrium_reactions(mp, c, k, f_final, RATES, current_dt)
 
     # 2. Snapshot values (numpy arrays) to avoid race conditions during solver update
@@ -909,12 +952,15 @@ def save_data_async(
     return None, None
 
 
+_ureg = None
+
 def get_time_units(t):
     """Adjust time units between second to ky."""
-    import pint
-
-    ureg = pint.UnitRegistry()
-    Q_ = ureg.Quantity
+    global _ureg
+    if _ureg is None:
+        import pint
+        _ureg = pint.UnitRegistry()
+    Q_ = _ureg.Quantity
 
     seconds = 60
     minutes = seconds * 60
