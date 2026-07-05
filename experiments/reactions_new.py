@@ -2,7 +2,7 @@
 
 from __future__ import annotations  # noqa: I001
 
-from fipy.tools import numerix as np
+from fipy.tools import numerix as nx
 
 from fipy.variables.cellVariable import CellVariable
 
@@ -94,14 +94,14 @@ def diagenetic_reactions(mp, c, k, f):
 
     # Accumulators (The State)
     # LHS: Diagonal (Self) Coefficients (Implicit Sinks)
-    # LHS = {s: np.zeros_like(c.so4.value) for s in species_list}
-    LHS = {s: np.zeros_like(c.so4) for s in species_list}
+    # LHS = {s: nx.zeros_like(c.so4.value) for s in species_list}
+    LHS = {s: nx.zeros_like(c.so4) for s in species_list}
 
     # CROSS: Off-Diagonal / Coupled Terms
     CROSS = {s: [] for s in species_list}
 
-    RHS = {s: np.zeros_like(c.so4) for s in species_list}
-    RATES = {s: np.zeros_like(c.so4) for s in species_list}
+    RHS = {s: nx.zeros_like(c.so4) for s in species_list}
+    RATES = {s: nx.zeros_like(c.so4) for s in species_list}
 
     # 2. CALCULATE LIMITERS
     # ---------------------
@@ -154,7 +154,7 @@ def diagenetic_reactions(mp, c, k, f):
         if isinstance(cross_list, list):
             for source_name, coeff in cross_list:
                 # Ensure numpy arrays are wrapped in CellVariable for correct rank, but preserve FiPy expressions
-                if isinstance(coeff, np.ndarray) and coeff.shape != ():
+                if isinstance(coeff, nx.ndarray) and coeff.shape != ():
                     coeff_val = CellVariable(mesh=c[s].mesh, value=coeff)
                 else:
                     coeff_val = coeff
@@ -487,9 +487,9 @@ def sulfide_mediated_iron_reduction_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # ------------------------------------------------------------------
     # 1. Current state (using FiPy variables directly for consistency)
     # ------------------------------------------------------------------
-    ts2_val = np.maximum(c.ts2, 0.0)
+    ts2_val = nx.maximum(c.ts2, 0.0)
     hs_val = ts2_val * mp.hs_frac
-    fe3_val = np.maximum(c.fe3, 0.0)
+    fe3_val = nx.maximum(c.fe3, 0.0)
 
     # ------------------------------------------------------------------
     # 2. Rate Calculation and Multi-Reactant Capping
@@ -503,8 +503,8 @@ def sulfide_mediated_iron_reduction_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # RATES contains rates in bulk units (mmol/L_bulk/s), so we divide by porosity to get mmol/L_liquid/s
     ts2_prod_pw = RATES["ts2"] / (mp.phi + 1e-30)
     dt_val = getattr(mp, "current_dt", 0.0)
-    dt_safe = np.maximum(dt_val, 1e-12)
-    ts2_available = np.maximum(ts2_val + ts2_prod_pw * dt_safe, 0.0)
+    dt_safe = nx.maximum(dt_val, 1e-12)
+    ts2_available = nx.maximum(ts2_val + ts2_prod_pw * dt_safe, 0.0)
 
     # Limit by fe3 depletion (at most 70% per timestep)
     max_rate_fe3 = 0.7 * fe3_val / dt_safe
@@ -514,7 +514,7 @@ def sulfide_mediated_iron_reduction_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     max_rate_ts2 = 1.4 * ts2_available / dt_safe
 
     # Actual capped rate
-    rate_actual = np.minimum(rate_uncapped, np.minimum(max_rate_fe3, max_rate_ts2))
+    rate_actual = nx.minimum(rate_uncapped, nx.minimum(max_rate_fe3, max_rate_ts2))
     # rate_actual = rate_uncapped
 
     # Single master coefficient based on fe3 [1/s]
@@ -658,9 +658,9 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # # Create a penalty factor (0 to 1)
     # # If omega > 1 (supersaturated), penalty drops quickly towards 0.
     # # If omega <= 1, penalty is 1 (normal iron reduction).
-    # # fes_inhibit = 1.0 / np.maximum(omega, 1.0)
+    # # fes_inhibit = 1.0 / nx.maximum(omega, 1.0)
     # # OR a steeper version:
-    # fes_inhibit = np.exp(-np.maximum(omega - 1.0, 0.0))
+    # fes_inhibit = nx.exp(-nx.maximum(omega - 1.0, 0.0))
     fes_inhibit = 1
 
     fe3_val = c.fe3.value
@@ -726,7 +726,7 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # Save reaction-specific rate for fe3
     key_fe3 = "r_sulfide_mediated_iron_reduction_fe3"
     if key_fe3 not in RATES:
-        RATES[key_fe3] = np.zeros_like(rate_fe3)
+        RATES[key_fe3] = nx.zeros_like(rate_fe3)
     RATES[key_fe3] -= rate_fe3
 
     # ------------------------------------------------------------------
@@ -752,15 +752,12 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 6. Isotopes — ts2_32 cross-coupled to ts2_new
     # ------------------------------------------------------------------
     if mp.isotopes:
-        ts2_32_val = c.ts2_32.value
-        f32_ts2 = ts2_32_val / (ts2_val + 1e-30)
-
         add_implicit_sink(
             LHS,
             RATES,
             "ts2_32",
             coeff_ts2,
-            coeff_ts2 * ts2_32_val,
+            coeff_ts2 * c.ts2_32,
             mp=mp,
             has_solid=has_solid,
         )
@@ -772,7 +769,7 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             target_species="s0_32",
             source_species="ts2_32",
             coeff=coeff_ts2,
-            rate=coeff_ts2 * ts2_32_val,
+            rate=coeff_ts2 * c.ts2_32,
             mp=mp,
             has_solid=has_solid,
             c=c,
@@ -786,19 +783,17 @@ def sulfide_speciation_clip(c, k, mp, dt, RATES, f=None):
 
     This is FYI only and does not affect the reaction rates, which are all based on ts2.
     """
-    ts2_val = c.ts2.value
-    c.h2s.value[:] = ts2_val * mp.h2s_frac
-    c.hs.value[:] = ts2_val * mp.hs_frac
+    c.h2s.setValue(c.ts2 * mp.h2s_frac)
+    c.hs.setValue(c.ts2 * mp.hs_frac)
 
     if mp.isotopes:
-        ts2_32_val = c.ts2_32.value
         hs_frac_val = getattr(mp.hs_frac, "value", mp.hs_frac)
         h2s_frac_val = getattr(mp.h2s_frac, "value", mp.h2s_frac)
         alpha_val = getattr(mp.h2s_hs_alpha, "value", mp.h2s_hs_alpha)
 
         denom = hs_frac_val + alpha_val * h2s_frac_val + 1e-30
-        c.hs_32.value[:] = ts2_32_val * hs_frac_val / denom
-        c.h2s_32.value[:] = ts2_32_val * alpha_val * h2s_frac_val / denom
+        c.hs_32.setValue(c.ts2_32 * hs_frac_val / denom)
+        c.h2s_32.setValue(c.ts2_32 * alpha_val * h2s_frac_val / denom)
 
 
 def fe2_sorption_clip(c, k, mp, dt, RATES, f=None):
@@ -1191,8 +1186,8 @@ def fes_precipitation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     omega_den = k.hplus * k.fes_sp + 1e-30
     K_eff = omega_den / (mp.hs_frac + 1e-30)
     discriminant = (fe2_pw_val - ts2_val) ** 2 + 4.0 * K_eff
-    X_max = 0.5 * ((fe2_pw_val + ts2_val) - np.sqrt(discriminant))
-    X_max = np.maximum(X_max, 0.0)
+    X_max = 0.5 * ((fe2_pw_val + ts2_val) - nx.sqrt(discriminant))
+    X_max = nx.maximum(X_max, 0.0)
 
     ts2_target = ts2_val - X_max
 
@@ -1204,7 +1199,7 @@ def fes_precipitation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # ------------------------------------------------------------------
     omega = (fe2_pw_val * hs_val) / omega_den
     sharpness = 100.0
-    is_precip = 0.5 * (1.0 + np.tanh(sharpness * (omega - 1.0)))
+    is_precip = 0.5 * (1.0 + nx.tanh(sharpness * (omega - 1.0)))
 
     k_rxn = k.fes_isp * is_precip * mp.hs_frac  # [1/s, L_pw]
 
@@ -1212,14 +1207,14 @@ def fes_precipitation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 4. Dynamic Depletion Cap (Safety Net to prevent negative Fe2/TS2)
     # ------------------------------------------------------------------
     dt_val = getattr(mp, "current_dt", 0.0)
-    dt_safe = np.maximum(dt_val, 1e-12)
+    dt_safe = nx.maximum(dt_val, 1e-12)
 
-    fe2_total_val = np.maximum(c.fe2_total, 0.0)
+    fe2_total_val = nx.maximum(c.fe2_total, 0.0)
     fe2_prod_pw = RATES["fe2_total"] / (mp.phi + 1e-30)
     ts2_prod_pw = RATES["ts2"] / (mp.phi + 1e-30)
 
-    fe2_available = np.maximum(fe2_total_val + fe2_prod_pw * dt_val, 0.0)
-    ts2_available = np.maximum(ts2_val + ts2_prod_pw * dt_val, 0.0)
+    fe2_available = nx.maximum(fe2_total_val + fe2_prod_pw * dt_val, 0.0)
+    ts2_available = nx.maximum(ts2_val + ts2_prod_pw * dt_val, 0.0)
 
     # We allow the reactant to deplete up to 99.9999% of its available pool,
     # ensuring we can get close to true equilibrium (omega = 1) without going negative.
@@ -1230,12 +1225,12 @@ def fes_precipitation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     rate_pot = k_rxn * X_max
 
     # Capped rate
-    precip_rate = np.minimum(rate_pot, np.minimum(rate_cap_fe2, rate_cap_ts2))
-    precip_rate = np.maximum(precip_rate, 0.0)
+    precip_rate = nx.minimum(rate_pot, nx.minimum(rate_cap_fe2, rate_cap_ts2))
+    precip_rate = nx.maximum(precip_rate, 0.0)
 
     # Effective rate coefficient (k_rxn_eff) to use in implicit sink and coupling terms.
     # If X_max is zero, we fall back to k_rxn (which is also zero).
-    k_rxn_eff = np.where(X_max > 1e-30, precip_rate / (X_max + 1e-30), k_rxn)
+    k_rxn_eff = nx.where(X_max > 1e-30, precip_rate / (X_max + 1e-30), k_rxn)
 
     # ------------------------------------------------------------------
     # 5a. ts2 — self-implicit relaxation toward ts2_target
@@ -1328,7 +1323,7 @@ def fes_precipitation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         f32_hs = hs_32 / (ts2_val * mp.hs_frac + 1e-30)
 
         ts2_32_target = ts2_target * f32_hs
-        precip_rate_32 = k_rxn_eff * np.maximum(c.ts2_32 - ts2_32_target, 0.0)
+        precip_rate_32 = k_rxn_eff * nx.maximum(c.ts2_32 - ts2_32_target, 0.0)
 
         # ts2_32: self-implicit
         add_implicit_sink(
@@ -1380,8 +1375,8 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     has_solid = False
     # 1. Current state (using FiPy variables directly for consistency)
-    fe2_total_val = np.maximum(c.fe2_total, 0.0)
-    ts2_val = np.maximum(c.ts2, 0.0)
+    fe2_total_val = nx.maximum(c.fe2_total, 0.0)
+    ts2_val = nx.maximum(c.ts2, 0.0)
 
     fe2_pw_val = fe2_total_val * mp.fe2_diss + 1e-20
     hs_val = ts2_val * mp.hs_frac
@@ -1389,7 +1384,7 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     omega = (fe2_pw_val * hs_val) / omega_den
 
     # 2. Define the 'Driving Force' (only positive for precipitation)
-    driving_force = np.maximum(omega - 1.0, 0.0)
+    driving_force = nx.maximum(omega - 1.0, 0.0)
 
     # 3. Apply the MM-type limiter
     km_fes = 0.5
@@ -1404,15 +1399,15 @@ def fes_precipitation_terminal(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     # Total available reservoir over the next timestep (including chemical production)
     dt_val = getattr(mp, "current_dt", 0.0)
-    dt_safe = np.maximum(dt_val, 1e-12)
-    fe2_available = np.maximum(fe2_total_val + fe2_prod_pw * dt_val, 0.0)
-    ts2_available = np.maximum(ts2_val + ts2_prod_pw * dt_val, 0.0)
+    dt_safe = nx.maximum(dt_val, 1e-12)
+    fe2_available = nx.maximum(fe2_total_val + fe2_prod_pw * dt_val, 0.0)
+    ts2_available = nx.maximum(ts2_val + ts2_prod_pw * dt_val, 0.0)
 
     # Timestep-dependent depletion caps (prevent depleting > 99% of total available species per step)
     rate_cap_fe2 = 0.99 * fe2_available / dt_safe
     rate_cap_ts2 = 0.99 * ts2_available / dt_safe
 
-    rate_pw = np.minimum(rate_pw_uncapped, np.minimum(rate_cap_fe2, rate_cap_ts2))
+    rate_pw = nx.minimum(rate_pw_uncapped, nx.minimum(rate_cap_fe2, rate_cap_ts2))
 
     # Implicit coefficients based on solved variables
     fes_coeff = rate_pw / (fe2_total_val + 1e-5)
@@ -1504,7 +1499,7 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     omega_den = k.hplus * k.fes_sp + 1e-30
     omega = (fe2_pw_val * hs_val) / omega_den
     zero = c.fes * 0.0  # quick hack to get a fipy cellvariable
-    undersat = np.maximum(zero, 1.0 - omega)
+    undersat = nx.maximum(zero, 1.0 - omega)
     dissol_limiter = undersat / (km_diss + undersat)
 
     # ------------------------------------------------------------------
@@ -1523,12 +1518,12 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     discriminant = b_coef**2 - 4.0 * c_coef
 
     # Safe guard against negative noise under radical
-    discriminant = np.maximum(zero, discriminant)
+    discriminant = nx.maximum(zero, discriminant)
 
     # Solve quadratic for the positive root
-    dx_eq = (-b_coef + np.sqrt(discriminant)) / 2.0
+    dx_eq = (-b_coef + nx.sqrt(discriminant)) / 2.0
     # If already supersaturated, dx_eq will be <= 0. Clamp it.
-    dx_eq = np.maximum(zero, dx_eq)
+    dx_eq = nx.maximum(zero, dx_eq)
 
     # Convert dx_eq from [mmol/L_pw] back to solid phase equivalent [mmol/L_solid]
     # to compare against our available solid inventory.
@@ -1544,11 +1539,11 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 2. The thermodynamic space remaining in the porewater (dx_eq_solid)
 
     f_max = 0.5
-    max_allowed_mass_solid = np.minimum(f_max * fes_val, dx_eq_solid)
+    max_allowed_mass_solid = nx.minimum(f_max * fes_val, dx_eq_solid)
 
     # Define a safety timescale over which we want to smoothly land on equilibrium.
     # E.g., land smoothly over ~15 minutes (900 seconds) or current_dt, whichever is smaller.
-    # tau_safe = np.minimum(mp.current_dt, 900.0)
+    # tau_safe = nx.minimum(mp.current_dt, 900.0)
     # Define a relaxation timescale proportional to the timestep
     # Setting it to 5 * dt ensures the system under-relaxingly glides
     # toward equilibrium over multiple timesteps rather than violently forcing it.
@@ -1560,7 +1555,7 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     # Apply the thermodynamic cap to your kinetic rate constant
     k_d = k.fes_isd * dissol_limiter
-    k_d = np.minimum(k_d, k_d_max)
+    k_d = nx.minimum(k_d, k_d_max)
 
     # Final Patankar-style step-limiter for standalone numerical matrix stability
     k_d = k_d / (1.0 + (k_d * mp.current_dt / f_max))
@@ -1570,7 +1565,7 @@ def fes_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # ------------------------------------------------------------------
     diss_rate_solid = k_d * fes_val
 
-    # print(f"f max = {np.max(diss_rate_solid.value):.2e}, f min = {np.min(diss_rate_solid.value):.2e}")
+    # print(f"f max = {nx.max(diss_rate_solid.value):.2e}, f min = {nx.min(diss_rate_solid.value):.2e}")
 
     # ------------------------------------------------------------------
     # 5a. fes sink + ts2 source
@@ -1651,7 +1646,7 @@ def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     # Capping to prevent over-consumption in a single timestep
     max_rate_s0 = 0.7 * c.s0 / (mp.current_dt + 1e-30)
-    rate_actual = np.minimum(rate_uncapped, max_rate_s0)
+    rate_actual = nx.minimum(rate_uncapped, max_rate_s0)
 
     # Coefficient based on the consumed species (S0)
     coeff_s0_base = rate_actual / (c.s0 + 1e-30)
@@ -1783,9 +1778,9 @@ def fes_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
     )
 
     # ── Current sweep iterate ─────────────────────────────────────────────
-    fe2_val = np.maximum(c.fe2_total.value, 1e-20)
-    ts2_val = np.maximum(c.ts2.value, 1e-20)
-    fes_val = np.maximum(c.fes.value, 1e-20)
+    fe2_val = nx.maximum(c.fe2_total.value, 1e-20)
+    ts2_val = nx.maximum(c.ts2.value, 1e-20)
+    fes_val = nx.maximum(c.fes.value, 1e-20)
 
     fe2_pw = fe2_val * mp.fe2_diss
     hs_val = ts2_val * mp.hs_frac
@@ -2037,17 +2032,17 @@ def fes_equilibrium_clip(c, k, mp, dt, RATES, f=None):
         return
 
     # ── current values ────────────────────────────────────────────────────
-    fe2_val = np.maximum(c.fe2_total.value, 0.0)
-    ts2_val = np.maximum(c.ts2.value, 0.0)
-    fes_val = np.maximum(c.fes.value, 0.0)
+    fe2_val = nx.maximum(c.fe2_total.value, 0.0)
+    ts2_val = nx.maximum(c.ts2.value, 0.0)
+    fes_val = nx.maximum(c.fes.value, 0.0)
 
     fe2_pw = fe2_val * mp.fe2_diss
     hs_val = ts2_val * mp.hs_frac
     omega = fe2_pw * hs_val / (k.hplus * k.fes_sp + 1e-30)
 
     needs_clip = omega > 1.0
-    if not np.any(needs_clip):
-        mp.fes_clip_rate = np.zeros_like(fe2_val)
+    if not nx.any(needs_clip):
+        mp.fes_clip_rate = nx.zeros_like(fe2_val)
         return
 
     # ── quadratic coefficients ────────────────────────────────────────────
@@ -2061,18 +2056,18 @@ def fes_equilibrium_clip(c, k, mp, dt, RATES, f=None):
     b_coef = -(fe2_val + ts2_val)  # always negative
     c_coef = fe2_val * ts2_val - target  # positive where Ω > 1
 
-    discriminant = np.maximum(b_coef**2 - 4.0 * c_coef, 0.0)
-    sqrt_disc = np.sqrt(discriminant)
+    discriminant = nx.maximum(b_coef**2 - 4.0 * c_coef, 0.0)
+    sqrt_disc = nx.sqrt(discriminant)
 
     # smaller root: minimum precipitation to reach equilibrium
     delta = (-b_coef - sqrt_disc) / 2.0
 
     # ── guard rails ───────────────────────────────────────────────────────
-    delta = np.maximum(delta, 0.0)
-    delta = np.minimum(
-        delta, np.minimum(fe2_val, ts2_val)
+    delta = nx.maximum(delta, 0.0)
+    delta = nx.minimum(
+        delta, nx.minimum(fe2_val, ts2_val)
     )  # cannot exceed availability
-    delta = np.where(needs_clip, delta, 0.0)  # zero outside clip cells
+    delta = nx.where(needs_clip, delta, 0.0)  # zero outside clip cells
 
     # ── convert and apply ─────────────────────────────────────────────────
     # δ is in mmol/L_pw; fes is stored in mmol/L_solid
@@ -2092,7 +2087,7 @@ def fes_equilibrium_clip(c, k, mp, dt, RATES, f=None):
     rate_bulk = delta * phi_val / (dt + 1e-20)
     mp.fes_clip_rate = rate_bulk
 
-    # print(f"Max clip rate = {np.max(mp.fes_clip_rate):.2e} mmol/L/s")
+    # print(f"Max clip rate = {nx.max(mp.fes_clip_rate):.2e} mmol/L/s")
     update_rate("fe2_total", -rate_bulk)
     update_rate("ts2", -rate_bulk)
     update_rate("fes", rate_bulk)
