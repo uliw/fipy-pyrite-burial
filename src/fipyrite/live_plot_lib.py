@@ -240,7 +240,10 @@ def capture_state(
     from . import diff_lib
 
     # 1. Capture current rates in the main thread (thread-safe snap)
-    f_final, RATES = diagenetic_reactions(mp_params, c, k, diff_lib.data_container())
+    c_numpy = diff_lib.data_container({s: diff_lib.ArrayProxy(val.value) for s, val in c.items()})
+    mp_numpy = diff_lib.data_container(mp_params)
+    mp_numpy.phi = diff_lib.ArrayProxy(mp_params.phi.value)
+    f_final, RATES = diagenetic_reactions(mp_numpy, c_numpy, k, diff_lib.data_container())
     f_final, RATES = equilibrium_reactions(mp_params, c, k, f_final, RATES, current_dt)
 
     # 2. Snapshot values (numpy arrays)
