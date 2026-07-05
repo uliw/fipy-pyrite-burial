@@ -4,8 +4,6 @@ from __future__ import annotations  # noqa: I001
 
 from fipy.tools import numerix as np
 
-# import numpy as np
-# from fipy.tools.numerix import *  # noqa: F403
 from fipy.variables.cellVariable import CellVariable
 
 from fipyrite.diff_lib import (
@@ -188,7 +186,7 @@ def aerobic_respiration(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     The model does however not track HCO3
     This function considers two types of organic matter
     """
-    has_solid = True # True if the reaction involves solids
+    has_solid = True  # True if the reaction involves solids
     # POC Sink - SOLID
     coeff_poc_fast = k.poc_fast * c.o2 * lim["o2_implicit"]
     coeff_poc_slow = k.poc_slow * c.o2 * lim["o2_implicit"]
@@ -241,7 +239,7 @@ def dissimilatory_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     This reaction is inhibited under oxic condition, and uses
     a Monod type limiter for low Fe3 concentrations
     """
-    has_solid = True # True if the reactants contain a solid phase species
+    has_solid = True  # True if the reactants contain a solid phase species
     inhibit = lim["o2_inhibit"] * lim["fe3_diss_red_implicit"]
     coeff_fe3_slow = k.poc_slow * c.poc_slow
     coeff_fe3_fast = k.poc_fast * c.poc_fast
@@ -297,7 +295,7 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
      - sulfate reduction is limited in the presence of O2
      - POC can be fast and/or slow
     """
-    has_solid = True # True if the reactants contain a solid phase species
+    has_solid = True  # True if the reactants contain a solid phase species
     inhibition = lim["o2_inhibit"] * lim["so4_implicit"] * lim["fe3_diss_red_inhib"]
     coeff_so4_slow = k.poc_slow * c.poc_slow
     coeff_so4_fast = k.poc_fast * c.poc_fast
@@ -364,7 +362,7 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
 def hs_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Reaction: 1 HS + 0.5 O2 -> 1 S0."""
-    has_solid = False # True if the reactants contain a solid phase species
+    has_solid = False  # True if the reactants contain a solid phase species
     # H2S Sink - LIQUID
     # Ref: H2S
     coeff_ts2 = k.hs_ox * c.o2 * mp.hs_frac
@@ -427,7 +425,7 @@ def elemental_sulfur_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     Assuming that some O comes from H2O
     Phases: S0 (Solid), O2 (Liquid), SO4 (Liquid)
     """
-    has_solid = True # True if the reactants contain a solid phase species
+    has_solid = True  # True if the reactants contain a solid phase species
     # S0 sink (Solid)
     # Rate = k * [O2] * [S0]
     coeff_s0 = k.s0_ox * c.o2
@@ -485,7 +483,7 @@ def sulfide_mediated_iron_reduction_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     unconditional positivity. Coupling uses a single master implicit variable
     (fe3) to ensure exact mass balance across all species.
     """
-    has_solid = True # True if the reactants contain a solid phase species
+    has_solid = True  # True if the reactants contain a solid phase species
     # ------------------------------------------------------------------
     # 1. Current state (using FiPy variables directly for consistency)
     # ------------------------------------------------------------------
@@ -650,7 +648,7 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
     import numpy as np
 
-    has_solid = True # True if the reactants contain a solid phase species
+    has_solid = True  # True if the reactants contain a solid phase species
     # #  Suppress iron reduction in regions where FeS precipitation takes
     # #  precedence
     # #  Calculate FeS supersaturation
@@ -718,7 +716,10 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     #    bounding the off-diagonal magnitude automatically
     # ------------------------------------------------------------------
     phi = mp.phi
-    CROSS["fe3"].append(("ts2", -2.0 * coeff_ts2 * (1.0 - phi)))  # solid-phase rate scaling
+    CROSS["fe3"].append((
+        "ts2",
+        -2.0 * coeff_ts2 * (1.0 - phi),
+    ))  # solid-phase rate scaling
     rate_fe3 = 2.0 * coeff_ts2 * ts2_val * (1.0 - phi)
     RATES["fe3"] -= rate_fe3  # reporting
 
@@ -888,7 +889,7 @@ def fes_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # SO4 Source (1.0x) - LIQUID, Coupled to FeS (SOLID)
     # Use add_implicit_coupling_new with add_lhs_sink=False because the FeS sink
     # was already registered by the add_implicit_coupling_new call for fe3 above.
-   
+
     add_implicit_coupling_new(
         CROSS,
         RATES,
@@ -1074,7 +1075,7 @@ def pyrite_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
       - SO4 is cross-coupled to O2  (liquid_2_liquid, stoich 2/3.5)
       - Fe3 is cross-coupled to fes2 (solid_2_solid, stoich 1.0)
     """
-    has_solid = True # True if the reactants contain a solid phase species
+    has_solid = True  # True if the reactants contain a solid phase species
     # ------------------------------------------------------------------
     # 1. Base coefficients
     # ------------------------------------------------------------------
@@ -1173,14 +1174,13 @@ def fes_precipitation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     Conservation: all three driven by same ts2_new → exact per timestep.
     """
-    has_solid = False # True if the reactants contain a solid phase species
+    has_solid = False  # True if the reactants contain a solid phase species
     # ------------------------------------------------------------------
     # 1. Current state
     # ------------------------------------------------------------------
     fe2_pw_val = c.fe2_total * mp.fe2_diss + 1e-20
     ts2_val = c.ts2
     hs_val = ts2_val * mp.hs_frac
-    fes_val = c.fes
 
     # ------------------------------------------------------------------
     # 2. Quadratic bound
@@ -1243,7 +1243,9 @@ def fes_precipitation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     #   d[ts2]/dt = -k_rxn_eff·ts2 + k_rxn_eff·ts2_target
     #   ts2_new → weighted avg of ts2_old and ts2_target → bounded
     # ------------------------------------------------------------------
-    add_implicit_sink(LHS, RATES, "ts2", k_rxn_eff, precip_rate, mp=mp, has_solid=has_solid)
+    add_implicit_sink(
+        LHS, RATES, "ts2", k_rxn_eff, precip_rate, mp=mp, has_solid=has_solid
+    )
     add_explicit_source(
         RHS,
         RATES,
@@ -1640,7 +1642,7 @@ def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     - The reaction constant for the overall reaction is given by k.s0_dispro
     - The reaction rate depends on S0, and H2S & O2 as inhibitors.
     """
-    has_solid = True # True if the reactants contain a solid phase species
+    has_solid = True  # True if the reactants contain a solid phase species
     # 1. Base Rate Calculation (Master Species: S0)
     # Disproportionation is anaerobic, so O2 is NOT a reactant.
     # Instead, we use the inhibitor lim["disp_o2_inhibit"] to ensure it only
@@ -1776,7 +1778,9 @@ def fes_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
     """
     phi = mp.phi
     has_solid = True  # True for dissolution branch (solid reactant FeS)
-    has_solid_prec = False  # False for precipitation branch (liquid reactants Fe2_pw, HS-)
+    has_solid_prec = (
+        False  # False for precipitation branch (liquid reactants Fe2_pw, HS-)
+    )
 
     # ── Current sweep iterate ─────────────────────────────────────────────
     fe2_val = np.maximum(c.fe2_total.value, 1e-20)
@@ -1849,7 +1853,13 @@ def fes_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
         stoich_ratio=1.0,
     )
     add_implicit_sink(  # ts2  −=  prec_coeff_ts2 · ts2       (LHS diagonal)
-        LHS, RATES, "ts2", prec_coeff_ts2, prec_rate_ts2, mp=mp, has_solid=has_solid_prec
+        LHS,
+        RATES,
+        "ts2",
+        prec_coeff_ts2,
+        prec_rate_ts2,
+        mp=mp,
+        has_solid=has_solid_prec,
     )
 
     # ── Stoichiometric off-diagonal sinks ────────────────────────────────
@@ -1867,9 +1877,15 @@ def fes_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
     # (a) and (b).  At convergence: (a) + (b) + (c) = R_prec exactly.
     prec_res_rate = k_prec_eff * (omega_res - 1.0)
 
-    add_explicit_source(RHS, RATES, "fes", prec_res_rate, mp=mp, has_solid=has_solid_prec)
-    add_explicit_source(RHS, RATES, "fe2_total", -prec_res_rate, mp=mp, has_solid=has_solid_prec)
-    add_explicit_source(RHS, RATES, "ts2", -prec_res_rate, mp=mp, has_solid=has_solid_prec)
+    add_explicit_source(
+        RHS, RATES, "fes", prec_res_rate, mp=mp, has_solid=has_solid_prec
+    )
+    add_explicit_source(
+        RHS, RATES, "fe2_total", -prec_res_rate, mp=mp, has_solid=has_solid_prec
+    )
+    add_explicit_source(
+        RHS, RATES, "ts2", -prec_res_rate, mp=mp, has_solid=has_solid_prec
+    )
 
     # ══════════════════════════════════════════════════════════════════════
     # DISSOLUTION BRANCH
