@@ -1,24 +1,29 @@
 """Build the equation matrix and call the respective solvers."""
 
 from __future__ import annotations
+
+import gc
+import math
 import time
 import traceback
-import math
-import gc
-
-# import numpy as np
-from fipy.tools import numerix as np
-from functools import reduce
 from dataclasses import dataclass
+from functools import reduce
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from fipy import CellVariable
-from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
 from fipy.terms.diffusionTerm import DiffusionTerm
 from fipy.terms.implicitSourceTerm import ImplicitSourceTerm
+from fipy.terms.powerLawConvectionTerm import PowerLawConvectionTerm
 from fipy.terms.transientTerm import TransientTerm
 
-from .diff_lib import get_time_units, data_container, save_data_async, save_data, save_state
+# import numpy as np
+from fipy.tools import numerix as np
+
+from .diff_lib import (
+    get_time_units,
+    save_data,
+    save_data_async,
+)
 from .live_plot_lib import write_to_queue_async
 
 if TYPE_CHECKING:
@@ -245,11 +250,14 @@ def _setup_static_coupled_equation(
     species_struct: List[Dict[str, Any]],
     diagenetic_reactions: Any,
     species_list_partial: List[str],
-) -> Tuple[Any, Dict[str, CellVariable], Dict[str, CellVariable], Dict[str, List[CellVariable]]]:
+) -> Tuple[
+    Any, Dict[str, CellVariable], Dict[str, CellVariable], Dict[str, List[CellVariable]]
+]:
     """
     Setup static coefficient variables and compile the coupled equation system once.
     """
     from .diff_lib import data_container
+
     f_dummy = data_container()
 
     # Discover the coupling structure using a dummy run
@@ -302,13 +310,54 @@ def _update_static_coefficients(
     Calculate new reaction rates and update the static coefficient variables in-place.
     """
     from .diff_lib import data_container
+
+    class ArrayProxy:
+        def __init__(self, val):
+            self.value = val
+        def __getattr__(self, name):
+            return getattr(self.value, name)
+        def __add__(self, other):
+            val = other.value if hasattr(other, 'value') else other
+            return ArrayProxy(self.value + val)
+        def __radd__(self, other):
+            val = other.value if hasattr(other, 'value') else other
+            return ArrayProxy(val + self.value)
+        def __sub__(self, other):
+            val = other.value if hasattr(other, 'value') else other
+            return ArrayProxy(self.value - val)
+        def __rsub__(self, other):
+            val = other.value if hasattr(other, 'value') else other
+            return ArrayProxy(val - self.value)
+        def __mul__(self, other):
+            val = other.value if hasattr(other, 'value') else other
+            return ArrayProxy(self.value * val)
+        def __rmul__(self, other):
+            val = other.value if hasattr(other, 'value') else other
+            return ArrayProxy(val * self.value)
+        def __truediv__(self, other):
+            val = other.value if hasattr(other, 'value') else other
+            return ArrayProxy(self.value / val)
+        def __rtruediv__(self, other):
+            val = other.value if hasattr(other, 'value') else other
+            return ArrayProxy(val / self.value)
+        def __pow__(self, power):
+            return ArrayProxy(self.value ** power)
+        def __neg__(self):
+            return ArrayProxy(-self.value)
+        def __getitem__(self, idx):
+            return self.value[idx]
+
+    c_numpy = data_container({s: ArrayProxy(val.value) for s, val in c.items()})
+    mp_numpy = data_container(mp)
+    mp_numpy.phi = ArrayProxy(mp.phi.value)
+
     f_res = data_container()
 
-    mp.in_solver = True
+    mp_numpy.in_solver = True
     try:
-        f_res, RATES = diagenetic_reactions(mp, c, k, f=f_res)
+        f_res, RATES = diagenetic_reactions(mp_numpy, c_numpy, k, f=f_res)
     finally:
-        mp.in_solver = False
+        mp_numpy.in_solver = False
 
     def get_val(val):
         if hasattr(val, "value"):
@@ -325,7 +374,8 @@ def _update_static_coefficients(
         for v_cross, (source_name, coeff) in zip(CROSS_vars[s], cross_list):
             v_cross.setValue(get_val(coeff))
 
-    return RATES
+    RATES_numpy = {key: get_val(val) for key, val in RATES.items()}
+    return RATES_numpy
 
 
 def run_non_steady_state_solver_coupled(
@@ -439,14 +489,14 @@ def run_non_steady_state_solver_coupled(
                         # underRelaxation=0.9, # currently failing
                     )
                     converged = True
-                        
+
                     # post transport clips
                     mp.in_clip = True
                     try:
                         equilibrium_reactions(mp, c, k, None, RATES, current_dt)
                     finally:
                         mp.in_clip = False
-                        
+
                 except Exception as e:
                     tb_str = "".join(
                         traceback.format_exception(type(e), e, e.__traceback__)
@@ -583,8 +633,20 @@ def run_non_steady_state_solver_coupled(
     try:
         csv_file = f"{mp.plot_name}.csv"
         state_file = f"{mp.plot_name}_state.npz"
-        print(f"Saving final results to {csv_file} and state to {state_file} ...", flush=True)
-        save_data(mp, c, k, species_list_full, z, D_mol, diagenetic_reactions, equilibrium_reactions)
+        print(
+            f"Saving final results to {csv_file} and state to {state_file} ...",
+            flush=True,
+        )
+        save_data(
+            mp,
+            c,
+            k,
+            species_list_full,
+            z,
+            D_mol,
+            diagenetic_reactions,
+            equilibrium_reactions,
+        )
         save_state(c, state_file)
     except Exception as e:
         print(f"Error during final synchronous save: {e}", flush=True)
