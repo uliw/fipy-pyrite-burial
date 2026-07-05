@@ -1,4 +1,13 @@
-"""Define the reactions."""
+"""Define the reactions.
+
+Note on numerix (nx):
+We use `fipy.tools.numerix` instead of standard `numpy` because the reaction functions
+are called polymorphically:
+1) During setup/plotting, they are called with FiPy `CellVariable`s to build lazy-evaluated equation trees.
+2) During time-stepping, they are called with `ArrayProxy` wrapping raw NumPy arrays for high speed.
+Using `nx` allows these mathematical operations (e.g. `nx.maximum`, `nx.sqrt`) to build lazy expression
+trees in (1) and run at full NumPy speeds in (2). Standard `numpy` would force immediate evaluation in (1).
+"""
 
 from __future__ import annotations  # noqa: I001
 
@@ -150,15 +159,7 @@ def diagenetic_reactions(mp, c, k, f):
         lhs_coeff = LHS.get(s, 0.0)
         cross_list = CROSS.get(s, [])
 
-        cross_term = 0.0
-        if isinstance(cross_list, list):
-            for source_name, coeff in cross_list:
-                # Ensure numpy arrays are wrapped in CellVariable for correct rank, but preserve FiPy expressions
-                if isinstance(coeff, nx.ndarray) and coeff.shape != ():
-                    coeff_val = CellVariable(mesh=c[s].mesh, value=coeff)
-                else:
-                    coeff_val = coeff
-                cross_term += ImplicitSourceTerm(coeff=coeff_val, var=c[source_name])
+        cross_term = None
 
         setattr(f, s, (lhs_coeff, RHS[s], RATES[s], cross_term))
 
