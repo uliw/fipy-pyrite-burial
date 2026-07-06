@@ -11,6 +11,7 @@ liter of bulk sediment does.  ​
 """
 
 if __name__ == "__main__":
+    import faulthandler
     from pathlib import Path
 
     import pint
@@ -20,7 +21,6 @@ if __name__ == "__main__":
 
     from fipyrite.diff_lib import data_container, get_total_delta, save_data, save_state
 
-    import faulthandler
     faulthandler.enable()
 
     ureg = pint.UnitRegistry()
@@ -33,11 +33,11 @@ if __name__ == "__main__":
     p_dict = {
         "experiment": experiment,
         # "state_data": "run_pyrite_model_year_test_slow_isotopes_full_bak.npz",
-        "process_monitor": "gui",  # gui | video | none
+        "process_monitor": "none",  # gui | video | none
         "layout_file": "plot_layout_velde.py",
         "layout_file": "plot_layout.py",
         # Solver Parameters
-        "max_steps": 400,  # max number of iterations
+        "max_steps": 100,  # max number of iterations
         "max_depth": 1,  # meters
         "t_end": Q_("10 kyr").to("seconds").magnitude,
         "dt_min": Q_("1 day").to("seconds").magnitude,  # time step in years
@@ -52,6 +52,7 @@ if __name__ == "__main__":
         "isotopes": True,
         # "bc_om_fast": Q_("1000 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
         "reaction_constants": get_reaction_constants,  # see imports to select a different one
+        "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
     }
 
     k = data_container()

@@ -11,6 +11,7 @@ liter of bulk sediment does.  ​
 """
 
 if __name__ == "__main__":
+    import faulthandler
     from pathlib import Path
 
     import pint
@@ -20,7 +21,6 @@ if __name__ == "__main__":
 
     from fipyrite.diff_lib import data_container, get_total_delta, save_data, save_state
 
-    import faulthandler
     faulthandler.enable()
 
     ureg = pint.UnitRegistry()
@@ -37,7 +37,7 @@ if __name__ == "__main__":
         "layout_file": "plot_layout_velde.py",
         "layout_file": "plot_layout.py",
         # Solver Parameters
-        "max_steps": 20000,  # max number of iterations
+        "max_steps": 40000,  # max number of iterations
         "max_depth": 1,  # meters
         "t_end": Q_("10 kyr").to("seconds").magnitude,
         "dt_min": Q_("1 day").to("seconds").magnitude,  # time step in years

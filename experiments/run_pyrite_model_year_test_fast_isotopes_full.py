@@ -11,6 +11,7 @@ liter of bulk sediment does.  ​
 """
 
 if __name__ == "__main__":
+    import faulthandler
     from pathlib import Path
 
     import pint
@@ -19,8 +20,6 @@ if __name__ == "__main__":
     from reaction_constants_fast import get_reaction_constants
 
     from fipyrite.diff_lib import data_container, get_total_delta, save_data, save_state
-
-    import faulthandler
 
     faulthandler.enable()
 
@@ -38,14 +37,14 @@ if __name__ == "__main__":
         "layout_file": "plot_layout_velde.py",
         "layout_file": "plot_layout.py",
         # Solver Parameters
-        "max_steps": 20,  # max number of iterations
+        "max_steps": 40000,  # max number of iterations
         "max_depth": 1,  # meters
         "t_end": Q_("10 kyr").to("seconds").magnitude,
         "dt_min": Q_("1 day").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 week").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 week").to("seconds").magnitude,  # time step in years
         "dt_target_change": 100,  # target change per step (for dt adaptation)
-        "report_step": 1,  # how often to update plot
+        "report_step": 100,  # how often to update plot
         "BT0": Q_("4 cm^2/year").to("m^2/second").magnitude,
         "BT_depth": Q_("7.6 cm").to("meter").magnitude,  # Bioturbation depth in m
         "BT_attenuation": Q_("2 cm").to("meter").magnitude,  # xbm of Velde et al.
