@@ -25,6 +25,11 @@ def get_layout(df):
     xlim = (0, 10)
     ylim = (None, None)
 
+    if "d_so4" in df.columns:
+        isotopes = True
+    else:
+        isotopes = False
+
     # define color scheme
     poc_attr = {"color": "forestgreen", "lw": lt}
     o2_attr = {"color": "#AA4499", "lw": lt}
@@ -123,10 +128,7 @@ def get_layout(df):
                 [df.f_fe2_total, r"Fe$^{2+}_{liq}$", fe2_l_attr],
                 [df.f_fes, "FeS", fes_attr],
                 [df.f_fe3, r"Fe${3+}$", fe3_attr],
-                [df.f_fes2, r"FeS$_{2}$", fes2_attr_nf],
                 [df.f_s0, r"S$^{0}$", s0_attr],
-                [df.D_bio * 1e6, r"1e6 $\times$ D$_{bio}$ [$m^{2}/s$]", dbio_attr],
-                [df.D_irr, "1e6 $\times$ D$_{irr}$ [1/s]", dirr_attr],
                 # [df.f_o2, "O2", {"color": "C3"}],
                 [df.f_poc_slow, r"POC", poc_attr],
                 [df.f_poc_fast, r"POC", poc_attr],
@@ -140,23 +142,24 @@ def get_layout(df):
             # "right": [df.D_irr, "D_irr", {"color": "C8"}],
         },
         # -------------------------------- 3 panel ----------------------- #
-        "third_subplot": {
-            "xaxis": [df.z * 100, "Depth [cm]"],
-            "left": [
-                [df.d_so4, r"SO$_{4}$", so4_attr_nf],
-                [df.d_ts2, r"TS$^{2-}$", ts2_attr],
-                [df.d_fes, r"FeS", fes_attr],
-                [df.d_fes2, r"FeS$_{2}$", fes2_attr_nf],
-                [df.d_s0, r"S$^{0}$", s0_attr],
-            ],
-            "left_ylabel": r"$\delta^{34}$ [mUr VCDT]",
-            # "xscale": "log",
-            "xlim": xlim,
-            # "ylim": (-15, 75),
-            # "right": [[df.d_h2s, "d_h2s", {"color": "C1"}]],
-            # "yscale": "log",
-            "options-left": "set_ylim(-30, 75)",
-        },
     }
+    if isotopes:
+        plt_desc.update({
+            "third_subplot": {
+                "xaxis": [df.z * 100, "Depth [cm]"],
+                "left": [
+                    [df.d_so4, r"SO$_{4}$", so4_attr_nf],
+                    [df.d_ts2, r"TS$^{2-}$", ts2_attr],
+                    [df.d_fes, r"FeS", fes_attr],
+                ],
+                "left_ylabel": r"$\delta^{34}$ [mUr VCDT]",
+                # "xscale": "log",
+                "xlim": xlim,
+                # "ylim": (-15, 75),
+                # "right": [[df.d_h2s, "d_h2s", {"color": "C1"}]],
+                # "yscale": "log",
+                "options-left": "set_ylim(-30, 75)",
+            },
+        })
 
     return plt_desc
