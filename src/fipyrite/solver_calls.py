@@ -160,7 +160,13 @@ def _get_solver(mp: Any) -> Any:
         if backend == "LinearGMRESSolver":
             from fipy.solvers.petsc import LinearGMRESSolver
 
-            solver = LinearGMRESSolver(precon="hypre", tolerance=tol)
+            solver_kwargs = {"precon": "hypre", "tolerance": tol}
+            if hasattr(mp, "solver_atol") and mp.solver_atol is not None:
+                solver_kwargs["absolute_tolerance"] = mp.solver_atol
+            if hasattr(mp, "solver_max_iterations") and mp.solver_max_iterations is not None:
+                solver_kwargs["iterations"] = mp.solver_max_iterations
+
+            solver = LinearGMRESSolver(**solver_kwargs)
         elif backend == "petscSolver":
             # this is currently not working
             from fipy.solvers.petsc import petscSolver
@@ -168,10 +174,11 @@ def _get_solver(mp: Any) -> Any:
             solver = petscSolver(tolerance=tol)
 
         elif backend == "PETScNewtonSolver":
-            from fipy.solvers.petsc import PETScNewtonSolver
-
-            solver = PETScNewtonSolver(
-                precon="hypre", tolerance=tol, max_it=30, damping=0.5
+            raise ValueError(
+                "PETScNewtonSolver is not a valid FiPy solver backend. "
+                "FiPy does not have a native PETSc Newton solver class. "
+                "Please use 'LinearGMRESSolver' or 'LinearLUSolver' instead, "
+                "and handle nonlinearities through sweeping."
             )
 
     return solver
