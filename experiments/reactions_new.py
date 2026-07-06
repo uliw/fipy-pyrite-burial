@@ -361,6 +361,7 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         )
 
 
+
 def hs_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Reaction: 1 HS + 0.5 O2 -> 1 S0."""
     has_solid = False  # True if the reactants contain a solid phase species
@@ -370,6 +371,65 @@ def hs_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
     # O2 Sink (0.5x) - LIQUID
     coeff_o2 = 0.5 * k.hs_ox * c.ts2 * mp.hs_frac
+    add_implicit_sink(
+        LHS,
+        RATES,
+        "o2",
+        coeff_o2,
+        coeff_o2 * c.o2,
+        mp=mp,
+        has_solid=has_solid,
+        c=c,
+    )
+
+    # S0 Source (1.0x) - SOLID, Couple to H2S
+    add_implicit_coupling_new(
+        CROSS,
+        RATES,
+        LHS,
+        "s0",  # species that is produced
+        "ts2",  # source species
+        coeff_ts2,  # implicit coeff for sink
+        coeff_ts2 * c.ts2,  # explicit rate for reporting
+        mp=mp,
+        has_solid=has_solid,
+        c=c,
+        reaction="hs_oxidation",
+    )
+
+    if mp.isotopes:
+        alpha = 1.0 + (mp.hs_ox_alpha - 1.0) * lim["ts2_alpha_explicit"]
+        hs_32 = partition_equilibrium_isotope_32(
+            c.ts2_32, mp.hs_frac, mp.h2s_frac, mp.h2s_hs_alpha
+        )
+        coeff_ts2_32 = calculate_fractionated_coeff_32(
+            coeff_ts2, c.ts2 * mp.hs_frac, hs_32, alpha, eps=1e-20
+        )
+
+        # S0_32 coupled to H2S_32
+        add_implicit_coupling_new(
+            CROSS,
+            RATES,
+            LHS,
+            "s0_32",  # species that is produced
+            "ts2_32",  # source species
+            coeff_ts2_32,  # implicit coeff for sink
+            coeff_ts2_32 * c.ts2_32,  # explicit rate for reporting
+            mp=mp,
+            has_solid=has_solid,
+            c=c,
+        )
+
+
+def hs_oxidation_velde(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """Reaction: 1 HS + 2 * O2 -> 1 SO4"""
+    has_solid = False  # True if the reactants contain a solid phase species
+    # H2S Sink - LIQUID
+    # Ref: H2S
+    coeff_ts2 = k.hs_ox * c.o2 * mp.hs_frac
+
+    # O2 Sink (0.5x) - LIQUID
+    coeff_o2 = 2 * k.hs_ox * c.ts2 * mp.hs_frac
     add_implicit_sink(
         LHS,
         RATES,
@@ -473,6 +533,9 @@ def elemental_sulfur_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             c=c,
         )
 
+
+
+        
 
 def sulfide_mediated_iron_reduction_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Fe3 iron reduction via HS-.
@@ -604,6 +667,172 @@ def sulfide_mediated_iron_reduction_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
         rate_32 = 0.5 * rate_actual * f32
         coeff_32 = 0.5 * coeff_master * f32
+
+        # ts2_32 sink
+        add_implicit_coupling_new(
+            CROSS,
+            RATES,
+            LHS,
+            target_species="ts2_32",
+            source_species="fe3",
+            coeff=coeff_32,
+            rate=rate_32,
+            mp=mp,
+            has_solid=has_solid,
+            c=c,
+            add_lhs_sink=False,
+            stoich_ratio=-1.0,
+        )
+
+        # s0_32 source
+        add_implicit_coupling_new(
+            CROSS,
+            RATES,
+            LHS,
+            target_species="s0_32",
+            source_species="fe3",
+            coeff=coeff_32,
+            rate=rate_32,
+            mp=mp,
+            has_solid=has_solid,
+            c=c,
+            add_lhs_sink=False,
+            stoich_ratio=1.0,
+        )
+
+        
+
+def sulfide_mediated_iron_reduction_velde(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """Fe3 iron reduction via HS-.
+
+    0.5 HS- + Fe3+ -> 0.5 S0 + Fe2+
+    1 HS- + 8 Fe3+ -> SO4 + 8 Fe2+
+
+    The reaction is doubly-capped so that at most 70% of either fe3 or ts2
+    is consumed in a single timestep, guaranteeing perfect stoichiometry and
+    unconditional positivity. Coupling uses a single master implicit variable
+    (fe3) to ensure exact mass balance across all species.
+    """
+    has_solid = True  # True if the reactants contain a solid phase species
+    # ------------------------------------------------------------------
+    # 1. Current state (using FiPy variables directly for consistency)
+    # ------------------------------------------------------------------
+    ts2_val = nx.maximum(c.ts2, 0.0)
+    hs_val = ts2_val * mp.hs_frac
+    fe3_val = nx.maximum(c.fe3, 0.0)
+
+    # ------------------------------------------------------------------
+    # 2. Rate Calculation and Multi-Reactant Capping
+    # ------------------------------------------------------------------
+    k_base_val = k.fe3_hs * lim["o2_inhibit"] * lim["fe3_implicit"]
+
+    # Uncapped reaction rate driven by fe3 consumption [mmol/L_solid/s]
+    rate_uncapped = k_base_val * hs_val * fe3_val
+
+    # Total available ts2 reservoir over the next timestep (including chemical production)
+    # RATES contains rates in bulk units (mmol/L_bulk/s), so we divide by porosity to get mmol/L_liquid/s
+    ts2_prod_pw = RATES["ts2"] / (mp.phi + 1e-30)
+    dt_val = getattr(mp, "current_dt", 0.0)
+    dt_safe = nx.maximum(dt_val, 1e-12)
+    ts2_available = nx.maximum(ts2_val + ts2_prod_pw * dt_safe, 0.0)
+
+    # Limit by fe3 depletion (at most 70% per timestep)
+    max_rate_fe3 = 0.7 * fe3_val / dt_safe
+
+    # Limit by ts2 depletion (0.5 mole ts2 consumed per 1 mole fe3)
+    # 0.5 * Rate * dt <= 0.7 * ts2_available -> Rate <= 1.4 * ts2_available / dt
+    max_rate_ts2 = 1.4 * ts2_available / dt_safe
+
+    # Actual capped rate
+    rate_actual = nx.minimum(rate_uncapped, nx.minimum(max_rate_fe3, max_rate_ts2))
+    # rate_actual = rate_uncapped
+
+    # Single master coefficient based on fe3 [1/s]
+    coeff_master = rate_actual / (fe3_val + 1e-30)
+
+    # ------------------------------------------------------------------
+    # 3. Fe3 sink (Master Variable) — EXACTLY 1:1
+    # ------------------------------------------------------------------
+    add_implicit_sink(
+        LHS,
+        RATES,
+        "fe3",
+        coeff_master,
+        rate_actual,
+        mp=mp,
+        has_solid=has_solid,
+        c=c,
+        reaction="sulfide_mediated_iron_reduction",
+    )
+
+    # ------------------------------------------------------------------
+    # 4. Fe2 source (Coupled to fe3_new) — EXACTLY 1:1
+    # ------------------------------------------------------------------
+    add_implicit_coupling_new(
+        CROSS,
+        RATES,
+        LHS,
+        target_species="fe2_total",
+        source_species="fe3",
+        coeff=coeff_master,
+        rate=rate_actual,
+        mp=mp,
+        has_solid=has_solid,
+        c=c,
+        add_lhs_sink=False,
+        stoich_ratio=1.0,
+        reaction="sulfide_mediated_iron_reduction",
+    )
+
+    # ------------------------------------------------------------------
+    # 5. ts2 sink (Coupled to fe3_new) — EXACTLY 0.5:1
+    # ------------------------------------------------------------------
+    add_implicit_coupling_new(
+        CROSS,
+        RATES,
+        LHS,
+        target_species="so4",
+        source_species="fe3",
+        coeff=coeff_master,
+        rate=rate_actual,
+        mp=mp,
+        has_solid=has_solid,
+        c=c,
+        add_lhs_sink=False,
+        stoich_ratio=-1/8,
+        reaction="sulfide_mediated_iron_reduction",
+    )
+
+    # ------------------------------------------------------------------
+    # 6. s0 source (Coupled to fe3_new) — EXACTLY 0.5:1
+    # ------------------------------------------------------------------
+    add_implicit_coupling_new(
+        CROSS,
+        RATES,
+        LHS,
+        target_species="so4",
+        source_species="fe3",
+        coeff=coeff_master * 1/8,
+        rate=1/8 * rate_actual,
+        mp=mp,
+        has_solid=has_solid,
+        c=c,
+        add_lhs_sink=False,
+        stoich_ratio=1.0,
+        reaction="sulfide_mediated_iron_reduction",
+    )
+
+    # ------------------------------------------------------------------
+    # 7. Isotopes (32S)
+    # ------------------------------------------------------------------
+    if mp.isotopes:
+        hs_32 = partition_equilibrium_isotope_32(
+            c.ts2_32, mp.hs_frac, mp.h2s_frac, mp.h2s_hs_alpha
+        )
+        f32 = hs_32 / (ts2_val * mp.hs_frac + 1e-30)
+
+        rate_32 = 1/8 * rate_actual * f32
+        coeff_32 = 1/8 * coeff_master * f32
 
         # ts2_32 sink
         add_implicit_coupling_new(
