@@ -129,7 +129,7 @@ def get_layout(df):
                 # [df.f_fe2_total, r"Fe$^{2+}_{liq}$", fe2_l_attr],
                 [df.f_fes, "FeS", fes_attr],
                 [df.f_fe3, r"Fe${3+}$", fe3_attr],
-                # [df.f_fes2, r"FeS$_{2}$", fes2_attr_nf],
+                [df.f_fes2, r"FeS$_{2}$", fes2_attr_nf],
                 # [
                 #     df.f_r_sulfide_mediated_iron_reduction_s0,
                 #     r"Fe3_reduction_s0",
@@ -151,27 +151,25 @@ def get_layout(df):
         },
     }
     if isotopes:
-        plt_desc.update(
-            {
-                # -------------------------------- 3 panel ----------------------- #
-                "third_subplot": {
-                    "xaxis": [df.z, "Depth [m]"],
-                    "left": [
-                        [df.d_so4, r"SO$_{4}$", so4_attr_nf],
-                        [df.d_ts2, r"TS$^{2-}$", ts2_attr],
-                        [df.d_fes, r"FeS", fes_attr],
-                        [df.d_fes2, r"FeS$_{2}$", fes2_attr_nf],
-                        [df.d_s0, r"S$^{0}$", s0_attr],
-                    ],
-                    "left_ylabel": r"$\delta^{34}$ [mUr VCDT]",
-                    "xscale": "log",
-                    "xlim": (1e-4, 2),
-                    # "ylim": (-15, 75),
-                    # "right": [[df.d_h2s, "d_h2s", {"color": "C1"}]],
-                    # "yscale": "log",
-                    "options-left": "set_ylim(-40, 75)",
-                },
-            }
-        )
+        plt_desc.update({
+            # -------------------------------- 3 panel ----------------------- #
+            "third_subplot": {
+                "xaxis": [df.z, "Depth [m]"],
+                "left": [
+                    [df.d_so4, r"SO$_{4}$", so4_attr_nf],
+                    [df.d_ts2, r"TS$^{2-}$", ts2_attr],
+                    [df.d_fes, r"FeS", fes_attr],
+                    [df.d_fes2, r"FeS$_{2}$", fes2_attr_nf],
+                    [df.d_s0, r"S$^{0}$", s0_attr],
+                ],
+                "left_ylabel": r"$\delta^{34}$ [mUr VCDT]",
+                "xscale": "log",
+                "xlim": (1e-4, 2),
+                # "ylim": (-15, 75),
+                # "right": [[df.d_h2s, "d_h2s", {"color": "C1"}]],
+                # "yscale": "log",
+                "options-left": "set_ylim(-50, 40)",
+            },
+        })
 
     return plt_desc
