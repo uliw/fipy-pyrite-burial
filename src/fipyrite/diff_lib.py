@@ -1191,6 +1191,56 @@ def add_implicit_coupling_new(
         RATES[key_tgt] += scaled_target_rate
 
 
+def add_coupled_reaction(
+    CROSS,
+    LHS,
+    RATES,
+    mp,
+    master_species,
+    reactants,
+    products,
+    coeff_master,
+    rate_master,
+    has_solid: bool,
+    reaction_name: str,
+):
+    """Couple multiple reactants and products to a single master reactant."""
+    phi = mp.phi
+    fac = (1.0 - phi) if has_solid else phi
+
+    # 1. Apply self-implicit sink to the master reactant
+    LHS[master_species] = LHS[master_species] - coeff_master * fac
+    bulk_rate_master = rate_master * fac
+    RATES[master_species] -= bulk_rate_master
+
+    key_master = f"r_{reaction_name}_{master_species}"
+    if key_master not in RATES:
+        RATES[key_master] = np.zeros_like(bulk_rate_master)
+    RATES[key_master] -= bulk_rate_master
+
+    # Helper for cross-coupling other species
+    def couple_species(species, stoich, sign):
+        cross_coeff = coeff_master * stoich * fac
+        CROSS[species].append((master_species, sign * cross_coeff))
+
+        bulk_rate = bulk_rate_master * stoich
+        RATES[species] += sign * bulk_rate
+
+        key = f"r_{reaction_name}_{species}"
+        if key not in RATES:
+            RATES[key] = np.zeros_like(bulk_rate)
+        RATES[key] += sign * bulk_rate
+
+    # 2. Couple other reactants (consumed -> sign = -1.0)
+    for spec, stoich in reactants.items():
+        if spec != master_species:
+            couple_species(spec, stoich, sign=-1.0)
+
+    # 3. Couple products (produced -> sign = 1.0)
+    for spec, stoich in products.items():
+        couple_species(spec, stoich, sign=1.0)
+
+
 def calculate_fractionated_coeff_32(coeff_total, c_total, c_32, alpha, eps=1e-20):
     """
     Calculate the fractionated isotope rate coefficient for 32S.
