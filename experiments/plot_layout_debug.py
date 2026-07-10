@@ -19,8 +19,8 @@ def get_layout(df):
     from fipyrite.diff_lib import solid_conc_to_wt_percent, liquid_conc_to_wt_percent
     # define color scheme
     lt = 2
-    poc_slow_attr = {"color": "forestgreen", "lw": lt}
-    poc_fast_attr = {"color": "lightgreen", "lw": lt}
+    POC_slow_attr = {"color": "forestgreen", "lw": lt}
+    POC_fast_attr = {"color": "lightgreen", "lw": lt}
     O2_attr = {"color": "#AA4499", "lw": lt}
     SO4_attr = {"color": "cornflowerblue", "lw": lt, "fill_only": True, "zorder": -10}
     SO4_attr_nf = {"color": "cornflowerblue", "lw": lt, "fill_only": False}
@@ -67,8 +67,8 @@ def get_layout(df):
                 [df.c_TS2 * phi, "TS$^{2-}$", TS2_attr],
                 [df.c_Fe2_total * phi, r"Fe2_total", Fe2_s_attr],
                 #[Fe2_liquid, r"Fe$^{2+}_{liq}$", Fe2_l_attr],
-                #[df.c_poc_fast, "OM_f", poc_fast_attr],
-                #[df.c_poc_slow, "OM_s", poc_slow_attr],
+                #[df.c_POC_fast, "OM_f", POC_fast_attr],
+                #[df.c_POC_slow, "OM_s", POC_slow_attr],
             ],
             "yscale": "log",
             "xscale": "log",
@@ -109,8 +109,8 @@ def get_layout(df):
                 [df.D_bio * 1e6, r"1e6 $\times$ D$_{bio}$ [$m^{2}/s$]", dbio_attr],
                 # [df.D_irr, "1e6 $\times$ D$_{irr}$ [1/s]", dirr_attr],
                 # [df.f_O2, "O2", O2_attr],
-                # [df.f_poc_slow, r"OM_s", poc_slow_attr],
-                # [df.f_poc_fast + df.f_poc_fast, r"OM_f", poc_fast_attr],
+                # [df.f_POC_slow, r"OM_s", POC_slow_attr],
+                # [df.f_POC_fast + df.f_POC_fast, r"OM_f", POC_fast_attr],
                 # [df.f_Fe2_p, "f_Fe2+p", {"color": "C9"}],
             ],
             "left_ylabel": r"reaction rate [mol m$^{-3}s^{-1}$]",
