@@ -275,19 +275,19 @@ def capture_state(
 
     # Isotopes
     isotope_map = {
-        "so4": "so4_32",
+        "SO4": "SO4_32",
         "h2s": "h2s_32",
         "hs": "hs_32",
         "ts2": "ts2_32",
-        "fes": "fes_32",
-        "s0": "s0_32",
-        "fes2": "fes2_32",
+        "FeS": "FeS_32",
+        "S0": "S0_32",
+        "FeS2": "FeS2_32",
     }
 
     for base, iso in isotope_map.items():
         if f"c_{base}" in data and f"c_{iso}" in data:
             s_total = data[f"c_{base}"]
-            if base == "fes2":
+            if base == "FeS2":
                 s_total = 2.0 * s_total
             s32 = data[f"c_{iso}"]
             data[f"d_{base}"] = diff_lib.get_delta(s_total, s32, mp_params.VCDT)

@@ -192,11 +192,11 @@ def get_total_s_export(df, VCDT=0.044162589):
     Uses the logic as defined in run_fipy.py.
     """
     phi = df.phi.iloc[-1]
-    s = phi * (df.c_so4.iloc[-1] + df.c_h2s.iloc[-1]) + (1 - phi) * (
-        df.c_s0.iloc[-1] + df.c_fes.iloc[-1] + 2 * df.c_fes2.iloc[-1]
+    s = phi * (df.c_SO4.iloc[-1] + df.c_h2s.iloc[-1]) + (1 - phi) * (
+        df.c_S0.iloc[-1] + df.c_FeS.iloc[-1] + 2 * df.c_FeS2.iloc[-1]
     )
-    s32 = phi * (df.c_so4_32.iloc[-1] + df.c_h2s_32.iloc[-1]) + (1 - phi) * (
-        df.c_s0_32.iloc[-1] + df.c_fes_32.iloc[-1] + df.c_fes2_32.iloc[-1]
+    s32 = phi * (df.c_SO4_32.iloc[-1] + df.c_h2s_32.iloc[-1]) + (1 - phi) * (
+        df.c_S0_32.iloc[-1] + df.c_FeS_32.iloc[-1] + df.c_FeS2_32.iloc[-1]
     )
     h = s - s32
     d34s = np.where(s32 < 0.001, np.nan, 1000 * (h / s32 - VCDT) / VCDT)
@@ -456,21 +456,21 @@ def _save_data_to_disk(mp, c, k, species_list, z, D_mol, f_final):
         data[key] = get_v(d_val)
 
     # 3. Calculate delta values for specific sulfur species
-    # We prioritize common names (so4, h2s, fes, s0, fes2)
+    # We prioritize common names (SO4, h2s, FeS, S0, FeS2)
     isotope_map = {
-        "so4": "so4_32",
+        "SO4": "SO4_32",
         "h2s": "h2s_32",
         "hs": "hs_32",
         "ts2": "ts2_32",
-        "fes": "fes_32",
-        "s0": "s0_32",
-        "fes2": "fes2_32",
+        "FeS": "FeS_32",
+        "S0": "S0_32",
+        "FeS2": "FeS2_32",
     }
 
     for base, iso in isotope_map.items():
         if f"c_{base}" in data and f"c_{iso}" in data:
             s_total = data[f"c_{base}"]
-            if base == "fes2":
+            if base == "FeS2":
                 s_total = 2.0 * s_total
             s32 = data[f"c_{iso}"]
             data[f"d_{base}"] = get_delta(s_total, s32, mp.VCDT)
@@ -580,7 +580,7 @@ def safe_ratio(
     return out
 
 
-def calculate_k_iron_reduction(fe3, h2s):
+def calculate_k_iron_reduction(Fe3, h2s):
     """
     Calculates the rate constant k_FeOx-SII for an array of ratios.
     Fe3+/H2S
@@ -592,7 +592,7 @@ def calculate_k_iron_reduction(fe3, h2s):
     # Condition 2: 1 <= Ratio <= 2 -> Linear transition [cite: 1463]
     # Condition 3: Ratio > 2 -> tau = 0.5h [cite: 1464]
 
-    ratios = safe_ratio(fe3, h2s, 10.0)
+    ratios = safe_ratio(Fe3, h2s, 10.0)
 
     tau_half = np.piecewise(
         ratios,
@@ -1085,11 +1085,11 @@ def get_total_delta(c, mp, index=-1):
 
     # Liquid species are scaled by porosity (phi)
     # Solid species are scaled by solid fraction (1-phi)
-    s = phi * (c.so4.value[index] + c.ts2.value[index]) + f_s * (
-        c.s0.value[index] + c.fes.value[index] + 2 * c.fes2.value[index]
+    s = phi * (c.SO4.value[index] + c.ts2.value[index]) + f_s * (
+        c.S0.value[index] + c.FeS.value[index] + 2 * c.FeS2.value[index]
     )
-    s32 = phi * (c.so4_32.value[index] + c.ts2_32.value[index]) + f_s * (
-        c.s0_32.value[index] + c.fes_32.value[index] + c.fes2_32.value[index]
+    s32 = phi * (c.SO4_32.value[index] + c.ts2_32.value[index]) + f_s * (
+        c.S0_32.value[index] + c.FeS_32.value[index] + c.FeS2_32.value[index]
     )
 
     return get_delta(s, s32, mp.VCDT)

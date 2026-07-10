@@ -564,7 +564,7 @@ def run_non_steady_state_solver_coupled(
             if step % mp.report_step == 0:  # Force reporting for debug
                 phi = mp.phi
                 dz = np.diff(z)
-                fe_total_bulk = phi * c.fe2_total + (1 - phi) * (c.fe3 + c.fes + c.fes2)
+                fe_total_bulk = phi * c.Fe2_total + (1 - phi) * (c.Fe3 + c.FeS + c.FeS2)
                 m_fe = np.sum(dz * fe_total_bulk[:-1]).value
                 time_str = f" Time: {get_time_units(total_time):.2f~P}"
                 if mp.isotopes:
@@ -575,7 +575,7 @@ def run_non_steady_state_solver_coupled(
                         f"d34S = {d34s:.2f}, "
                         f"Total Fe {m_fe:.2e}"
                     )
-                    d34S = get_delta(2 * c.fes2[-1], c.fes2_32[-1], mp.VCDT)
+                    d34S = get_delta(2 * c.FeS2[-1], c.FeS2_32[-1], mp.VCDT)
                     if mp.title is None:
                         title_str = (
                             time_str + r", $\delta^{34}$S = " + f"{d34s:.1f} [mUr]"
@@ -622,17 +622,17 @@ def run_non_steady_state_solver_coupled(
                     )
 
             # Steady State Check
-            # if c.fe3[-10] < 70:
+            # if c.Fe3[-10] < 70:
             if rms_change < mp.dt_tolerance:
                 _log(
                     f"Steady State Met: rms_change {rms_change:.2e} < tolerance {mp.dt_tolerance:.2e}"
                 )
                 status = "Steady State Converged"
-                fe3_lost = c.fe3.value[0] - c.fe3.value[-1]
-                fe2_gained = c.fe2_total.value[-1] - c.fe2_total.value[0]
+                Fe3_lost = c.Fe3.value[0] - c.Fe3.value[-1]
+                Fe2_gained = c.Fe2_total.value[-1] - c.Fe2_total.value[0]
                 dt = get_time_units(mp.dt_max)
                 _log(
-                    f"dt = {dt:~P.2f}, fe3_lost = {fe3_lost:.2f}, fe2_gained = {fe2_gained:.2f}"
+                    f"dt = {dt:~P.2f}, Fe3_lost = {Fe3_lost:.2f}, Fe2_gained = {Fe2_gained:.2f}"
                 )
                 break
 

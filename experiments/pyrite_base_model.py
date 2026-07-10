@@ -75,29 +75,29 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         "advection": 0,  # upward directed flow component
         "pH": 7.5,  # porewater pH, Velde et al.
         "phi": 0.8,
-        "bc_o2": 0.28,  # mmmol/l
-        "bc_so4": 28.2,  # mmol/l
-        "bc_ts2": 0.0,  # mmol/l # Total S2-
-        "bc_s0": 0.0,  # mmol/l
-        "bc_om_fast": Q_("365 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
-        "bc_om_slow": Q_("183 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
-        "bc_fe3": Q_("12 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
-        "bc_fe2": 0,  # wt% Fe2
-        "bc_fe2_p": 0,  # wt% sorbed Fe2
-        "om_o2_consumption": 1.27,  # 1.27, Velde uses 1.0
+        "bc_O2": 0.28,  # mmmol/l
+        "bc_SO4": 28.2,  # mmol/l
+        "bc_TS2": 0.0,  # mmol/l # Total S2-
+        "bc_S0": 0.0,  # mmol/l
+        "bc_POC_fast": Q_("365 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
+        "bc_POC_slow": Q_("183 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
+        "bc_Fe3": Q_("12 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
+        "bc_Fe2": 0,  # wt% Fe2
+        "bc_Fe2_p": 0,  # wt% sorbed Fe2
+        "POC_O2_ratio": 1.27,  # 1.27, Velde uses 1.0
         # ---------  Monod constants -------------------------- #
         # Note, unlike the k-values in reaction_constants.py
         # These may need to be corrected to phase specific values
         # i.e., Velde et al report their k-values in bulk units
         # since phi is not yet known, we apply this correction
         # in the reactions_new.py file.
-        "K_o2": Q_("0.001 umol/cm^3").to("mol/m^3").m,  # Monod constant
-        "K_ts2": Q_("0.1 umol/cm^3").to("mol/m^3").m,  # Monod constant
-        "K_so4": Q_("0.9 umol/cm^3").to("mol/m^3").m,  # Monod constant
-        "K_fe3_diss_red": Q_("10.4 umol/cm^3")
+        "K_O2": Q_("0.001 umol/cm^3").to("mol/m^3").m,  # Monod constant
+        "K_TS2": Q_("0.1 umol/cm^3").to("mol/m^3").m,  # Monod constant
+        "K_SO4": Q_("0.9 umol/cm^3").to("mol/m^3").m,  # Monod constant
+        "K_Fe3_diss_red": Q_("10.4 umol/cm^3")
         .to("mol/m^3")
         .m,  # Monod constant diss Fe3 reduc
-        "K_fe3": 1e-3,  # Monod constant Fe3 H2S reduc
+        "K_Fe3": 1e-3,  # Monod constant Fe3 H2S reduc
         # -------- benthic activity ---------------------------- #
         "BT0": Q_("4 cm^2/year").to("m^2/second").magnitude * 0,
         "BT_depth": Q_("7.6 cm").to("meter").magnitude,  # Bioturbation depth in m
@@ -106,17 +106,17 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         "BI_depth": 0.0,  # Irrigation depth (0 = off)
         # --------- Isotopes ----------------------------------- #
         "isotopes": True,
-        "so4_d": 21,  # seawater delta
+        "SO4_d": 21,  # seawater delta
         "msr_alpha": 1.07,  # MSR enrichment factor in mUr
-        "hs_ox_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
-        "s0_ox_alpha": 1,  # sulfide oxidation enrichment factor in mUr
-        "dispro_so4_alpha": 1.02,  # about +20 mUr
+        "TS2_O2_alpha": 0.995,  # sulfide oxidation enrichment factor in mUr
+        "S0_O2_alpha": 1,  # sulfide oxidation enrichment factor in mUr
+        "dispro_SO4_alpha": 1.02,  # about +20 mUr
         "dispro_hs_alpha": 0.993,  # about -7 mUr
-        "dispro_so4_hs_split": 0.5,  # i.e. 2 parts SO4, 1 part H2S
+        "dispro_SO4_hs_split": 0.5,  # i.e. 2 parts SO4, 1 part H2S
         "h2s_hs_alpha": 1.002,  # equilibrium fractionation factor between H2S and HS- for 32S
         "VCDT": 0.044162589,  # VCDT reference ratio
         "K_epsilon_msr": 0.2,  # limit MSR fractionation below 0.2 mmol/L
-        "K_epsilon_hs_ox": 0.01,  # limit HS fractionation below 0.01 mmol/L
+        "K_epsilon_TS2_O2": 0.01,  # limit HS fractionation below 0.01 mmol/L
         # --------- Solver Parameters -------------------------- #
         "max_steps": 20,  # max number of iterations
         "t_end": Q_("1 kyr").to("seconds").magnitude,
@@ -155,18 +155,18 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         [rn.hs_oxidation, k],
         [rn.elemental_sulfur_oxidation, k],
         [rn.sulfide_mediated_iron_reduction, k],
-        [rn.fe2_oxidation, k],
-        [rn.fes_precipitation_terminal, k],
-        [rn.fes_dissolution, k],
-        [rn.fes_oxidation, k],
-        [rn.pyrite_formation_s0, k],
-        [rn.pyrite_formation_fes_ts2, k],
+        [rn.Fe2_oxidation, k],
+        [rn.FeS_precipitation_terminal, k],
+        [rn.FeS_dissolution, k],
+        [rn.FeS_oxidation, k],
+        [rn.pyrite_formation_S0, k],
+        [rn.pyrite_formation_FeS_TS2, k],
         [rn.pyrite_oxidation, k],
-        [rn.s0_disproportionation, k],
+        [rn.S0_disproportionation, k],
     ]
 
     mp["instantenous_reactions"] = [
-        [rn.fe2_sorption_clip, 1.0],
+        [rn.Fe2_sorption_clip, 1.0],
         # [rn.sulfide_speciation_clip, 1.0],
     ]
 
@@ -193,40 +193,40 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     _k1, k = get_reaction_constants(mp.pH, mp.phi, k_values=k)
 
     # get delta values for sulfate/sulfide boundary conditions.
-    mp.bc_so4_32 = get_l_mass(mp.bc_so4, mp.so4_d, mp.VCDT)
-    mp.bc_ts2_32 = get_l_mass(mp.bc_ts2, 0.0, mp.VCDT)  # Assume 0 delta for bc_h2s
+    mp.bc_SO4_32 = get_l_mass(mp.bc_SO4, mp.SO4_d, mp.VCDT)
+    mp.bc_TS2_32 = get_l_mass(mp.bc_TS2, 0.0, mp.VCDT)  # Assume 0 delta for bc_h2s
 
     # -----------------------------------------------------------------------------
     # 3. VARIABLES & DIFFUSION PROFILES
     # -----------------------------------------------------------------------------
     # Species that are part of the transport system
     species_list_partial = [
-        "so4",
-        "ts2",  # Total S2-
-        "o2",
-        "poc_fast",
-        "poc_slow",
-        "fe2_total",
-        "fe3",
-        "fes",
-        "s0",
-        "fes2",
+        "SO4",
+        "TS2",  # Total S2-
+        "O2",
+        "POC_fast",
+        "POC_slow",
+        "Fe2_total",
+        "Fe3",
+        "FeS",
+        "S0",
+        "FeS2",
     ]
 
     if mp.isotopes:
         species_list_partial = species_list_partial + [
-            "so4_32",
-            "ts2_32",  # Total S2- 32S
-            "fes_32",
-            "s0_32",
-            "fes2_32",
+            "SO4_32",
+            "TS2_32",  # Total S2- 32S
+            "FeS_32",
+            "S0_32",
+            "FeS2_32",
         ]
 
     # Species that we use for reporting only
     report_species = [
-        "fe2",
-        "fe2_p",
-        "hplus",
+        "Fe2",
+        "Fe2_p",
+        "Hplus",
         "hs",  # HS-
         "hs_32",  # HS- 32S
         "h2s",
@@ -243,20 +243,20 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     mp.fac_s = mp.phi.value / (1.0 - mp.phi.value)
 
     # Fe2 sorption fraction. Since sorption is faster than transport we treat it as
-    # instantenous, i.e. it is just a function of concentration K_ads = k.fe2_p_eq which
+    # instantenous, i.e. it is just a function of concentration K_ads = k.Fe2_p_eq which
     # is unitless (Conc_solid_vol / Conc_liquid_vol)
-    # Note that fe2_total is considered a liquid species!
+    # Note that Fe2_total is considered a liquid species!
     # fraction of Fe2+ in porewater mmol/L_pw
-    mp.fe2_diss = 1 / (1 + k.fe2_p_eq)
+    mp.Fe2_diss = 1 / (1 + k.Fe2_p_eq)
 
     # 2. Fraction of Fe2+ in sediment (mmol/L_solid)
     # You must still apply the volume ratio to convert the liquid-based inventory
     # back into solid-phase concentration units for your solid-state reactions
     vol_ratio = mp.phi.value / (1.0 - mp.phi.value)
-    mp.fe2_sorb = k.fe2_p_eq * vol_ratio * mp.fe2_diss
+    mp.Fe2_sorb = k.Fe2_p_eq * vol_ratio * mp.Fe2_diss
 
     # calculate H2S/HS- speciation. Note that H in mol/l, and different
-    # from k.hplus which is in mol/m^3.
+    # from k.Hplus which is in mol/m^3.
     pKa1 = 7.0
     Ka1 = 10 ** (-pKa1)
     H = 10 ** (-mp.pH)
@@ -280,47 +280,47 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     # phi_profile = np.ones(mp.grid_points) * mp.phi
 
     # ----- diffusion coefficients for liquid species ------ #
-    D_mol.so4 = diff_coeff(T_profile, 4.88, 0.232, mp.phi)
-    D_mol.ts2 = diff_coeff(T_profile, 43.3, 0.85, mp.phi)
-    D_mol.fe2 = diff_coeff(T_profile, 27.7, 1, mp.phi)
-    D_mol.o2 = (
+    D_mol.SO4 = diff_coeff(T_profile, 4.88, 0.232, mp.phi)
+    D_mol.TS2 = diff_coeff(T_profile, 43.3, 0.85, mp.phi)
+    D_mol.Fe2 = diff_coeff(T_profile, 27.7, 1, mp.phi)
+    D_mol.O2 = (
         (0.2604 + 0.006363 * ((T_profile + 273.15) / 1))
         * 1e-9
         / (1 - np.log(mp.phi.value**2))
     )
     if mp.isotopes:
-        D_mol.so4_32 = D_mol.so4
-        D_mol.ts2_32 = D_mol.ts2
+        D_mol.SO4_32 = D_mol.SO4
+        D_mol.TS2_32 = D_mol.TS2
 
     # -- Bioturbation and Irrigation Profiles (Robust Sigmoid) --
     D_mol.D_irr = compute_bio_irrigation_alpha(z, mp.BI0, mp.BI_depth)
     D_mol.D_bio = compute_sigmoidal_db(z, mp.BT0, mp.BT_depth, mp.BT_attenuation)
     # lumped modeling of Fe2 liq and Fe2 adsorbed
-    D_mol.fe2_total = D_mol.fe2 * mp.fe2_diss
+    D_mol.Fe2_total = D_mol.Fe2 * mp.Fe2_diss
 
     # -----------------------------------------------------------------------------
     # 4. BOUNDARY CONDITIONS
     # -----------------------------------------------------------------------------
     bc_map = {
-        "so4": {"top": mp.bc_so4, "type": "dissolved"},
-        "ts2": {"top": mp.bc_ts2, "type": "dissolved"},
-        "poc_fast": {"top": mp.bc_om_fast, "type": "particulate"},
-        "poc_slow": {"top": mp.bc_om_slow, "type": "particulate"},
-        "o2": {"top": mp.bc_o2, "type": "dissolved"},
-        "s0": {"top": mp.bc_s0, "type": "particulate"},
-        "fe2_total": {"top": mp.bc_fe2, "type": "dissolved"},
-        "fe3": {"top": mp.bc_fe3, "type": "particulate"},
-        "fes": {"top": 0.0, "type": "particulate"},
-        "fes2": {"top": 0.0, "type": "particulate"},
+        "SO4": {"top": mp.bc_SO4, "type": "dissolved"},
+        "TS2": {"top": mp.bc_TS2, "type": "dissolved"},
+        "POC_fast": {"top": mp.bc_POC_fast, "type": "particulate"},
+        "POC_slow": {"top": mp.bc_POC_slow, "type": "particulate"},
+        "O2": {"top": mp.bc_O2, "type": "dissolved"},
+        "S0": {"top": mp.bc_S0, "type": "particulate"},
+        "Fe2_total": {"top": mp.bc_Fe2, "type": "dissolved"},
+        "Fe3": {"top": mp.bc_Fe3, "type": "particulate"},
+        "FeS": {"top": 0.0, "type": "particulate"},
+        "FeS2": {"top": 0.0, "type": "particulate"},
     }
 
     if mp.isotopes:
         bc_map.update({
-            "so4_32": {"top": mp.bc_so4_32, "type": "dissolved"},
-            "ts2_32": {"top": mp.bc_ts2, "type": "dissolved"},
-            "s0_32": {"top": mp.bc_s0, "type": "particulate"},
-            "fes_32": {"top": 0.0, "type": "particulate"},
-            "fes2_32": {"top": 0.0, "type": "particulate"},
+            "SO4_32": {"top": mp.bc_SO4_32, "type": "dissolved"},
+            "TS2_32": {"top": mp.bc_TS2, "type": "dissolved"},
+            "S0_32": {"top": mp.bc_S0, "type": "particulate"},
+            "FeS_32": {"top": 0.0, "type": "particulate"},
+            "FeS2_32": {"top": 0.0, "type": "particulate"},
         })
 
     for species_name, props in bc_map.items():
@@ -347,7 +347,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
                     [(mp.w * var.faceValue - J_solid) / D_total.faceValue],
                     mesh.facesLeft,
                 )
-                # if species_name == "fe3":
+                # if species_name == "Fe3":
                 #     var.setValue(J_solid / mp.w if mp.w > 0 else 0.0)
             else:
                 # Pure advection -> Dirichlet C_solid = J_solid / w

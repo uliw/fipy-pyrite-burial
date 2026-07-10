@@ -48,9 +48,9 @@ if __name__ == "__main__":
         "BT0": Q_("4 cm^2/year").to("m^2/second").magnitude,
         "BT_depth": Q_("7.6 cm").to("meter").magnitude,  # Bioturbation depth in m
         "BT_attenuation": Q_("2 cm").to("meter").magnitude,  # xbm of Velde et al.
-        "om_o2_consumption": 1,  # Velde uses a 1:1 ratio
+        "POC_O2_ratio": 1,  # Velde uses a 1:1 ratio
         "isotopes": True,
-        # "bc_om_fast": Q_("1000 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
+        # "bc_POC_fast": Q_("1000 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
         "reaction_constants": get_reaction_constants,  # see imports to select a different one
     }
 
@@ -64,20 +64,20 @@ if __name__ == "__main__":
         [rn.hs_oxidation, k],
         [rn.elemental_sulfur_oxidation, k],
         [rn.sulfide_mediated_iron_reduction_old, k],
-        [rn.fe2_oxidation, k],
-        [rn.fes_precipitation_terminal, k],
-        [rn.fes_dissolution, k],
-        # [rn.fes_precipitation_dissolution_linearized, k],
-        [rn.fes_oxidation, k],
-        [rn.pyrite_formation_s0, k],
-        [rn.pyrite_formation_fes_ts2, k],
+        [rn.Fe2_oxidation, k],
+        [rn.FeS_precipitation_terminal, k],
+        [rn.FeS_dissolution, k],
+        # [rn.FeS_precipitation_dissolution_linearized, k],
+        [rn.FeS_oxidation, k],
+        [rn.pyrite_formation_S0, k],
+        [rn.pyrite_formation_FeS_TS2, k],
         [rn.pyrite_oxidation, k],
-        [rn.s0_disproportionation, k],
+        [rn.S0_disproportionation, k],
     ]
 
     p_dict["instantenous_reactions"] = [
-        # [rn.fes_equilibrium_clip, k],
-        # [rn.fe2_sorption_clip, 1.0],
+        # [rn.FeS_equilibrium_clip, k],
+        # [rn.Fe2_sorption_clip, 1.0],
     ]
 
     (
@@ -104,7 +104,7 @@ if __name__ == "__main__":
         print(f"d34S = {get_total_delta(c, mp):.2f}")
         print(f"d34S = {get_total_delta(c, mp):.2f}")
 
-    total_iron = df.c_fe2_total + df.c_fe3 + df.c_fes + df.c_fes2
+    total_iron = df.c_Fe2_total + df.c_Fe3 + df.c_FeS + df.c_FeS2
     print(f"total_iron diff = {total_iron.max() - total_iron.min():.2e}")
 
     if state_out:

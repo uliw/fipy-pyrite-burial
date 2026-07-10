@@ -26,7 +26,7 @@ Custom Plot Description:
         "first_subplot": {
             "xaxis": [df.z, "Depth [m]"],
             "left": [
-                [df.c_so4, "SO4 [mmol]", {"color": "blue"}],
+                [df.c_SO4, "SO4 [mmol]", {"color": "blue"}],
                 [df.c_h2s, "H2S [mmol]", {"color": "red", "linestyle": "--"}],
             ],
             "left_ylabel": "Concentration [mmol/l]",
@@ -717,13 +717,13 @@ def _get_default_plot_description(df):
     dict: A plot_description dictionary with the default plot structure:
         - First subplot: Concentrations (SO4, H2S, FeS2, O2, OM, Fe)
         - Second subplot (if isotopes=True): Isotope deltas (dSO4, dH2S, dFeS2)
-        - Last subplot: Reaction rates (f_o2, f_so4, f_fes2, f_h2s, f_poc)
+        - Last subplot: Reaction rates (f_o2, f_SO4, f_FeS2, f_h2s, f_poc)
     """
     plot_desc = {
         "first": {
             "xaxis": [df.z, "Depth [m]"],
             "left": [
-                [df.c_so4, r"SO$_{4}$", {"color": "C0"}],
+                [df.c_SO4, r"SO$_{4}$", {"color": "C0"}],
                 [
                     df.c_h2s,
                     r"H$_{2}$S",
@@ -735,13 +735,13 @@ def _get_default_plot_description(df):
                 ],
             ],
             "left_ylabel": r"SO$_{4}$ & H$_{2}$S  [mmol/l]",
-            "right": [[df.c_fes2, r"FeS$_{2}$", {"color": "k"}]],
+            "right": [[df.c_FeS2, r"FeS$_{2}$", {"color": "k"}]],
             "right_ylabel": r"FeS$_{2}$ [mmol/l]",
             "right2": [[df.c_o2, r"O$_{2}$", {"color": "C2"}]],
             "right2_ylabel": r"O$_{2}$ [$\mu$mol/l]",
             "right3": [[df.c_poc, "OM [mol/l]", {"color": "C1"}]],
             "right3_ylabel": "OM [mol/l]",
-            "right4": [[df.c_fe3, "Fe [mol/l]", {"color": "C3"}]],
+            "right4": [[df.c_Fe3, "Fe [mol/l]", {"color": "C3"}]],
             "right4_ylabel": "Fe [mol/l]",
         },
     }
@@ -752,8 +752,8 @@ def _get_default_plot_description(df):
         "xaxis": [df.z, "Depth [m]"],
         "left": [
             [df.f_o2, "f_o2", {"color": "C2"}],
-            [df.f_so4, "f_so4", {"color": "C0"}],
-            [df.f_fes2, "f_fes2", {"color": "k"}],
+            [df.f_SO4, "f_SO4", {"color": "C0"}],
+            [df.f_FeS2, "f_FeS2", {"color": "k"}],
             [df.f_h2s, "f_h2s", {"color": "C0", "linestyle": ":"}],
             [df.f_poc, "f_poc", {"color": "C1"}],
         ],
@@ -811,7 +811,7 @@ if __name__ == "__main__":
             "    return {\n"
             "        'subplot1': {\n"
             "            'xaxis': [df.z, 'Depth [m]'],\n"
-            "            'left':  [[df.c_so4, 'SO4', {'color': 'C0'}]]\n"
+            "            'left':  [[df.c_SO4, 'SO4', {'color': 'C0'}]]\n"
             "        }\n"
             "    }\n"
             "--------------------------------------------------"

@@ -20,46 +20,46 @@ def get_layout(df):
 
     lt = 2
 
-    if "d_so4" in df.columns:
+    if "d_SO4" in df.columns:
         isotopes = True
     else:
         isotopes = False
 
     # define color scheme
     poc_attr = {"color": "forestgreen", "lw": lt}
-    o2_attr = {"color": "#AA4499", "lw": lt}
-    so4_attr = {"color": "cornflowerblue", "lw": lt, "fill_only": True, "zorder": -10}
-    so4_attr_nf = {"color": "cornflowerblue", "lw": lt, "fill_only": False}
-    ts2_attr = {"color": "slateblue", "zorder": 10, "lw": lt}
-    s0_attr = {"color": "#009988", "lw": lt}
+    O2_attr = {"color": "#AA4499", "lw": lt}
+    SO4_attr = {"color": "cornflowerblue", "lw": lt, "fill_only": True, "zorder": -10}
+    SO4_attr_nf = {"color": "cornflowerblue", "lw": lt, "fill_only": False}
+    TS2_attr = {"color": "slateblue", "zorder": 10, "lw": lt}
+    S0_attr = {"color": "#009988", "lw": lt}
     poc_slow_attr = {"color": "black", "lw": lt}
     poc_fast_attr = {"color": "yellow", "lw": lt}
-    fe3_attr = {"color": "saddlebrown", "lw": lt}
-    fe2_s_attr = {"color": "indianred", "lw": lt}
-    fe2_l_attr = {"color": "#cc3311", "lw": lt}
-    fes_attr = {"color": "#ee3377", "lw": lt}
-    fes2_attr = {"color": "darkorange", "lw": lt, "fill_only": True, "zorder": -9}
-    fes2_attr_nf = {"color": "darkorange", "lw": lt, "fill_only": False}
+    Fe3_attr = {"color": "saddlebrown", "lw": lt}
+    Fe2_s_attr = {"color": "indianred", "lw": lt}
+    Fe2_l_attr = {"color": "#cc3311", "lw": lt}
+    FeS_attr = {"color": "#ee3377", "lw": lt}
+    FeS2_attr = {"color": "darkorange", "lw": lt, "fill_only": True, "zorder": -9}
+    FeS2_attr_nf = {"color": "darkorange", "lw": lt, "fill_only": False}
     dbio_attr = {"color": "#bbbbbb", "lw": lt, "fill_only": True}
     dirr_attr = {"color": "yellow", "lw": lt, "fill_only": True, "alpha": 0.1}
 
     phi = df.phi
     # relative to sulfur
-    fe3_s = solid_conc_to_wt_percent(df.c_fe3, 32, 2.6, phi)
-    fes_s = solid_conc_to_wt_percent(df.c_fes, 32, 2.6, phi)
-    s0_s = solid_conc_to_wt_percent(df.c_s0, 32, 2.6, phi)
-    fes2_s = solid_conc_to_wt_percent(df.c_fes2, 32, 2.6, phi)
+    Fe3_s = solid_conc_to_wt_percent(df.c_Fe3, 32, 2.6, phi)
+    FeS_s = solid_conc_to_wt_percent(df.c_FeS, 32, 2.6, phi)
+    S0_s = solid_conc_to_wt_percent(df.c_S0, 32, 2.6, phi)
+    FeS2_s = solid_conc_to_wt_percent(df.c_FeS2, 32, 2.6, phi)
 
     # relative to Iron
-    fe2_liquid = df.c_fe2_total / 696
-    fe2_fe_sorbed = liquid_conc_to_wt_percent(df.c_fe2_total, 56, 2.6, phi)
-    fe2 = liquid_conc_to_wt_percent(df.c_fe2_total, 56, 2.6, phi)
-    fe3_fe = solid_conc_to_wt_percent(df.c_fe3, 56, 2.6, phi)
-    fes_fe = solid_conc_to_wt_percent(df.c_fes, 56, 2.6, phi)
-    fes2_fe = solid_conc_to_wt_percent(df.c_fes2, 56, 2.6, phi)
+    Fe2_liquid = df.c_Fe2_total / 696
+    Fe2_fe_sorbed = liquid_conc_to_wt_percent(df.c_Fe2_total, 56, 2.6, phi)
+    Fe2 = liquid_conc_to_wt_percent(df.c_Fe2_total, 56, 2.6, phi)
+    Fe3_fe = solid_conc_to_wt_percent(df.c_Fe3, 56, 2.6, phi)
+    FeS_fe = solid_conc_to_wt_percent(df.c_FeS, 56, 2.6, phi)
+    FeS2_fe = solid_conc_to_wt_percent(df.c_FeS2, 56, 2.6, phi)
     poc_slow = solid_conc_to_wt_percent(df.c_poc_slow, 12, 2.6, phi)
     poc_fast = solid_conc_to_wt_percent(df.c_poc_fast, 12, 2.6, phi)
-    total_iron = fe2_fe_sorbed + fe3_fe + fes_fe + fes2_fe
+    total_iron = Fe2_fe_sorbed + Fe3_fe + FeS_fe + FeS2_fe
 
     plt_desc = {
         # -------------------------------- 1 panel ----------------------- #
@@ -74,10 +74,10 @@ def get_layout(df):
             "xaxis": [df.z, "Depth [m]"],
             # left axis
             "left": [
-                [df.c_so4, r"SO$_{4}$", so4_attr],
-                [df.c_o2, r"O$_{2}$", o2_attr],
-                [df.c_ts2, "TS$^{2-}$", ts2_attr],
-                [fe2_liquid, r"Fe$^{2+}_{liq}$", fe2_l_attr],
+                [df.c_SO4, r"SO$_{4}$", SO4_attr],
+                [df.c_O2, r"O$_{2}$", O2_attr],
+                [df.c_TS2, "TS$^{2-}$", TS2_attr],
+                [Fe2_liquid, r"Fe$^{2+}_{liq}$", Fe2_l_attr],
             ],
             "yscale": "log",
             "xscale": "log",
@@ -86,10 +86,10 @@ def get_layout(df):
             "left_ylabel": r"Concentration [mmol/L$_{PW}$]",
             # right 1
             "right1": [
-                [fes2_fe, r"FeS$_{2}$ [wt% Fe]", fes2_attr],
-                [fes_fe, r"FeS [wt% Fe]", fes_attr],
-                [fe3_fe, r"Fe$^{3+}$ [wt% Fe]", fe3_attr],
-                [fe2_fe_sorbed, r"Fe$^{2+}_{sorbed}$ [wt% Fe]", fe2_s_attr],
+                [FeS2_fe, r"FeS$_{2}$ [wt% Fe]", FeS2_attr],
+                [FeS_fe, r"FeS [wt% Fe]", FeS_attr],
+                [Fe3_fe, r"Fe$^{3+}$ [wt% Fe]", Fe3_attr],
+                [Fe2_fe_sorbed, r"Fe$^{2+}_{sorbed}$ [wt% Fe]", Fe2_s_attr],
                 # [
                 #     total_iron,
                 #     r"TFe [wt% Fe]",
@@ -101,16 +101,16 @@ def get_layout(df):
             "right2": [
                 [poc_slow, r"poc_slow [wt% C]", poc_slow_attr],
                 [poc_fast, r"poc_fast [wt% C]", poc_fast_attr],
-                # [s0_s, r"S$^{0}$ [wt% S]", s0_attr],
-                # [fes2_s, r"FeS$_2$ [wt% S]", {"color": "black"}],
-                # [fes_s, r"$\times$ FeS [wt% S]", {"color": "C6"}],
+                # [S0_s, r"S$^{0}$ [wt% S]", S0_attr],
+                # [FeS2_s, r"FeS$_2$ [wt% S]", {"color": "black"}],
+                # [FeS_s, r"$\times$ FeS [wt% S]", {"color": "C6"}],
             ],
             # "right2_ylim": (0, 0.4),
             "right2_ylabel": "[wt% C]",
             "right3": [
-                [s0_s, r"S$^{0}$ [wt% S]", s0_attr],
-                # [fes2_s, r"FeS$_2$ [wt% S]", {"color": "black"}],
-                # [fes_s, r"$\times$ FeS [wt% S]", {"color": "C6"}],
+                [S0_s, r"S$^{0}$ [wt% S]", S0_attr],
+                # [FeS2_s, r"FeS$_2$ [wt% S]", {"color": "black"}],
+                # [FeS_s, r"$\times$ FeS [wt% S]", {"color": "C6"}],
             ],
             # "right3_ylim": (0, 0.4),
             "right3_ylabel": "[wt% S]",
@@ -119,28 +119,28 @@ def get_layout(df):
         "second_subplot": {
             "xaxis": [df.z, "Depth [m]"],
             "left": [
-                [df.f_so4, r"SO$_{4}$", so4_attr_nf],
+                [df.f_SO4, r"SO$_{4}$", SO4_attr_nf],
                 # [
-                #     df.f_r_sulfide_mediated_iron_reduction_ts2,
-                #     r"Fe3_reduction_ts2",
-                #     ts2_attr,
+                #     df.f_r_sulfide_mediated_iron_reduction_TS2,
+                #     r"Fe3_reduction_TS2",
+                #     TS2_attr,
                 # ],
-                # [df.f_r_fes_precipitation_ts2, r"FeS_precipitation_ts2", fes_attr],
-                # [df.f_fe2_total, r"Fe$^{2+}_{liq}$", fe2_l_attr],
-                [df.f_fes, "FeS", fes_attr],
-                [df.f_fe3, r"Fe${3+}$", fe3_attr],
-                [df.f_fes2, r"FeS$_{2}$", fes2_attr_nf],
+                # [df.f_r_FeS_precipitation_TS2, r"FeS_precipitation_TS2", FeS_attr],
+                # [df.f_Fe2_total, r"Fe$^{2+}_{liq}$", Fe2_l_attr],
+                [df.f_FeS, "FeS", FeS_attr],
+                [df.f_Fe3, r"Fe${3+}$", Fe3_attr],
+                [df.f_FeS2, r"FeS$_{2}$", FeS2_attr_nf],
                 # [
-                #     df.f_r_sulfide_mediated_iron_reduction_s0,
-                #     r"Fe3_reduction_s0",
-                #     s0_attr,
+                #     df.f_r_sulfide_mediated_iron_reduction_S0,
+                #     r"Fe3_reduction_S0",
+                #     S0_attr,
                 # ],
                 [df.D_bio * 1e6, r"1e6 $\times$ D$_{bio}$ [$m^{2}/s$]", dbio_attr],
                 # [df.D_irr, "1e6 $\times$ D$_{irr}$ [1/s]", dirr_attr],
-                # [df.f_o2, "O2", {"color": "C3"}],
+                # [df.f_O2, "O2", {"color": "C3"}],
                 [df.f_poc_slow + df.f_poc_fast, r"POC", poc_attr],
-                [df.f_fe2_p, "f_fe2+p", {"color": "C9"}],
-                [df.f_s0, "f_S0", s0_attr],
+                [df.f_Fe2_p, "f_Fe2+p", {"color": "C9"}],
+                [df.f_S0, "f_S0", S0_attr],
             ],
             "left_ylabel": r"reaction rate [mol m$^{-3}s^{-1}$]",
             "xscale": "log",
@@ -156,11 +156,11 @@ def get_layout(df):
             "third_subplot": {
                 "xaxis": [df.z, "Depth [m]"],
                 "left": [
-                    [df.d_so4, r"SO$_{4}$", so4_attr_nf],
-                    [df.d_ts2, r"TS$^{2-}$", ts2_attr],
-                    [df.d_fes, r"FeS", fes_attr],
-                    [df.d_fes2, r"FeS$_{2}$", fes2_attr_nf],
-                    [df.d_s0, r"S$^{0}$", s0_attr],
+                    [df.d_SO4, r"SO$_{4}$", SO4_attr_nf],
+                    [df.d_TS2, r"TS$^{2-}$", TS2_attr],
+                    [df.d_FeS, r"FeS", FeS_attr],
+                    [df.d_FeS2, r"FeS$_{2}$", FeS2_attr_nf],
+                    [df.d_S0, r"S$^{0}$", S0_attr],
                 ],
                 "left_ylabel": r"$\delta^{34}$ [mUr VCDT]",
                 "xscale": "log",
