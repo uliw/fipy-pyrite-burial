@@ -94,8 +94,6 @@ def diagenetic_reactions(mp, c, k, f):
     the porosity correction will then applied automatically depending on the
     has_solid parameter,
     """
-    from fipy import ImplicitSourceTerm
-
     # 1. SETUP & INITIALIZATION
     # -------------------------
     species_list = list(c.keys())
@@ -243,7 +241,7 @@ def dissimilatory_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     inhibit = lim["O2_inhibit"] * lim["Fe3_diss_red_implicit"]
     coeff_Fe3_slow = k.POC_slow * c.POC_slow
     coeff_Fe3_fast = k.POC_fast * c.POC_fast
-    coeff_Fe3 = 4 * (coeff_Fe3_slow + coeff_Fe3_fast) * inhibit
+    coeff_Fe3 = (coeff_Fe3_slow + coeff_Fe3_fast) * inhibit
 
     # Couple Fe3 reduction to Fe2 production
     add_coupled_reaction(
@@ -251,13 +249,14 @@ def dissimilatory_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         LHS=LHS,
         RATES=RATES,
         mp=mp,
-        master_species="Fe3",
-        reactants={},
-        products={"Fe2_total": 1.0},
+        master_species={"Fe3": 4},
+        reactants={"POC": 1},
+        products={"Fe2_total": 4.0},
         coeff_master=coeff_Fe3,
         rate_master=coeff_Fe3 * c.Fe3,
         has_solid=has_solid,
         reaction_name="dissimilatory_iron_reduction",
+        ref_species="POC",
     )
 
     # create the OM sinks
@@ -300,7 +299,7 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     inhibition = lim["O2_inhibit"] * lim["SO4_implicit"] * lim["Fe3_diss_red_inhib"]
     coeff_SO4_slow = k.POC_slow * c.POC_slow
     coeff_SO4_fast = k.POC_fast * c.POC_fast
-    coeff_SO4 = (coeff_SO4_fast + coeff_SO4_slow) * inhibition * 0.5
+    coeff_SO4 = (coeff_SO4_fast + coeff_SO4_slow) * inhibition
 
     # 4. Couple sulfate reduction to h2s production
     add_coupled_reaction(
@@ -309,12 +308,13 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         RATES=RATES,
         mp=mp,
         master_species="SO4",
-        reactants={},
+        reactants={"POC": 2.0},
         products={"TS2": 1.0},
         coeff_master=coeff_SO4,
         rate_master=coeff_SO4 * c.SO4,
         has_solid=has_solid,
         reaction_name="sulfate_reduction",
+        ref_species="POC",
     )
 
     # sulfate reduction consumes poc
@@ -354,12 +354,13 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             RATES=RATES,
             mp=mp,
             master_species="SO4_32",
-            reactants={},
+            reactants={"POC": 2.0},
             products={"TS2_32": 1.0},
             coeff_master=coeff_SO4_32,
             rate_master=coeff_SO4_32 * c.SO4_32,
             has_solid=has_solid,
             reaction_name="sulfate_reduction_32",
+            ref_species="POC",
         )
 
 
@@ -397,6 +398,7 @@ def hs_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         rate_master=coeff_TS2 * c.TS2,
         has_solid=has_solid,
         reaction_name="hs_oxidation",
+        ref_species="TS2",
     )
 
     if mp.isotopes:
@@ -421,6 +423,7 @@ def hs_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             rate_master=coeff_TS2_32 * c.TS2_32,
             has_solid=has_solid,
             reaction_name="hs_oxidation_32",
+            ref_species="TS2",
         )
 
 
@@ -457,6 +460,7 @@ def hs_oxidation_velde(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         rate_master=coeff_TS2 * c.TS2,
         has_solid=has_solid,
         reaction_name="hs_oxidation_velde",
+        ref_species="TS2",
     )
 
     if mp.isotopes:
@@ -481,6 +485,7 @@ def hs_oxidation_velde(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             rate_master=coeff_TS2_32 * c.TS2_32,
             has_solid=has_solid,
             reaction_name="hs_oxidation_velde_32",
+            ref_species="TS2",
         )
 
 
@@ -521,8 +526,9 @@ def elemental_sulfur_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         rate_master=coeff_S0 * c.S0,
         has_solid=has_solid,
         reaction_name="elemental_sulfur_oxidation",
+        ref_species="S0",
     )
-
+ 
     if mp.isotopes:
         # S0_32 Source (1.0x) - LIQUID, Coupled to S0_32 (SOLID)
         add_coupled_reaction(
@@ -537,6 +543,7 @@ def elemental_sulfur_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             rate_master=coeff_S0 * c.S0_32,
             has_solid=has_solid,
             reaction_name="elemental_sulfur_oxidation_32",
+            ref_species="S0",
         )
 
 
@@ -745,7 +752,7 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         k.Fe3_hs * mp.hs_frac * lim["O2_inhibit"] * lim["Fe3_implicit"] * FeS_inhibit
     )  # suppresses coeff as Fe3 → 0
 
-    coeff_TS2 = 0.5 * k_eff * Fe3_val  # [1/s, L_pw] — TS2 master coeff
+    coeff_TS2 = k_eff * Fe3_val  # [1/s, L_pw] — TS2 master coeff
 
     # 2. Bulk Reaction coupling (using the wrapper)
     # Reaction stoichiometry normalized to 1 unit of TS2 consumed:
@@ -763,6 +770,7 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         rate_master=coeff_TS2 * TS2_val,
         has_solid=has_solid,
         reaction_name="sulfide_mediated_iron_reduction",
+        ref_species="Fe3",
     )
 
     # 3. Isotope Reaction coupling (using the wrapper)
@@ -773,12 +781,13 @@ def sulfide_mediated_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             RATES=RATES,
             mp=mp,
             master_species="TS2_32",
-            reactants={},
+            reactants={"Fe3": 2.0},
             products={"S0_32": 1.0},
             coeff_master=coeff_TS2,
             rate_master=coeff_TS2 * c.TS2_32,
             has_solid=has_solid,
             reaction_name="sulfide_mediated_iron_reduction_32",
+            ref_species="Fe3",
         )
 
 
@@ -833,7 +842,8 @@ def sulfide_mediated_iron_reduction_velde(c, k, lim, LHS, RHS, RATES, CROSS, mp)
         coeff_master=coeff_TS2,
         rate_master=coeff_TS2 * TS2_val,
         has_solid=has_solid,
-        reaction_name="sulfide_mediated_iron_reduction",
+        reaction_name="sulfide_mediated_iron_reduction_velde",
+        ref_species="Fe3",
     )
 
     # 3. Isotope Reaction coupling (using the wrapper)
@@ -844,12 +854,13 @@ def sulfide_mediated_iron_reduction_velde(c, k, lim, LHS, RHS, RATES, CROSS, mp)
             RATES=RATES,
             mp=mp,
             master_species="TS2_32",
-            reactants={},
+            reactants={"Fe3": 8.0},
             products={"SO4_32": 1.0},
             coeff_master=coeff_TS2,
             rate_master=coeff_TS2 * c.TS2_32,
             has_solid=has_solid,
-            reaction_name="sulfide_mediated_iron_reduction_32",
+            reaction_name="sulfide_mediated_iron_reduction_velde_32",
+            ref_species="Fe3",
         )
 
         
@@ -922,24 +933,11 @@ def Fe2_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     )
 
 
-def FeS_O2idation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+def FeS_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """reaction: 1 FeS + 2.25 O2 -> 1 Fe3 + 1 SO4."""
     has_solid = True  # True if the reactants contain a solid phase species
     # FeS Sink - SOLID
     coeff_FeS = k.FeS_O2 * c.O2
-
-    add_implicit_coupling_new(
-        CROSS,
-        RATES,
-        LHS,
-        "Fe3",
-        "FeS",
-        coeff_FeS,
-        coeff_FeS * c.FeS,
-        mp=mp,
-        has_solid=has_solid,
-        c=c,
-    )
 
     # O2 Sink (2.25x) - LIQUID
     # Depends on FeS (Solid).
@@ -957,37 +955,37 @@ def FeS_O2idation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         c=c,
     )
 
-    # SO4 Source (1.0x) - LIQUID, Coupled to FeS (SOLID)
-    # Use add_implicit_coupling_new with add_lhs_sink=False because the FeS sink
-    # was already registered by the add_implicit_coupling_new call for Fe3 above.
-
-    add_implicit_coupling_new(
-        CROSS,
-        RATES,
-        LHS,
-        "SO4",  # target: liquid
-        "FeS",  # source: solid
-        k.FeS_O2 * c.O2,
-        coeff_FeS * c.FeS,
+    # Couple Fe3 and SO4 production to FeS consumption
+    add_coupled_reaction(
+        CROSS=CROSS,
+        LHS=LHS,
+        RATES=RATES,
         mp=mp,
+        master_species="FeS",
+        reactants={},
+        products={"Fe3": 1.0, "SO4": 1.0},
+        coeff_master=coeff_FeS,
+        rate_master=coeff_FeS * c.FeS,
         has_solid=has_solid,
-        c=c,
-        add_lhs_sink=False,  # FeS sink already added by the Fe3 coupling above
+        reaction_name="FeS_oxidation",
+        ref_species="FeS",
     )
 
     if mp.isotopes:
         rate_base_32 = k.FeS_O2 * c.FeS_32 * c.O2
-        add_implicit_coupling_new(
-            CROSS,
-            RATES,
-            LHS,
-            "SO4_32",
-            "FeS_32",
-            k.FeS_O2 * c.O2,
-            rate_base_32,
+        add_coupled_reaction(
+            CROSS=CROSS,
+            LHS=LHS,
+            RATES=RATES,
             mp=mp,
+            master_species="FeS_32",
+            reactants={},
+            products={"SO4_32": 1.0},
+            coeff_master=k.FeS_O2 * c.O2,
+            rate_master=rate_base_32,
             has_solid=has_solid,
-            c=c,
+            reaction_name="FeS_oxidation_32",
+            ref_species="FeS",
         )
 
 
@@ -1025,12 +1023,13 @@ def pyrite_formation_S0(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         rate_master=coeff_FeS * c.FeS,
         has_solid=has_solid,
         reaction_name="pyrite_formation_S0_FeS",
+        ref_species="FeS",
     )
 
     if mp.isotopes:
         # S0 is porewater → must include mp.fac_s to match bulk sink coefficient,
         # and use "liquid_2_solid" for correct volume conversion to FeS2_32 (solid)
-
+ 
         # 1st S atom: from S0_32 (porewater) to FeS2_32 (solid)
         add_coupled_reaction(
             CROSS=CROSS,
@@ -1038,14 +1037,15 @@ def pyrite_formation_S0(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             RATES=RATES,
             mp=mp,
             master_species="S0_32",
-            reactants={},
+            reactants={"FeS": 1.0},
             products={"FeS2_32": 1.0},
             coeff_master=k.FeS_S0 * c.FeS,
             rate_master=k.FeS_S0 * c.FeS * c.S0_32,
             has_solid=has_solid,
             reaction_name="pyrite_formation_S0_32",
+            ref_species="FeS",
         )
-
+ 
         # 2nd S atom: from FeS_32 (solid) to FeS2_32 (solid)
         add_coupled_reaction(
             CROSS=CROSS,
@@ -1059,6 +1059,7 @@ def pyrite_formation_S0(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             rate_master=k.FeS_S0 * c.S0 * c.FeS_32,
             has_solid=has_solid,
             reaction_name="pyrite_formation_FeS_32",
+            ref_species="FeS",
         )
 
 
@@ -1093,6 +1094,7 @@ def pyrite_formation_FeS_TS2(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         rate_master=k.FeS_TS2 * c.TS2 * c.FeS * mp.hs_frac,
         has_solid=has_solid,
         reaction_name="pyrite_formation_FeS_TS2",
+        ref_species="FeS",
     )
 
     if mp.isotopes:
@@ -1109,6 +1111,7 @@ def pyrite_formation_FeS_TS2(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             rate_master=k.FeS_TS2 * c.TS2 * c.FeS_32 * mp.hs_frac,
             has_solid=has_solid,
             reaction_name="pyrite_formation_FeS_TS2_32_solid",
+            ref_species="FeS",
         )
 
         # 2nd S atom: from H2S_32 (TS2_32) (liquid) -> FeS2_32 (solid)
@@ -1118,12 +1121,13 @@ def pyrite_formation_FeS_TS2(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             RATES=RATES,
             mp=mp,
             master_species="TS2_32",
-            reactants={},
+            reactants={"FeS": 1.0},
             products={"FeS2_32": 1.0},
             coeff_master=coeff_TS2,
             rate_master=coeff_TS2 * c.TS2_32,
             has_solid=has_solid,
             reaction_name="pyrite_formation_FeS_TS2_32_liquid",
+            ref_species="FeS",
         )
 
 
@@ -1140,7 +1144,7 @@ def pyrite_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     # 1. Base coefficients
     # ------------------------------------------------------------------
     # O2 is porewater master: coeff_O2 is implicit sink on O2
-    coeff_O2 = 3.5 * k.FeS2_O2 * c.FeS2  # [L_pw basis]
+    coeff_O2 = k.FeS2_O2 * c.FeS2  # [L_pw basis]
     coeff_FeS2 = k.FeS2_O2 * c.O2
     rate_O2 = coeff_O2 * c.O2  # mol/L_pw/s
     rate_FeS2 = coeff_FeS2 * c.FeS2  # mol/L_pw/s
@@ -1152,12 +1156,13 @@ def pyrite_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         RATES=RATES,
         mp=mp,
         master_species="O2",
-        reactants={},
+        reactants={"FeS2": 1.0 / 3.5},
         products={"SO4": 2.0 / 3.5},
         coeff_master=coeff_O2,
         rate_master=rate_O2,
         has_solid=has_solid,
         reaction_name="pyrite_oxidation_O2",
+        ref_species="FeS2",
     )
 
     # 2. FeS2 -> Fe3
@@ -1173,6 +1178,7 @@ def pyrite_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         rate_master=rate_FeS2,
         has_solid=has_solid,
         reaction_name="pyrite_oxidation_FeS2",
+        ref_species="FeS2",
     )
 
     # 3. Isotopes: FeS2_32 -> SO4_32
@@ -1189,6 +1195,7 @@ def pyrite_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             rate_master=coeff_FeS2 * c.FeS2_32,
             has_solid=has_solid,
             reaction_name="pyrite_oxidation_32",
+            ref_species="FeS2",
         )
 
 
@@ -1633,6 +1640,7 @@ def FeS_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         rate_master=diss_rate_solid,
         has_solid=has_solid,
         reaction_name="FeS_dissolution",
+        ref_species="FeS",
     )
 
     # 6. Isotopes (32S) — no fractionation, k_d identical to bulk
@@ -1652,6 +1660,7 @@ def FeS_dissolution(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             rate_master=diss_32_solid,
             has_solid=has_solid,
             reaction_name="FeS_dissolution_32",
+            ref_species="FeS",
         )
 
 
@@ -1705,6 +1714,7 @@ def S0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         rate_master=coeff_S0_base * c.S0,
         has_solid=has_solid,
         reaction_name="S0_disproportionation",
+        ref_species="S0",
     )
 
     # O2 Consumption - REMOVED (Disproportionation is anaerobic)
@@ -1739,6 +1749,7 @@ def S0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             rate_master=coeff_hs_32 * c.S0_32,
             has_solid=has_solid,
             reaction_name="S0_disproportionation_32_hs",
+            ref_species="S0",
         )
 
         # Fractionation for SO4 path
@@ -1758,6 +1769,7 @@ def S0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             rate_master=coeff_SO4_32 * c.S0_32,
             has_solid=has_solid,
             reaction_name="S0_disproportionation_32_SO4",
+            ref_species="S0",
         )
 
 
