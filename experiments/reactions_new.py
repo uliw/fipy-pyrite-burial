@@ -1088,6 +1088,7 @@ def pyrite_formation_s0(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     )
 
     # FeS to FeS2 SOLID, Rate = k * FeS * S0.
+    coeff_fes = k.fes_s0 * c.s0
     add_coupled_reaction(
         CROSS=CROSS,
         LHS=LHS,
@@ -1766,6 +1767,8 @@ def s0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     h2s_fraction = split / (1.0 + split)
 
     # S0 Disproportionation coupling (using the wrapper)
+    coeff_so4 = coeff_s0_base * so4_fraction
+    coeff_ts2 = coeff_s0_base * h2s_fraction
     add_coupled_reaction(
         CROSS=CROSS,
         LHS=LHS,
