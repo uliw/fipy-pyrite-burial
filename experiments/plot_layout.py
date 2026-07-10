@@ -26,14 +26,14 @@ def get_layout(df):
         isotopes = False
 
     # define color scheme
-    poc_attr = {"color": "forestgreen", "lw": lt}
+    POC_attr = {"color": "forestgreen", "lw": lt}
     O2_attr = {"color": "#AA4499", "lw": lt}
     SO4_attr = {"color": "cornflowerblue", "lw": lt, "fill_only": True, "zorder": -10}
     SO4_attr_nf = {"color": "cornflowerblue", "lw": lt, "fill_only": False}
     TS2_attr = {"color": "slateblue", "zorder": 10, "lw": lt}
     S0_attr = {"color": "#009988", "lw": lt}
-    poc_slow_attr = {"color": "black", "lw": lt}
-    poc_fast_attr = {"color": "yellow", "lw": lt}
+    POC_slow_attr = {"color": "black", "lw": lt}
+    POC_fast_attr = {"color": "yellow", "lw": lt}
     Fe3_attr = {"color": "saddlebrown", "lw": lt}
     Fe2_s_attr = {"color": "indianred", "lw": lt}
     Fe2_l_attr = {"color": "#cc3311", "lw": lt}
@@ -57,8 +57,8 @@ def get_layout(df):
     Fe3_fe = solid_conc_to_wt_percent(df.c_Fe3, 56, 2.6, phi)
     FeS_fe = solid_conc_to_wt_percent(df.c_FeS, 56, 2.6, phi)
     FeS2_fe = solid_conc_to_wt_percent(df.c_FeS2, 56, 2.6, phi)
-    poc_slow = solid_conc_to_wt_percent(df.c_poc_slow, 12, 2.6, phi)
-    poc_fast = solid_conc_to_wt_percent(df.c_poc_fast, 12, 2.6, phi)
+    POC_slow = solid_conc_to_wt_percent(df.c_POC_slow, 12, 2.6, phi)
+    POC_fast = solid_conc_to_wt_percent(df.c_POC_fast, 12, 2.6, phi)
     total_iron = Fe2_fe_sorbed + Fe3_fe + FeS_fe + FeS2_fe
 
     plt_desc = {
@@ -99,8 +99,8 @@ def get_layout(df):
             "right1_ylim": (0, 4),
             "right1_ylabel": "[wt% Fe]",
             "right2": [
-                [poc_slow, r"poc_slow [wt% C]", poc_slow_attr],
-                [poc_fast, r"poc_fast [wt% C]", poc_fast_attr],
+                [POC_slow, r"POC_slow [wt% C]", POC_slow_attr],
+                [POC_fast, r"POC_fast [wt% C]", POC_fast_attr],
                 # [S0_s, r"S$^{0}$ [wt% S]", S0_attr],
                 # [FeS2_s, r"FeS$_2$ [wt% S]", {"color": "black"}],
                 # [FeS_s, r"$\times$ FeS [wt% S]", {"color": "C6"}],
@@ -138,7 +138,7 @@ def get_layout(df):
                 [df.D_bio * 1e6, r"1e6 $\times$ D$_{bio}$ [$m^{2}/s$]", dbio_attr],
                 # [df.D_irr, "1e6 $\times$ D$_{irr}$ [1/s]", dirr_attr],
                 # [df.f_O2, "O2", {"color": "C3"}],
-                [df.f_poc_slow + df.f_poc_fast, r"POC", poc_attr],
+                [df.f_POC_slow + df.f_POC_fast, r"POC", POC_attr],
                 [df.f_Fe2_p, "f_Fe2+p", {"color": "C9"}],
                 [df.f_S0, "f_S0", S0_attr],
             ],
