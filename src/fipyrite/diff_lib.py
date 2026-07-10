@@ -461,7 +461,7 @@ def _save_data_to_disk(mp, c, k, species_list, z, D_mol, f_final):
         "SO4": "SO4_32",
         "h2s": "h2s_32",
         "hs": "hs_32",
-        "ts2": "ts2_32",
+        "TS2": "TS2_32",
         "FeS": "FeS_32",
         "S0": "S0_32",
         "FeS2": "FeS2_32",
@@ -1085,10 +1085,10 @@ def get_total_delta(c, mp, index=-1):
 
     # Liquid species are scaled by porosity (phi)
     # Solid species are scaled by solid fraction (1-phi)
-    s = phi * (c.SO4.value[index] + c.ts2.value[index]) + f_s * (
+    s = phi * (c.SO4.value[index] + c.TS2.value[index]) + f_s * (
         c.S0.value[index] + c.FeS.value[index] + 2 * c.FeS2.value[index]
     )
-    s32 = phi * (c.SO4_32.value[index] + c.ts2_32.value[index]) + f_s * (
+    s32 = phi * (c.SO4_32.value[index] + c.TS2_32.value[index]) + f_s * (
         c.S0_32.value[index] + c.FeS_32.value[index] + c.FeS2_32.value[index]
     )
 
@@ -1191,6 +1191,12 @@ def add_implicit_coupling_new(
         RATES[key_tgt] += scaled_target_rate
 
 
+def _get_base_species(name: str) -> str:
+    if not name:
+        return ""
+    return name.split("_")[0].upper()
+
+
 def add_coupled_reaction(
     CROSS,
     LHS,
@@ -1203,42 +1209,89 @@ def add_coupled_reaction(
     rate_master,
     has_solid: bool,
     reaction_name: str,
+    ref_species: str = None,
 ):
     """Couple multiple reactants and products to a single master reactant."""
     phi = mp.phi
     fac = (1.0 - phi) if has_solid else phi
 
-    # 1. Apply self-implicit sink to the master reactant
-    LHS[master_species] = LHS[master_species] - coeff_master * fac
-    bulk_rate_master = rate_master * fac
-    RATES[master_species] -= bulk_rate_master
+    # 1. Parse master_species and master_stoich
+    if isinstance(master_species, dict):
+        # Expecting a single-key dictionary like {"Fe3": 4}
+        master_species_name = list(master_species.keys())[0]
+        master_stoich = float(list(master_species.values())[0])
+    else:
+        master_species_name = str(master_species)
+        master_stoich = 1.0
 
-    key_master = f"r_{reaction_name}_{master_species}"
+    # 2. Automatically compute scaling factor based on ref_species stoichiometry in the unnormalized reaction
+    scaling_factor = 1.0
+    if ref_species:
+        ref_base = _get_base_species(ref_species)
+        master_base = _get_base_species(master_species_name)
+        
+        if ref_base == master_base:
+            stoich_ref = master_stoich
+        else:
+            # Check reactants
+            for spec, stoich in reactants.items():
+                if _get_base_species(spec) == ref_base:
+                    stoich_ref = float(stoich)
+                    break
+            else:
+                # Check products
+                for spec, stoich in products.items():
+                    if _get_base_species(spec) == ref_base:
+                        stoich_ref = float(stoich)
+                        break
+                else:
+                    stoich_ref = 1.0
+        
+        scaling_factor = master_stoich / stoich_ref
+
+    coeff_master_scaled = coeff_master * scaling_factor
+    rate_master_scaled = rate_master * scaling_factor
+
+    # 3. Normalize reactants and products to 1 unit of master species for matrix coupling
+    reactants_norm = {k: v / master_stoich for k, v in reactants.items()}
+    products_norm = {k: v / master_stoich for k, v in products.items()}
+
+    # 4. Apply self-implicit sink to the master reactant
+    LHS[master_species_name] = LHS[master_species_name] - coeff_master_scaled * fac
+    bulk_rate_master = rate_master_scaled * fac
+    if master_species_name in RATES:
+        RATES[master_species_name] -= bulk_rate_master
+
+    key_master = f"r_{reaction_name}_{master_species_name}"
     if key_master not in RATES:
         RATES[key_master] = np.zeros_like(bulk_rate_master)
     RATES[key_master] -= bulk_rate_master
 
     # Helper for cross-coupling other species
-    def couple_species(species, stoich, sign):
-        cross_coeff = coeff_master * stoich * fac
-        CROSS[species].append((master_species, sign * cross_coeff))
+    def couple_species(species, stoich_norm, sign):
+        if species not in CROSS:
+            return
 
-        bulk_rate = bulk_rate_master * stoich
-        RATES[species] += sign * bulk_rate
+        cross_coeff = coeff_master_scaled * stoich_norm * fac
+        CROSS[species].append((master_species_name, sign * cross_coeff))
+
+        bulk_rate = bulk_rate_master * stoich_norm
+        if species in RATES:
+            RATES[species] += sign * bulk_rate
 
         key = f"r_{reaction_name}_{species}"
         if key not in RATES:
             RATES[key] = np.zeros_like(bulk_rate)
         RATES[key] += sign * bulk_rate
 
-    # 2. Couple other reactants (consumed -> sign = -1.0)
-    for spec, stoich in reactants.items():
-        if spec != master_species:
-            couple_species(spec, stoich, sign=-1.0)
+    # 5. Couple other reactants (consumed -> sign = -1.0)
+    for spec, stoich_norm in reactants_norm.items():
+        if spec != master_species_name:
+            couple_species(spec, stoich_norm, sign=-1.0)
 
-    # 3. Couple products (produced -> sign = 1.0)
-    for spec, stoich in products.items():
-        couple_species(spec, stoich, sign=1.0)
+    # 6. Couple products (produced -> sign = 1.0)
+    for spec, stoich_norm in products_norm.items():
+        couple_species(spec, stoich_norm, sign=1.0)
 
 
 def calculate_fractionated_coeff_32(coeff_total, c_total, c_32, alpha, eps=1e-20):
