@@ -705,8 +705,8 @@ def sulfide_mediated_iron_reduction_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 def sulfide_mediated_iron_reduction_velde(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Fe3 iron reduction via HS-.
 
-    0.5 HS- + Fe3+ -> 0.5 S0 + Fe2+
-    1 HS- + 8 Fe3+ -> SO4 + 8 Fe2+
+    Previsouly: 0.5 HS- + Fe3+ -> 0.5 S0 + Fe2+
+    Velde: 1 HS- + 8 Fe3+ -> SO4 + 8 Fe2+
 
     The reaction is doubly-capped so that at most 70% of either fe3 or ts2
     is consumed in a single timestep, guaranteeing perfect stoichiometry and
@@ -804,7 +804,7 @@ def sulfide_mediated_iron_reduction_velde(c, k, lim, LHS, RHS, RATES, CROSS, mp)
     )
 
     # ------------------------------------------------------------------
-    # 6. s0 source (Coupled to fe3_new) — EXACTLY 0.5:1
+    # 6. so4 sink
     # ------------------------------------------------------------------
     add_implicit_coupling_new(
         CROSS,
@@ -850,12 +850,12 @@ def sulfide_mediated_iron_reduction_velde(c, k, lim, LHS, RHS, RATES, CROSS, mp)
             stoich_ratio=-1.0,
         )
 
-        # s0_32 source
+        # so4 sink
         add_implicit_coupling_new(
             CROSS,
             RATES,
             LHS,
-            target_species="s0_32",
+            target_species="so4_32",
             source_species="fe3",
             coeff=coeff_32,
             rate=rate_32,
