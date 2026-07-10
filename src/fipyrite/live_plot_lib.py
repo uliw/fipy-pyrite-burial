@@ -276,9 +276,9 @@ def capture_state(
     # Isotopes
     isotope_map = {
         "SO4": "SO4_32",
-        "h2s": "h2s_32",
-        "hs": "hs_32",
-        "ts2": "ts2_32",
+        "H2S": "H2S_32",
+        "HS": "HS_32",
+        "TS2": "TS2_32",
         "FeS": "FeS_32",
         "S0": "S0_32",
         "FeS2": "FeS2_32",
