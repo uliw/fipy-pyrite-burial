@@ -53,6 +53,7 @@ if __name__ == "__main__":
         # "bc_om_fast": Q_("1000 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
         "reaction_constants": get_reaction_constants,  # see imports to select a different one
         "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
+        "solver_precon": "ilu",  # Bypasses expensive Hypre BoomerAMG setup
     }
 
     k = data_container()

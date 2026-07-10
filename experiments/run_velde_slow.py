@@ -49,7 +49,7 @@ if __name__ == "__main__":
         "BT_depth": Q_("7.6 cm").to("meter").magnitude,  # Bioturbation depth in m
         "BT_attenuation": Q_("2 cm").to("meter").magnitude,  # xbm of Velde et al.
         "om_o2_consumption": 1,  # Velde uses a 1:1 ratio
-        "isotopes": False,
+        "isotopes": True,
         # "bc_om_fast": Q_("1000 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
         "reaction_constants": get_reaction_constants,  # see imports to select a different one
     }
