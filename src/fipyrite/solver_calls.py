@@ -146,6 +146,10 @@ def _get_solver(mp: Any) -> Any:
         solver = LinearLUSolver(tolerance=tol)
     else:
         from petsc4py import PETSc
+        if getattr(mp, "solver_monitor", False):
+            PETSc.Options().setValue("ksp_monitor", "")
+            PETSc.Options().setValue("ksp_converged_reason", "")
+        PETSc.Options().setValue("ksp_converged_use_initial_residual_norm", "")
 
         # PETSc version-specific fix for converged reason constants
         if not hasattr(PETSc.KSP.ConvergedReason, "CONVERGED_ATOL_NORMAL"):
@@ -160,7 +164,8 @@ def _get_solver(mp: Any) -> Any:
         if backend == "LinearGMRESSolver":
             from fipy.solvers.petsc import LinearGMRESSolver
 
-            solver_kwargs = {"precon": "hypre", "tolerance": tol}
+            precon = getattr(mp, "solver_precon", "hypre")
+            solver_kwargs = {"precon": precon, "tolerance": tol}
             if hasattr(mp, "solver_atol") and mp.solver_atol is not None:
                 solver_kwargs["absolute_tolerance"] = mp.solver_atol
             if hasattr(mp, "solver_max_iterations") and mp.solver_max_iterations is not None:
@@ -531,6 +536,13 @@ def run_non_steady_state_solver_coupled(
                 )
                 for s_obj in species_struct
             )
+
+            # --- Dynamically adapt solver tolerance to prevent false steady-state convergence ---
+            if getattr(mp, "adaptive_solver_tolerance", False):
+                # Keep solver tolerance tighter than current step-to-step changes (rms_change),
+                # capped between mp.tolerance (minimum) and 1e-4 (maximum/loosest).
+                new_tol = max(mp.tolerance, min(1e-4, rms_change * 0.1))
+                solver.tolerance = new_tol
 
             total_time += current_dt
 
