@@ -31,7 +31,7 @@ def get_layout(df):
         isotopes = False
 
     # define color scheme
-    poc_attr = {"color": "forestgreen", "lw": lt}
+    POC_attr = {"color": "forestgreen", "lw": lt}
     O2_attr = {"color": "#AA4499", "lw": lt}
     SO4_attr = {"color": "cornflowerblue", "lw": lt, "fill_only": True, "zorder": -10}
     SO4_attr_nf = {"color": "cornflowerblue", "lw": lt, "fill_only": False}
@@ -130,8 +130,8 @@ def get_layout(df):
                 [df.f_Fe3, r"Fe${3+}$", Fe3_attr],
                 [df.f_S0, r"S$^{0}$", S0_attr],
                 # [df.f_O2, "O2", {"color": "C3"}],
-                [df.f_poc_slow, r"POC", poc_attr],
-                [df.f_poc_fast, r"POC", poc_attr],
+                [df.f_POC_slow, r"POC", POC_attr],
+                [df.f_POC_fast, r"POC", POC_attr],
                 # [df.f_Fe2_p, "f_Fe2+p", {"color": "C9"}],
             ],
             "left_ylabel": r"reaction rate [mol m$^{-3}s^{-1}$]",
