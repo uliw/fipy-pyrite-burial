@@ -37,7 +37,7 @@ if __name__ == "__main__":
         "layout_file": "plot_layout_velde.py",
         "layout_file": "plot_layout.py",
         # Solver Parameters
-        "max_steps": 100,  # max number of iterations
+        "max_steps": 10,  # max number of iterations
         "max_depth": 1,  # meters
         "t_end": Q_("10 kyr").to("seconds").magnitude,
         "dt_min": Q_("1 day").to("seconds").magnitude,  # time step in years
@@ -54,16 +54,21 @@ if __name__ == "__main__":
         "reaction_constants": get_reaction_constants,  # see imports to select a different one
         #"solver_backend": "LinearGMRESSolver",  # see solver_calls for options
         #"solver_precon": "ilu",  # Bypasses expensive Hypre BoomerAMG setup
-        "solver_backend": "LinearLUSolver",  # Uses direct LU factorization
+        # "solver_backend": "LinearLUSolver",  # Uses direct LU factorization
     }
 
     k = data_container()
     _k1, k = get_reaction_constants(7.5, 0.8, k_values=k)
 
     p_dict["diagenetic_reactions"] = [
-        [rn.aerobic_respiration, k],
-        [rn.dissimilatory_iron_reduction, k],
-        [rn.sulfate_reduction, k],
+        # fast poc
+        [rn.aerobic_respiration, {"poc_species": "POC_fast", "poc_k": "POC_fast"}],
+        [rn.dissimilatory_iron_reduction, {"poc_species": "POC_fast", "poc_k": "POC_fast"}],
+        [rn.sulfate_reduction, {"poc_species": "POC_fast", "poc_k": "POC_fast"}],
+        # slow poc
+        [rn.aerobic_respiration, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
+        [rn.dissimilatory_iron_reduction, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
+        [rn.sulfate_reduction, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
         [rn.hs_oxidation, k],
         [rn.elemental_sulfur_oxidation, k],
         [rn.sulfide_mediated_iron_reduction_old, k],

@@ -98,6 +98,9 @@ def diagenetic_reactions(mp, c, k, f):
     # -------------------------
     species_list = list(c.keys())
 
+    # Store global reaction constants dictionary in mp
+    mp.k = k
+
     # Accumulators (The State)
     # LHS: Diagonal (Self) Coefficients (Implicit Sinks)
     # LHS = {s: nx.zeros_like(c.SO4.value) for s in species_list}
@@ -182,39 +185,30 @@ def aerobic_respiration(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     f = k * [OM] * [O2] / (K_O2 *[O2])
 
     The model does however not track HCO3
-    This function considers two types of organic matter
     """
     has_solid = True  # True if the reaction involves solids
+
+    poc_species = k.get("poc_species", "POC_fast")
+    poc_k_name = k.get("poc_k", "POC_fast")
+
+    poc_val = getattr(c, poc_species)
+    k_val = mp.k.get(poc_k_name) if hasattr(mp, "k") else k.get(poc_k_name, 0.0)
+
     # POC Sink - SOLID
-    coeff_POC_fast = k.POC_fast * c.O2 * lim["O2_implicit"]
-    coeff_POC_slow = k.POC_slow * c.O2 * lim["O2_implicit"]
+    coeff_POC = k_val * c.O2 * lim["O2_implicit"]
     add_implicit_sink(
         LHS,
         RATES,
-        "POC_fast",
-        coeff_POC_fast,
-        coeff_POC_fast * c.POC_fast,
-        mp=mp,
-        has_solid=has_solid,
-        c=c,
-    )
-    add_implicit_sink(
-        LHS,
-        RATES,
-        "POC_slow",
-        coeff_POC_slow,
-        coeff_POC_slow * c.POC_slow,
+        poc_species,
+        coeff_POC,
+        coeff_POC * poc_val,
         mp=mp,
         has_solid=has_solid,
         c=c,
     )
 
-    # O2 Sink (1.27x) - LIQUID
-    coeff_O2_fast = k.POC_fast * c.POC_fast
-    coeff_O2_slow = k.POC_slow * c.POC_slow
-    coeff_O2 = (
-        (coeff_O2_fast + coeff_O2_slow) * lim["O2_implicit"] * mp.POC_O2_ratio
-    )
+    # O2 Sink - LIQUID
+    coeff_O2 = k_val * poc_val * lim["O2_implicit"] * mp.POC_O2_ratio
     add_implicit_sink(
         LHS,
         RATES,
@@ -226,8 +220,6 @@ def aerobic_respiration(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         c=c,
     )
 
-    # No produced species here (CO2 ignored)
-
 
 def dissimilatory_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Calculate dissimilatory iron reduction.
@@ -238,10 +230,15 @@ def dissimilatory_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     a Monod type limiter for low Fe3 concentrations
     """
     has_solid = True  # True if the reactants contain a solid phase species
+
+    poc_species = k.get("poc_species", "POC_fast")
+    poc_k_name = k.get("poc_k", "POC_fast")
+
+    poc_val = getattr(c, poc_species)
+    k_val = mp.k.get(poc_k_name) if hasattr(mp, "k") else k.get(poc_k_name, 0.0)
+
     inhibit = lim["O2_inhibit"] * lim["Fe3_diss_red_implicit"]
-    coeff_Fe3_slow = k.POC_slow * c.POC_slow
-    coeff_Fe3_fast = k.POC_fast * c.POC_fast
-    coeff_Fe3 = (coeff_Fe3_slow + coeff_Fe3_fast) * inhibit
+    coeff_Fe3 = k_val * poc_val * inhibit
 
     # Couple Fe3 reduction to Fe2 production
     add_coupled_reaction(
@@ -250,35 +247,24 @@ def dissimilatory_iron_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         RATES=RATES,
         mp=mp,
         master_species={"Fe3": 4},
-        reactants={"POC": 1},
+        reactants={poc_species: 1},
         products={"Fe2_total": 4.0},
         coeff_master=coeff_Fe3,
         rate_master=coeff_Fe3 * c.Fe3,
         has_solid=has_solid,
         reaction_name="dissimilatory_iron_reduction",
-        ref_species="POC",
+        ref_species=poc_species,
     )
 
-    # create the OM sinks
-    coeff_POC_slow = k.POC_slow * c.Fe3 * inhibit
-    coeff_POC_fast = k.POC_fast * c.Fe3 * inhibit
+    # create the OM sink
+    coeff_POC = k_val * c.Fe3 * inhibit
 
     add_implicit_sink(
         LHS,
         RATES,
-        "POC_slow",
-        coeff_POC_slow,
-        coeff_POC_slow * c.POC_slow,
-        mp=mp,
-        has_solid=has_solid,
-        c=c,
-    )
-    add_implicit_sink(
-        LHS,
-        RATES,
-        "POC_fast",
-        coeff_POC_fast,
-        coeff_POC_fast * c.POC_fast,
+        poc_species,
+        coeff_POC,
+        coeff_POC * poc_val,
         mp=mp,
         has_solid=has_solid,
         c=c,
@@ -293,13 +279,17 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     Notes
     -----
      - sulfate reduction is limited in the presence of O2
-     - POC can be fast and/or slow
     """
     has_solid = True  # True if the reactants contain a solid phase species
+
+    poc_species = k.get("poc_species", "POC_fast")
+    poc_k_name = k.get("poc_k", "POC_fast")
+
+    poc_val = getattr(c, poc_species)
+    k_val = mp.k.get(poc_k_name) if hasattr(mp, "k") else k.get(poc_k_name, 0.0)
+
     inhibition = lim["O2_inhibit"] * lim["SO4_implicit"] * lim["Fe3_diss_red_inhib"]
-    coeff_SO4_slow = k.POC_slow * c.POC_slow
-    coeff_SO4_fast = k.POC_fast * c.POC_fast
-    coeff_SO4 = (coeff_SO4_fast + coeff_SO4_slow) * inhibition
+    coeff_SO4 = k_val * poc_val * inhibition
 
     # 4. Couple sulfate reduction to h2s production
     add_coupled_reaction(
@@ -308,34 +298,23 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         RATES=RATES,
         mp=mp,
         master_species="SO4",
-        reactants={"POC": 2.0},
+        reactants={poc_species: 2.0},
         products={"TS2": 1.0},
         coeff_master=coeff_SO4,
         rate_master=coeff_SO4 * c.SO4,
         has_solid=has_solid,
         reaction_name="sulfate_reduction",
-        ref_species="POC",
+        ref_species=poc_species,
     )
 
     # sulfate reduction consumes poc
-    coeff_POC_slow = k.POC_slow * c.SO4 * inhibition
-    coeff_POC_fast = k.POC_fast * c.SO4 * inhibition
+    coeff_POC = k_val * c.SO4 * inhibition
     add_implicit_sink(
         LHS,
         RATES,
-        "POC_slow",
-        coeff_POC_slow,
-        coeff_POC_slow * c.POC_slow,
-        mp=mp,
-        has_solid=has_solid,
-        c=c,
-    )
-    add_implicit_sink(
-        LHS,
-        RATES,
-        "POC_fast",
-        coeff_POC_fast,
-        coeff_POC_fast * c.POC_fast,
+        poc_species,
+        coeff_POC,
+        coeff_POC * poc_val,
         mp=mp,
         has_solid=has_solid,
         c=c,
@@ -354,13 +333,13 @@ def sulfate_reduction(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             RATES=RATES,
             mp=mp,
             master_species="SO4_32",
-            reactants={"POC": 2.0},
+            reactants={poc_species: 2.0},
             products={"TS2_32": 1.0},
             coeff_master=coeff_SO4_32,
             rate_master=coeff_SO4_32 * c.SO4_32,
             has_solid=has_solid,
             reaction_name="sulfate_reduction_32",
-            ref_species="POC",
+            ref_species=poc_species,
         )
 
 

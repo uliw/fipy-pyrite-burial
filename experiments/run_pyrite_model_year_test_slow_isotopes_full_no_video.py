@@ -21,6 +21,7 @@ if __name__ == "__main__":
     from fipyrite.diff_lib import data_container, get_total_delta, save_data, save_state
 
     import faulthandler
+
     faulthandler.enable()
 
     ureg = pint.UnitRegistry()
@@ -58,9 +59,14 @@ if __name__ == "__main__":
     _k1, k = get_reaction_constants(7.5, 0.8, k_values=k)
 
     p_dict["diagenetic_reactions"] = [
-        [rn.aerobic_respiration, k],
-        [rn.dissimilatory_iron_reduction, k],
-        [rn.sulfate_reduction, k],
+        # fast poc
+        [rn.aerobic_respiration, {"poc_species": "POC_fast", "poc_k": "POC_fast"}],
+        [rn.dissimilatory_iron_reduction, {"poc_species": "POC_fast", "poc_k": "POC_fast"}],
+        [rn.sulfate_reduction, {"poc_species": "POC_fast", "poc_k": "POC_fast"}],
+        # slow poc
+        [rn.aerobic_respiration, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
+        [rn.dissimilatory_iron_reduction, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
+        [rn.sulfate_reduction, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
         [rn.hs_oxidation, k],
         [rn.elemental_sulfur_oxidation, k],
         [rn.sulfide_mediated_iron_reduction_old, k],

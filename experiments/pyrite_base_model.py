@@ -144,14 +144,20 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     phi = p_dict.get("phi", mp.phi)
     k = data_container()
     _k1, k = get_reaction_constants(pH, phi, k_values=k)
+    mp.k = k
 
     # add reactions as needed. This dict entry is a list of lists, where the first entry
-    # is the function handle, and the second entry is data container with k values.
+    # is the function handle, and the second entry is data container with config/k values.
     # You can pass different k value containers as needed.
     mp["diagenetic_reactions"] = [
-        [rn.aerobic_respiration, k],
-        [rn.dissimilatory_iron_reduction, k],
-        [rn.sulfate_reduction, k],
+        # fast poc
+        [rn.aerobic_respiration, {"poc_species": "POC_fast", "poc_k": "POC_fast"}],
+        [rn.dissimilatory_iron_reduction, {"poc_species": "POC_fast", "poc_k": "POC_fast"}],
+        [rn.sulfate_reduction, {"poc_species": "POC_fast", "poc_k": "POC_fast"}],
+        # slow poc
+        [rn.aerobic_respiration, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
+        [rn.dissimilatory_iron_reduction, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
+        [rn.sulfate_reduction, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
         [rn.hs_oxidation, k],
         [rn.elemental_sulfur_oxidation, k],
         [rn.sulfide_mediated_iron_reduction, k],

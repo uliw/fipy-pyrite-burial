@@ -33,7 +33,7 @@ if __name__ == "__main__":
     p_dict = {
         "experiment": experiment,
         # "state_data": "run_pyrite_model_year_test_fast_isotopes_full_bak.npz",
-        "process_monitor": "none",  # gui | video | none
+        "process_monitor": "video",  # gui | video | none
         "layout_file": "plot_layout_velde.py",
         # "layout_file": "plot_layout.py",
         # Solver Parameters
@@ -58,9 +58,14 @@ if __name__ == "__main__":
     _k1, k = get_reaction_constants(7.5, 0.8, k_values=k)
 
     p_dict["diagenetic_reactions"] = [
-        [rn.aerobic_respiration, k],
-        [rn.dissimilatory_iron_reduction, k],
-        [rn.sulfate_reduction, k],
+        # fast poc
+        [rn.aerobic_respiration, {"poc_species": "POC_fast", "poc_k": "POC_fast"}],
+        [rn.dissimilatory_iron_reduction, {"poc_species": "POC_fast", "poc_k": "POC_fast"}],
+        [rn.sulfate_reduction, {"poc_species": "POC_fast", "poc_k": "POC_fast"}],
+        # slow poc
+        [rn.aerobic_respiration, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
+        [rn.dissimilatory_iron_reduction, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
+        [rn.sulfate_reduction, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
         [rn.hs_oxidation_velde, k],
         [rn.sulfide_mediated_iron_reduction_velde, k],
         [rn.Fe2_oxidation, k],
