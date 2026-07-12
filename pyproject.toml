@@ -20,7 +20,9 @@ classifiers = [
     "License :: OSI Approved :: GPL3",
     "Operating System :: OS Independent",
 ]
-
+[project.scripts]
+generate-equations = "fipyrite.generate_equations:main"
+generate_equations = "fipyrite.generate_equations:main"
 
 # Optional extras (e.g. for development, testing, docs)
 [project.optional-dependencies]
