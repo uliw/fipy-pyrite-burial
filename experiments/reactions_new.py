@@ -411,7 +411,7 @@ def hs_oxidation_velde(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     has_solid = False  # True if the reactants contain a solid phase species
     # H2S Sink - LIQUID
     # Ref: H2S
-    coeff_TS2 = k.TS2_O2 * c.O2 * mp.hs_frac
+    coeff_SO4 = k.TS2_O2 * c.O2 * mp.hs_frac
 
     # O2 Sink (0.5x) - LIQUID
     coeff_O2 = 2 * k.TS2_O2 * c.TS2 * mp.hs_frac
@@ -434,9 +434,9 @@ def hs_oxidation_velde(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         mp=mp,
         master_species="TS2",
         reactants={},
-        products={"S0": 1.0},
-        coeff_master=coeff_TS2,
-        rate_master=coeff_TS2 * c.TS2,
+        products={"SO4": 1.0},
+        coeff_master=coeff_SO4,
+        rate_master=coeff_SO4 * c.TS2,
         has_solid=has_solid,
         reaction_name="hs_oxidation_velde",
         ref_species="TS2",
@@ -448,10 +448,10 @@ def hs_oxidation_velde(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             c.TS2_32, mp.hs_frac, mp.h2s_frac, mp.h2s_hs_alpha
         )
         coeff_TS2_32 = calculate_fractionated_coeff_32(
-            coeff_TS2, c.TS2 * mp.hs_frac, hs_32, alpha, eps=1e-20
+            coeff_SO4, c.TS2 * mp.hs_frac, hs_32, alpha, eps=1e-20
         )
 
-        # S0_32 coupled to H2S_32
+        # SO4_32 coupled to H2S_32
         add_coupled_reaction(
             CROSS=CROSS,
             LHS=LHS,
@@ -459,7 +459,7 @@ def hs_oxidation_velde(c, k, lim, LHS, RHS, RATES, CROSS, mp):
             mp=mp,
             master_species="TS2_32",
             reactants={},
-            products={"S0_32": 1.0},
+            products={"SO4_32": 1.0},
             coeff_master=coeff_TS2_32,
             rate_master=coeff_TS2_32 * c.TS2_32,
             has_solid=has_solid,
