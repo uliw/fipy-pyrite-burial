@@ -33,11 +33,11 @@ if __name__ == "__main__":
     p_dict = {
         "experiment": experiment,
         # "state_data": "run_pyrite_model_year_test_fast_isotopes_full_bak.npz",
-        "process_monitor": "none",  # gui | video | none
+        "process_monitor": "video",  # gui | video | none
         "layout_file": "plot_layout_velde.py",
         # "layout_file": "plot_layout.py",
         # Solver Parameters
-        "max_steps": 5 * 40000,  # max number of iterations
+        "max_steps": 28700,  # max number of iterations
         "max_depth": 0.5,  # meters
         "t_end": Q_("10 kyr").to("seconds").magnitude,
         "dt_min": Q_("1 hour").to("seconds").magnitude,  # time step in years
@@ -52,8 +52,8 @@ if __name__ == "__main__":
         "isotopes": True,
         # "bc_POC_fast": Q_("1000 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
         "reaction_constants": get_reaction_constants,  # see imports to select a different one
-        "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
-        "solver_precon": "ilu",  # Bypasses expensive Hypre BoomerAMG setup
+        # "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
+        # "solver_precon": "ilu",  # Bypasses expensive Hypre BoomerAMG setup
     }
 
     k = data_container()
