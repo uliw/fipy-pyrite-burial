@@ -38,6 +38,7 @@ reactions = [
         "k_value_name": "TS2_O2",
         "dynamic_variables": {"HS": "c.TS2 * mp.hs_frac"},
         "fractionation": [["HS", "SO4", "TS2_O2_alpha", "TS2_alpha_explicit"]],
+        "limiters": ["O2_implicit_TS2"],
     },
     {
         "reaction": "2 S0 + 3 O2 -> 2 SO4",
