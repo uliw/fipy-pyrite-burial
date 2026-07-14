@@ -92,6 +92,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         # since phi is not yet known, we apply this correction
         # in the reactions_new.py file.
         "K_O2": Q_("0.001 umol/cm^3").to("mol/m^3").m,  # Monod constant
+        "K_O2_TS2": Q_("0.001 umol/cm^3").to("mol/m^3").m,  # Monod constant
         "K_TS2": Q_("0.1 umol/cm^3").to("mol/m^3").m,  # Monod constant
         "K_SO4": Q_("0.9 umol/cm^3").to("mol/m^3").m,  # Monod constant
         "K_Fe3_diss_red": Q_("10.4 umol/cm^3")
