@@ -21,8 +21,6 @@ if __name__ == "__main__":
 
     from fipyrite.diff_lib import data_container, get_total_delta, save_data, save_state
 
-    faulthandler.enable()
-
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
 
@@ -34,14 +32,13 @@ if __name__ == "__main__":
         "experiment": experiment,
         # "state_data": "run_pyrite_model_year_test_slow_isotopes_full_bak.npz",
         "process_monitor": "gui",  # gui | video | none
-        "layout_file": "plot_layout_velde.py",
         "layout_file": "plot_layout.py",
         # Solver Parameters
-        "max_steps": 100,  # max number of iterations
-        "max_depth": 1,  # meters
+        "max_steps": 60,  # max number of iterations
+        "max_depth": 0.5,  # meters
         "t_end": Q_("10 kyr").to("seconds").magnitude,
         "dt_min": Q_("1 day").to("seconds").magnitude,  # time step in years
-        "dt_init": Q_("1 year").to("seconds").magnitude,  # initial dt
+        "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
         "dt_target_change": 1,  # target change per step (for dt adaptation)
         "report_step": 1,  # how often to update plot
@@ -70,17 +67,18 @@ if __name__ == "__main__":
         [rn.dissimilatory_iron_reduction, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
         [rn.sulfate_reduction, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
         [rn.hs_oxidation, k],
-        [rn.elemental_sulfur_oxidation, k],
-        [rn.sulfide_mediated_iron_reduction_old, k],
-        [rn.Fe2_oxidation, k],
-        [rn.FeS_precipitation_terminal, k],
-        [rn.FeS_dissolution, k],
-        # [rn.FeS_precipitation_dissolution_linearized, k],
-        [rn.FeS_oxidation, k],
-        [rn.pyrite_formation_S0, k],
-        [rn.pyrite_formation_FeS_TS2, k],
-        [rn.pyrite_oxidation, k],
-        [rn.S0_disproportionation, k],
+        # [rn.elemental_sulfur_oxidation, k],
+        # [rn.sulfide_mediated_iron_reduction_old, k], 
+        # [rn.S0_disproportionation, k],
+        # [rn.Fe2_oxidation, k],
+        # [rn.FeS_precipitation_terminal, k],
+        # [rn.FeS_dissolution, k],
+        # # # [rn.FeS_precipitation_dissolution_linearized, k],
+        # [rn.FeS_oxidation, k],
+        # [rn.pyrite_formation_S0, k],
+        # [rn.pyrite_formation_FeS_TS2, k],
+        # [rn.pyrite_oxidation, k],
+        
     ]
 
     p_dict["instantenous_reactions"] = [

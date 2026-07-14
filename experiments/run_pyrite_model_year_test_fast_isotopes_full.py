@@ -68,7 +68,7 @@ if __name__ == "__main__":
         [rn.sulfate_reduction, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
         [rn.hs_oxidation, k],
         [rn.elemental_sulfur_oxidation, k],
-        [rn.sulfide_mediated_iron_reduction_old, k],
+        [rn.sulfide_mediated_iron_reduction, k],
         [rn.Fe2_oxidation, k],
         [rn.FeS_precipitation_terminal, k],
         [rn.FeS_dissolution, k],

@@ -21,8 +21,6 @@ if __name__ == "__main__":
 
     from fipyrite.diff_lib import data_container, get_total_delta, save_data, save_state
 
-    faulthandler.enable()
-
     ureg = pint.UnitRegistry()
     Q_ = ureg.Quantity
 
@@ -33,18 +31,18 @@ if __name__ == "__main__":
     p_dict = {
         "experiment": experiment,
         # "state_data": "run_pyrite_model_year_test_fast_isotopes_full_bak.npz",
-        "process_monitor": "none",  # gui | video | none
+        "process_monitor": "video",  # gui | video | none
         "layout_file": "plot_layout_velde.py",
-        # "layout_file": "plot_layout.py",
+        "layout_file": "plot_layout.py",
         # Solver Parameters
-        "max_steps": 5 * 40000,  # max number of iterations
+        "max_steps": 28700,  # max number of iterations
         "max_depth": 0.5,  # meters
         "t_end": Q_("10 kyr").to("seconds").magnitude,
         "dt_min": Q_("1 hour").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 day").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 day").to("seconds").magnitude,  # time step in years
         "dt_target_change": 1,  # target change per step (for dt adaptation)
-        "report_step": 700,  # how often to update plot
+        "report_step": 100,  # how often to update plot
         "BT0": Q_("4 cm^2/year").to("m^2/second").magnitude,
         "BT_depth": Q_("7.6 cm").to("meter").magnitude,  # Bioturbation depth in m
         "BT_attenuation": Q_("2 cm").to("meter").magnitude,  # xbm of Velde et al.
