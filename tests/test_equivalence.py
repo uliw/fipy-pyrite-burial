@@ -85,6 +85,7 @@ def mock_inputs():
     k = data_container({"poc_species": "POC_fast", "poc_k": "POC_fast"})
     lim = {
         "O2_implicit": MockVariable(1.0 / (c.O2 + 0.001)),
+        "O2_implicit_TS2": MockVariable(1.0 / (c.O2 + 0.001)),
         "O2_inhibit": MockVariable(0.001 / (c.O2 + 0.001)),
         "TS2": MockVariable(0.1 / (c.TS2 + 0.1)),
         "SO4_implicit": MockVariable(1.0 / (c.SO4 + 0.9)),
