@@ -308,6 +308,7 @@ def create_reaction(
             code += "        ref_species=poc_species,\n"
         else:
             code += f"        ref_species='{master_species}',\n"
+        code += f"        stoich_ref={ref_stoich},\n"
         code += "    )\n"
 
         # Generate implicit sinks for other reactants
@@ -361,12 +362,9 @@ def create_reaction(
         iso_reac_parts = []
         for r, coeff in reactants.items():
             if not is_same_species(r, master_species):
-                if r == "POC" or (r in species and species[r].get("solid", False)):
+                if r + f"_{isotope_suffix}" in species:
                     coeff_expr = get_coeff_expr(r)
-                    if r == "POC":
-                        iso_reac_parts.append(f"poc_species: {coeff_expr}")
-                    else:
-                        iso_reac_parts.append(f"'{r}': {coeff_expr}")
+                    iso_reac_parts.append(f"'{r}_{isotope_suffix}': {coeff_expr}")
         iso_reac_str = "{" + ", ".join(iso_reac_parts) + "}"
 
         iso_prod_parts = []
@@ -395,6 +393,7 @@ def create_reaction(
             code += "            ref_species=poc_species,\n"
         else:
             code += f"            ref_species='{master_species}',\n"
+        code += f"            stoich_ref={ref_stoich},\n"
         code += "        )\n"
 
     return code
