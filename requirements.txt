@@ -1,0 +1,9 @@
+fipy
+numpy
+pandas
+matplotlib
+scipy
+watchdog
+chempy
+argparse
+pytest
