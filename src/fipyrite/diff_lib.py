@@ -1210,6 +1210,7 @@ def add_coupled_reaction(
     has_solid: bool,
     reaction_name: str,
     ref_species: str = None,
+    stoich_ref: float = None,
 ):
     """Couple multiple reactants and products to a single master reactant."""
     phi = mp.phi
@@ -1227,27 +1228,30 @@ def add_coupled_reaction(
     # 2. Automatically compute scaling factor based on ref_species stoichiometry in the unnormalized reaction
     scaling_factor = 1.0
     if ref_species:
-        ref_base = _get_base_species(ref_species)
-        master_base = _get_base_species(master_species_name)
-        
-        if ref_base == master_base:
-            stoich_ref = master_stoich
+        if stoich_ref is not None:
+            scaling_factor = master_stoich / float(stoich_ref)
         else:
-            # Check reactants
-            for spec, stoich in reactants.items():
-                if _get_base_species(spec) == ref_base:
-                    stoich_ref = float(stoich)
-                    break
+            ref_base = _get_base_species(ref_species)
+            master_base = _get_base_species(master_species_name)
+            
+            if ref_base == master_base:
+                stoich_ref_local = master_stoich
             else:
-                # Check products
-                for spec, stoich in products.items():
+                # Check reactants
+                for spec, stoich in reactants.items():
                     if _get_base_species(spec) == ref_base:
-                        stoich_ref = float(stoich)
+                        stoich_ref_local = float(stoich)
                         break
                 else:
-                    stoich_ref = 1.0
-        
-        scaling_factor = master_stoich / stoich_ref
+                    # Check products
+                    for spec, stoich in products.items():
+                        if _get_base_species(spec) == ref_base:
+                            stoich_ref_local = float(stoich)
+                            break
+                    else:
+                        stoich_ref_local = 1.0
+            
+            scaling_factor = master_stoich / stoich_ref_local
 
     coeff_master_scaled = coeff_master * scaling_factor
     rate_master_scaled = rate_master * scaling_factor
@@ -1297,12 +1301,15 @@ def add_coupled_reaction(
 def calculate_fractionated_coeff_32(coeff_total, c_total, c_32, alpha, eps=1e-20):
     """
     Calculate the fractionated isotope rate coefficient for 32S.
-
-    Formula:
-        coeff_32 = coeff_total * alpha * c_total / (c_total + (alpha - 1) * c_32 + eps)
     """
-    denom = c_total + (alpha - 1.0) * c_32 + eps
-    return coeff_total * alpha * c_total / denom
+    c_tot_np = np.asarray(c_total)
+    # Neglect isotope fractionation effects below 1 umol/L (1e-3 mmol/L)
+    alpha_eff = np.where(c_tot_np > 1e-3, alpha, 1.0)
+
+    ratio_32 = np.where(c_tot_np > 1e-15, np.asarray(c_32) / (c_tot_np + 1e-30), 0.95)
+    ratio_32 = np.clip(ratio_32, 0.5, 1.5)
+    denom_ratio = 1.0 + (alpha_eff - 1.0) * ratio_32
+    return coeff_total * alpha_eff / denom_ratio
 
 
 def partition_equilibrium_isotope_32(c_32, frac_target, frac_other, alpha_eq_32, eps=1e-30):
