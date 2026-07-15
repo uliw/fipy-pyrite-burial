@@ -343,9 +343,9 @@ def _match_measured_column(series_name, df2):
     # 3. Handle isotope 'd_' vs 'c_d'
     candidates = [name]
     if name.startswith("c_"):
-        candidates.append(name[2:])
+        candidates.append("m_" + name[2:])
     if name.startswith("d_"):
-        candidates.append("c_d" + name[2:])
+        candidates.append("m_d" + name[2:])
 
     for cand in candidates:
         if cand in df2.columns:
@@ -765,7 +765,7 @@ def _get_default_plot_description(df):
     return plot_desc
 
 
-if __name__ == "__main__":
+def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Plot diagenetic modeling results with optional measured data overlay.",
         formatter_class=argparse.RawTextHelpFormatter,
@@ -825,7 +825,7 @@ if __name__ == "__main__":
     )
     parser.set_defaults(show=True)
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     input_path = pl.Path(args.input_file)
     if not input_path.exists():
@@ -861,6 +861,10 @@ if __name__ == "__main__":
         measured_data_path=args.measured_data,
     )
     print(f"Plot generated: {outfile}")
+
+
+if __name__ == "__main__":
+    main()
 
 
 def show_grid(
