@@ -23,6 +23,8 @@ classifiers = [
 [project.scripts]
 generate-equations = "fipyrite.generate_equations:main"
 generate_equations = "fipyrite.generate_equations:main"
+plot_data_new = "fipyrite.plot_data_new:main"
+
 
 # Optional extras (e.g. for development, testing, docs)
 [project.optional-dependencies]
