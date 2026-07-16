@@ -430,13 +430,15 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
             current_dt=0.0,  # dt doesn't matter for final static plot
         )
         final_df = pd.DataFrame(final_data)
-        plt_desc = plot_data_new.load_layout_from_file(final_df, mp.layout_file)
+        measured_path = mp.measured_data_path if hasattr(mp, "measured_data_path") else None
+        plt_desc = plot_data_new.load_layout_from_file(final_df, mp.layout_file, measured_path)
         plot_data_new.plot(
             final_df,
             mp.display_length,
             outfile=f"{mp.plot_name}.pdf",
             show=False,
             plot_description=plt_desc,
+            measured_data_path=measured_path,
         )
 
     converged = "Yes" if step < mp.max_steps else "No"
