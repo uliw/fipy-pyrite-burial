@@ -313,44 +313,38 @@ def _load_measured_data(measured_data_path):
     return None
 
 
-def _match_measured_column(series_name, df2):
-    """
-    Find a matching column in the measured data DataFrame.
+class DataFrameWrapper:
+    """Wraps a DataFrame to dynamically delegate m_ attributes to a second DataFrame."""
+    def __init__(self, df, df2):
+        self._df = df
+        self._df2 = df2
 
-    Args
-    ----
-    series_name: Name of the series (string or pandas Series).
-    df2: DataFrame containing measured data.
+    def __getattr__(self, name):
+        if name.startswith("m_") and self._df2 is not None:
+            real_name = name[2:]
+            if hasattr(self._df2, real_name):
+                return getattr(self._df2, real_name)
+            for col in self._df2.columns:
+                if col.lower() == real_name.lower():
+                    return self._df2[col]
+        return getattr(self._df, name)
 
-    Returns
-    -------
-    str or None: Matched column name or None.
-    """
-    if df2 is None or series_name is None:
-        return None
+    def __getitem__(self, key):
+        if isinstance(key, str) and key.startswith("m_") and self._df2 is not None:
+            real_name = key[2:]
+            if real_name in self._df2.columns:
+                return self._df2[real_name]
+            for col in self._df2.columns:
+                if col.lower() == real_name.lower():
+                    return self._df2[col]
+        return self._df[key]
 
-    # Handle series_name if it's a pandas Series
-    if hasattr(series_name, "name"):
-        name = series_name.name
-    elif isinstance(series_name, str):
-        name = series_name
-    else:
-        return None
+    def __len__(self):
+        return len(self._df)
 
-    # Matching strategy:
-    # 1. Exact match
-    # 2. Strip 'c_' prefix
-    # 3. Handle isotope 'd_' vs 'c_d'
-    candidates = [name]
-    if name.startswith("c_"):
-        candidates.append("m_" + name[2:])
-    if name.startswith("d_"):
-        candidates.append("m_d" + name[2:])
-
-    for cand in candidates:
-        if cand in df2.columns:
-            return cand
-    return None
+    @property
+    def columns(self):
+        return self._df.columns
 
 
 def _setup_subplot_axes(ax_main, subplot_config):
@@ -424,7 +418,7 @@ def _draw_series(ax, x_data, series_list, df2):
     Args
     ----
     ax: Matplotlib axis.
-    x_data: x-axis data.
+    x_data: default x-axis data.
     series_list: List of series configurations.
     df2: Measured data DataFrame.
 
@@ -438,9 +432,30 @@ def _draw_series(ax, x_data, series_list, df2):
         if len(series) < 2:
             continue
 
-        y_data = series[0]
-        label = series[1]
-        kwargs = dict(series[2]) if len(series) > 2 else {}
+        # Determine if custom x-data is provided:
+        # Standard: [y_data, label, kwargs] where series[1] is a string.
+        # Custom:   [x_data, y_data, label, kwargs] where series[1] is an array/Series (not a string).
+        has_custom_x = False
+        if len(series) >= 3 and not isinstance(series[1], (str, bytes)):
+            if hasattr(series[1], "__len__") or hasattr(series[1], "__array__"):
+                has_custom_x = True
+
+        if has_custom_x:
+            series_x_data = series[0]
+            y_data = series[1]
+            label = series[2]
+            kwargs = dict(series[3]) if len(series) > 3 else {}
+        else:
+            y_data = series[0]
+            label = series[1]
+            kwargs = dict(series[2]) if len(series) > 2 else {}
+            
+            # Legacy check: if y_data is actually from df2 (different length than default x_data),
+            # use df2's z as the x-axis to prevent dimension mismatches.
+            if df2 is not None and "z" in df2.columns and hasattr(y_data, "__len__") and len(y_data) != len(x_data) and len(y_data) == len(df2):
+                series_x_data = df2.z
+            else:
+                series_x_data = x_data
 
         fill_only = kwargs.pop("fill_only", False)
         fill = kwargs.pop("fill", False) or fill_only
@@ -452,28 +467,15 @@ def _draw_series(ax, x_data, series_list, df2):
         plot_label = "_nolegend_" if fill_only else label
         fill_label = label if fill_only else "_nolegend_"
 
-        (line,) = ax.plot(x_data, y_data, label=plot_label, **kwargs)
+        (line,) = ax.plot(series_x_data, y_data, label=plot_label, **kwargs)
 
         if fill:
             ax.fill_between(
-                x_data, y_data,
+                series_x_data, y_data,
                 alpha=fill_alpha, color=line.get_color(), label=fill_label,
             )
         lines.append(line)
         labels.append(label)
-
-        # Overlay measured data
-        df2_col = _match_measured_column(y_data, df2)
-        if df2_col and "z" in df2.columns:
-            ax.scatter(
-                df2.z,
-                df2[df2_col],
-                color=line.get_color(),
-                marker="o",
-                s=20,
-                alpha=0.6,
-                label="_nolegend_",
-            )
 
     return lines, labels
 
@@ -581,7 +583,7 @@ def _apply_all_options(ax_main, right_axes, subplot_config):
             )
 
 
-def load_layout_from_file(df, layout_path):
+def load_layout_from_file(df, layout_path, measured_data_path=None):
     """
     Load a plot layout from a Python file.
 
@@ -589,11 +591,15 @@ def load_layout_from_file(df, layout_path):
     ----
     df: DataFrame containing the data to plot.
     layout_path: Path to the Python file containing the layout.
+    measured_data_path: Optional path to the measured data CSV.
 
     Returns
     -------
     dict: The plot description dictionary.
     """
+    df2 = _load_measured_data(measured_data_path)
+    df_wrapped = DataFrameWrapper(df, df2)
+
     path = pl.Path(layout_path)
     if not path.exists():
         import sys
@@ -614,6 +620,12 @@ def load_layout_from_file(df, layout_path):
     # Use importlib to load the module from a file path
     spec = importlib.util.spec_from_file_location("dynamic_layout", path)
     module = importlib.util.module_from_spec(spec)
+    
+    # Inject df2 and df_wrapped into module globals to support both direct access to df2
+    # and legacy calls that query df.m_c_O2
+    module.df = df_wrapped
+    module.df2 = df2
+
     spec.loader.exec_module(module)
 
     if not hasattr(module, "get_layout"):
@@ -621,7 +633,20 @@ def load_layout_from_file(df, layout_path):
             f"Layout file {layout_path} must contain a 'get_layout(df)' function."
         )
 
-    return module.get_layout(df)
+    import inspect
+    sig = inspect.signature(module.get_layout)
+    has_df2_param = False
+    params = list(sig.parameters.values())
+    if len(params) >= 2:
+        if params[1].kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
+            has_df2_param = True
+    if any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params):
+        has_df2_param = True
+
+    if has_df2_param:
+        return module.get_layout(df_wrapped, df2)
+    else:
+        return module.get_layout(df_wrapped)
 
 
 def _apply_matplotlib_options(ax, options_str):
@@ -850,7 +875,7 @@ def main(argv=None):
     # Load custom layout if provided
     plt_desc = None
     if args.layout_file:
-        plt_desc = load_layout_from_file(df, args.layout_file)
+        plt_desc = load_layout_from_file(df, args.layout_file, args.measured_data)
 
     plot(
         df,
