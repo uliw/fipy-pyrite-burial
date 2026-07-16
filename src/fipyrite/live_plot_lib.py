@@ -125,7 +125,7 @@ class LivePlotter:
                 last_df = df
 
                 try:
-                    plt_desc = plot_data_new.load_layout_from_file(df, self.layout_path)
+                    plt_desc = plot_data_new.load_layout_from_file(df, self.layout_path, self.measured_data_path)
                     if fig is None:
                         fig, ax_objects = plot_data_new.plot(
                             df,
