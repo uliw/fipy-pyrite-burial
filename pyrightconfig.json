@@ -7,6 +7,7 @@
     ".git",
     "tests",
     "docs",
-    "*.log"
+    "*.log",
+   "**.pytest_cache"
   ]
 }

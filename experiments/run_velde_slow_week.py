@@ -37,7 +37,7 @@ if __name__ == "__main__":
         "layout_file": "plot_layout_velde.py",
         "layout_file": "plot_layout.py",
         # Solver Parameters
-        "max_steps": 40000,  # max number of iterations
+        "max_steps": 2 * 40000,  # max number of iterations
         "max_depth": 0.5,  # meters
         "t_end": Q_("10 kyr").to("seconds").magnitude,
         "dt_min": Q_("1 day").to("seconds").magnitude,  # time step in years
@@ -46,7 +46,7 @@ if __name__ == "__main__":
         "dt_target_change": 1,  # target change per step (for dt adaptation)
         "report_step": 50,  # how often to update plot
         "BT0": Q_("4 cm^2/year").to("m^2/second").magnitude,
-        "BT_depth": Q_("7.6 cm").to("meter").magnitude,  # Bioturbation depth in m
+        "BT_depth": Q_("6 cm").to("meter").magnitude,  # Bioturbation depth in m
         "BT_attenuation": Q_("2 cm").to("meter").magnitude,  # xbm of Velde et al.
         "POC_O2_ratio": 1,  # Velde uses a 1:1 ratio
         "isotopes": True,

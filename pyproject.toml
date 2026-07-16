@@ -35,3 +35,74 @@ doc = ["sphinx"]
 # Automatic version from git tags
 [tool.setuptools_scm]
 write_to = "src/fipy-pyrite-burial/_version.py"
+
+[tool.ruff]
+preview = true
+fix = true
+output-format = "pylint"
+# Same as Black.
+line-length = 88
+indent-width = 4
+
+# Assume Python 3.11
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+    # pydocstyle
+    "D",
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+]
+
+fixable = ["ALL"]
+preview = true
+
+
+# 2. Avoid enforcing line-length violations (`E501`)
+ignore = ["E501"]
+
+# 3. Avoid trying to fix flake8-bugbear (`B`) violations.
+# unfixable = ["B"]
+
+# 4. Ignore `E402` (import violations) in all `__init__.py` files, and in selected subdirectories.
+[lint.per-file-ignores]
+"__init__.py" = ["E402"]
+"**/{tests,docs,tools}/*" = ["E402"]
+
+[lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.format]
+# 5. Use single quotes in `ruff format`.
+quote-style = "double"
+skip-magic-trailing-comma = false
+docstring-code-format = true
+
+[tool.basedpyright]
+include = ["src"]
+exclude = ["**/node_modules",
+    "**/__pycache__",
+    "src/experimental",
+    "src/typestubs"
+]
+ignore = ["src/oldstuff"]
+defineConstant = { DEBUG = true }
+stubPath = "src/stubs"
+
+reportMissingImports = "error"
+reportMissingTypeStubs = false
+typeCheckingMode = 'basic'
+
+pythonVersion = "3.14"
+pythonPlatform = "Linux"

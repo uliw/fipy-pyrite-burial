@@ -5,7 +5,7 @@ This module defines the layout and aesthetic properties of the plots.
 """
 
 
-def get_layout(df):
+def get_layout(df, df2=None):
     """
     Return a dictionary describing the plot structure.
 
@@ -28,18 +28,22 @@ def get_layout(df):
     # define color scheme
     POC_attr = {"color": "forestgreen", "lw": lt}
     O2_attr = {"color": "#AA4499", "lw": lt}
-    O2_attr_velde = {"color": "#AA4499", "lw": lt, linestyle='--'}
+    O2_attr_velde = {"color": "#AA4499", "lw": lt, "linestyle": '--'}
     SO4_attr = {"color": "cornflowerblue", "lw": lt, "fill_only": True, "zorder": -10}
     SO4_attr_velde = {"color": "cornflowerblue", "lw": lt, "fill_only": True, "zorder": -10}
     SO4_attr_nf = {"color": "cornflowerblue", "lw": lt, "fill_only": False}
     TS2_attr = {"color": "slateblue", "zorder": 10, "lw": lt}
+    TS2_attr_velde = {"color": "slateblue", "zorder": 10, "lw": lt, "linestyle": '--'}
     S0_attr = {"color": "#009988", "lw": lt}
     POC_slow_attr = {"color": "black", "lw": lt}
     POC_fast_attr = {"color": "yellow", "lw": lt}
     Fe3_attr = {"color": "saddlebrown", "lw": lt}
+    Fe3_attr_velde = {"color": "saddlebrown", "lw": lt,  "linestyle": '--'}
     Fe2_s_attr = {"color": "indianred", "lw": lt}
     Fe2_l_attr = {"color": "#cc3311", "lw": lt}
+    Fe2_l_attr_velde = {"color": "#cc3311", "lw": lt, "linestyle": '--'}
     FeS_attr = {"color": "#ee3377", "lw": lt}
+    FeS_attr_velde = {"color": "#ee3377", "lw": lt,  "linestyle": '--'}
     FeS2_attr = {"color": "darkorange", "lw": lt, "fill_only": True, "zorder": -9}
     FeS2_attr_nf = {"color": "darkorange", "lw": lt, "fill_only": False}
     dbio_attr = {"color": "#bbbbbb", "lw": lt, "fill_only": True}
@@ -57,7 +61,9 @@ def get_layout(df):
     Fe2_fe_sorbed = liquid_conc_to_wt_percent(df.c_Fe2_total, 56, 2.6, phi)
     Fe2 = liquid_conc_to_wt_percent(df.c_Fe2_total, 56, 2.6, phi)
     Fe3_fe = solid_conc_to_wt_percent(df.c_Fe3, 56, 2.6, phi)
+    Fe3_fe_velde = solid_conc_to_wt_percent(df2.c_Fe3, 56, 2.6, 0.8)
     FeS_fe = solid_conc_to_wt_percent(df.c_FeS, 56, 2.6, phi)
+    FeS_fe_velde = solid_conc_to_wt_percent(df2.c_FeS, 56, 2.6, 0.8)
     FeS2_fe = solid_conc_to_wt_percent(df.c_FeS2, 56, 2.6, phi)
     POC_slow = solid_conc_to_wt_percent(df.c_POC_slow, 12, 2.6, phi)
     POC_fast = solid_conc_to_wt_percent(df.c_POC_fast, 12, 2.6, phi)
@@ -78,9 +84,11 @@ def get_layout(df):
             "left": [
                 [df.c_SO4, r"SO$_{4}$", SO4_attr],
                 [df.c_O2, r"O$_{2}$", O2_attr],
-                [df.m_c_O2, r"O$_{2}$", O2_attr_velde],
+                [df2.z/100, df.m_c_O2, r"O$_{2}$", O2_attr_velde],
                 [df.c_TS2, "TS$^{2-}$", TS2_attr],
+                [df2.z/100, df2.c_TS2, "TS$^{2-}$", TS2_attr_velde],
                 [Fe2_liquid, r"Fe$^{2+}_{liq}$", Fe2_l_attr],
+                [df2.z/100, df2.c_Fe, r"Fe$^{2+}_{liq}$", Fe2_l_attr_velde],
             ],
             "yscale": "log",
             "xscale": "log",
@@ -89,9 +97,10 @@ def get_layout(df):
             "left_ylabel": r"Concentration [mmol/L$_{PW}$]",
             # right 1
             "right1": [
-                [FeS2_fe, r"FeS$_{2}$ [wt% Fe]", FeS2_attr],
                 [FeS_fe, r"FeS [wt% Fe]", FeS_attr],
+                [df2.z/100, FeS_fe_velde, r"FeS [wt% Fe]", FeS_attr_velde],
                 [Fe3_fe, r"Fe$^{3+}$ [wt% Fe]", Fe3_attr],
+                [df2.z/100, Fe3_fe_velde, r"Fe$^{3+}$ [wt% Fe]", Fe3_attr_velde],
                 [Fe2_fe_sorbed, r"Fe$^{2+}_{sorbed}$ [wt% Fe]", Fe2_s_attr],
                 # [
                 #     total_iron,
@@ -99,24 +108,24 @@ def get_layout(df):
                 #     {"color": "black", "linestyle": "dotted"},
                 # ],
             ],
-            "right1_ylim": (0, 4),
+            "right1_ylim": (0, 1),
             "right1_ylabel": "[wt% Fe]",
-            "right2": [
-                [POC_slow, r"POC_slow [wt% C]", POC_slow_attr],
-                [POC_fast, r"POC_fast [wt% C]", POC_fast_attr],
-                # [S0_s, r"S$^{0}$ [wt% S]", S0_attr],
-                # [FeS2_s, r"FeS$_2$ [wt% S]", {"color": "black"}],
-                # [FeS_s, r"$\times$ FeS [wt% S]", {"color": "C6"}],
-            ],
-            # "right2_ylim": (0, 0.4),
-            "right2_ylabel": "[wt% C]",
-            "right3": [
-                [S0_s, r"S$^{0}$ [wt% S]", S0_attr],
-                # [FeS2_s, r"FeS$_2$ [wt% S]", {"color": "black"}],
-                # [FeS_s, r"$\times$ FeS [wt% S]", {"color": "C6"}],
-            ],
-            # "right3_ylim": (0, 0.4),
-            "right3_ylabel": "[wt% S]",
+            # "right2": [
+            #     [POC_slow, r"POC_slow [wt% C]", POC_slow_attr],
+            #     [POC_fast, r"POC_fast [wt% C]", POC_fast_attr],
+            #     # [S0_s, r"S$^{0}$ [wt% S]", S0_attr],
+            #     # [FeS2_s, r"FeS$_2$ [wt% S]", {"color": "black"}],
+            #     # [FeS_s, r"$\times$ FeS [wt% S]", {"color": "C6"}],
+            # ],
+            # # "right2_ylim": (0, 0.4),
+            # "right2_ylabel": "[wt% C]",
+            # "right3": [
+            #     [S0_s, r"S$^{0}$ [wt% S]", S0_attr],
+            #     # [FeS2_s, r"FeS$_2$ [wt% S]", {"color": "black"}],
+            #     # [FeS_s, r"$\times$ FeS [wt% S]", {"color": "C6"}],
+            # ],
+            # # "right3_ylim": (0, 0.4),
+            # "right3_ylabel": "[wt% S]",
         },
         # -------------------------------- 2 panel ----------------------- #
         "second_subplot": {
