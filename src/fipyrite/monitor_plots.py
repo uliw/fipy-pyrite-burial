@@ -77,7 +77,7 @@ class PlotUpdateHandler(FileSystemEventHandler):
             )
 
             # Load layout (this allows updates to plot_layout.py to be picked up too)
-            plt_desc = plot_data_new.load_layout_from_file(df, self.layout_file)
+            plt_desc = plot_data_new.load_layout_from_file(df, self.layout_file, self.measured_data)
 
             # Execute the plotting function as requested
             plot_data_new.plot(
