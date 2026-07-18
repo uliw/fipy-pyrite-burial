@@ -62,6 +62,15 @@ class LivePlotter:
 
     def _run_plot_loop(self) -> None:
         """Internal loop running in the background process."""
+        import os
+
+        # Cache parent PID so we can detect if parent process dies
+        parent_pid = os.getppid()
+
+        # Ignore SIGINT (Ctrl-C) in child process to allow clean parent-initiated shutdown
+        if hasattr(signal, "SIGINT"):
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+
         # Reset signal handlers to default to avoid PETSc's SIGPIPE handling
         if hasattr(signal, "SIGPIPE"):
             signal.signal(signal.SIGPIPE, signal.SIG_DFL)
@@ -205,6 +214,10 @@ class LivePlotter:
                 except queue.Empty:
                     if fig and not writer:
                         plt.pause(0.01)
+                    # Check if parent process has died
+                    if os.getppid() != parent_pid:
+                        print("[LivePlotter] Parent process died. Exiting.")
+                        break
                     continue
                 except Exception as e:
                     print(f"[LivePlotter] Loop error: {e}")
