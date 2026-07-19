@@ -1306,7 +1306,7 @@ def calculate_fractionated_coeff_32(coeff_total, c_total, c_32, alpha, eps=1e-20
     # Neglect isotope fractionation effects below 1 umol/L (1e-3 mmol/L)
     alpha_eff = np.where(c_tot_np > 1e-3, alpha, 1.0)
 
-    ratio_32 = np.where(c_tot_np > 1e-15, np.asarray(c_32) / (c_tot_np + 1e-30), 0.95)
+    ratio_32 = np.where(c_tot_np > 1e-15, np.asarray(c_32) / (c_tot_np + 1e-30), 0.95770423)
     ratio_32 = np.clip(ratio_32, 0.5, 1.5)
     denom_ratio = 1.0 + (alpha_eff - 1.0) * ratio_32
     return coeff_total * alpha_eff / denom_ratio
