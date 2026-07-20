@@ -67,6 +67,14 @@ class LivePlotter:
         # Cache parent PID so we can detect if parent process dies
         parent_pid = os.getppid()
 
+        # Establish a new process group for the child process.
+        # This prevents Ctrl-C (SIGINT) sent to the parent's terminal process group
+        # from propagating to the child process and its spawned ffmpeg subprocess.
+        try:
+            os.setpgrp()
+        except OSError as e:
+            print(f"[LivePlotter] Failed to set process group: {e}", flush=True)
+
         # Ignore SIGINT (Ctrl-C) in child process to allow clean parent-initiated shutdown
         if hasattr(signal, "SIGINT"):
             signal.signal(signal.SIGINT, signal.SIG_IGN)
