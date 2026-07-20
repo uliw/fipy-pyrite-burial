@@ -17,7 +17,7 @@ if __name__ == "__main__":
     import pint
     import reactions_new as rn
     from pyrite_base_model import pyrite_model
-    from reaction_constants_fast import get_reaction_constants
+    from reaction_constants_slow import get_reaction_constants
 
     from fipyrite.diff_lib import data_container, get_total_delta, save_data, save_state
 
@@ -32,28 +32,28 @@ if __name__ == "__main__":
 
     p_dict = {
         "experiment": experiment,
-        # "state_data": "run_pyrite_model_year_test_fast_isotopes_full_bak.npz",
+        "state_data": "run_velde_test_ic.npz",
         "process_monitor": "gui",  # gui | video | none
-        # "layout_file": "plot_layout_velde.py",
+        "layout_file": "plot_layout_velde.py",
         "layout_file": "plot_layout.py",
         # Solver Parameters
         "max_steps": 100,  # max number of iterations
         "max_depth": 0.5,  # meters
         "t_end": Q_("10 kyr").to("seconds").magnitude,
         "dt_min": Q_("1 day").to("seconds").magnitude,  # time step in years
-        "dt_init": Q_("1 month").to("seconds").magnitude,  # initial dt
-        "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
-        "dt_target_change": 100,  # target change per step (for dt adaptation)
-        "report_step": 3,  # how often to update plot
+        "dt_init": Q_("1 week").to("seconds").magnitude,  # initial dt
+        "dt_max": Q_("1 month").to("seconds").magnitude,  # time step in years
+        "dt_target_change": 1,  # target change per step (for dt adaptation)
+        "report_step": 1,  # how often to update plot
         "BT0": Q_("4 cm^2/year").to("m^2/second").magnitude,
-        "BT_depth": Q_("7.6 cm").to("meter").magnitude,  # Bioturbation depth in m
+        "BT_depth": Q_("6 cm").to("meter").magnitude,  # Bioturbation depth in m
         "BT_attenuation": Q_("2 cm").to("meter").magnitude,  # xbm of Velde et al.
         "POC_O2_ratio": 1,  # Velde uses a 1:1 ratio
         "isotopes": True,
         # "bc_POC_fast": Q_("1000 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
         "reaction_constants": get_reaction_constants,  # see imports to select a different one
-        # "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
-        # "solver_precon": "ilu",  # Bypasses expensive Hypre BoomerAMG setup
+        "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
+        "solver_precon": "ilu",  # Bypasses expensive Hypre BoomerAMG setup
     }
 
     k = data_container()
@@ -69,11 +69,12 @@ if __name__ == "__main__":
         [rn.dissimilatory_iron_reduction, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
         [rn.sulfate_reduction, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
         [rn.hs_oxidation_velde, k],
-        # [rn.sulfide_mediated_iron_reduction_velde, k],
-        # [rn.Fe2_oxidation, k],
+        [rn.sulfide_mediated_iron_reduction_velde, k],
+        [rn.Fe2_oxidation, k],
+        [rn.FeS_precipitation_dissolution_linearized, k],
         # [rn.FeS_precipitation_terminal, k],
         # [rn.FeS_dissolution, k],
-        # [rn.FeS_oxidation, k],
+        [rn.FeS_oxidation, k],
     ]
 
     p_dict["instantenous_reactions"] = [
