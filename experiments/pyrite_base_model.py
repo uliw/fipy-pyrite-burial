@@ -114,7 +114,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         "dispro_SO4_alpha": 1.02,  # about +20 mUr
         "dispro_hs_alpha": 0.993,  # about -7 mUr
         "dispro_SO4_hs_split": 0.5,  # i.e. 2 parts SO4, 1 part H2S
-        "h2s_hs_alpha": 1.002,  # equilibrium fractionation factor between H2S and HS- for 32S
+        "h2s_hs_alpha": 0.99991542,  # equilibrium fractionation factor between H2S and HS- for 32S (derived from alpha_34 = 1.002)
         "VCDT": 0.044162589,  # VCDT reference ratio
         "K_epsilon_msr": 0.2,  # limit MSR fractionation below 0.2 mmol/L
         "K_epsilon_TS2_O2": 0.01,  # limit HS fractionation below 0.01 mmol/L
@@ -163,8 +163,9 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         [rn.elemental_sulfur_oxidation, k],
         [rn.sulfide_mediated_iron_reduction, k],
         [rn.Fe2_oxidation, k],
-        [rn.FeS_precipitation_terminal, k],
-        [rn.FeS_dissolution, k],
+        [rn.FeS_precipitation_dissolution_linearized, k],
+        # [rn.FeS_precipitation_terminal, k],
+        # [rn.FeS_dissolution, k],
         [rn.FeS_oxidation, k],
         [rn.pyrite_formation_S0, k],
         [rn.pyrite_formation_FeS_TS2, k],
@@ -173,7 +174,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     ]
 
     mp["instantenous_reactions"] = [
-        [rn.Fe2_sorption_clip, 1.0],
+        # [rn.Fe2_sorption_clip, 1.0],
         # [rn.sulfide_speciation_clip, 1.0],
     ]
 
@@ -269,7 +270,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
     H = 10 ** (-mp.pH)
     mp.h2s_frac = H / (H + Ka1)
     mp.hs_frac = Ka1 / (H + Ka1)
-
+    
     # ---- Initialize CellVariables and diffusion coefficients ---- #
     D_mol = data_container()
     c = data_container()
