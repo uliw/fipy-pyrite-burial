@@ -432,6 +432,15 @@ def run_non_steady_state_solver_coupled(
         dt_initial=getattr(mp, "dt_init", mp.dt_min),
     )
 
+    # --- Initialize Rate-Change-Based Timestep Adaptation ---
+    enable_rate_adaptation = getattr(mp, "enable_rate_adaptation", False)
+    monitored_rate_species = getattr(mp, "monitored_rate_species", ["FeS", "TS2"])
+    rate_threshold = getattr(mp, "rate_threshold", 1e-8)
+    rate_adaptation_start_step = getattr(mp, "rate_adaptation_start_step", 3)
+    enable_rate_magnitude_check = getattr(mp, "enable_rate_magnitude_check", False)
+    prev_rates = {}
+    prev_dt = getattr(mp, "dt_init", mp.dt_min)
+
     # Global CFL bound (optional safety)
     dx = mesh.cellVolumes.min() ** (1 / mesh.dim)
     v_max = max(abs(mp.w), abs(mp.advection))
@@ -480,6 +489,7 @@ def run_non_steady_state_solver_coupled(
 
             # --- Solve Step (with automatic retry on failure) ---
             converged = False
+            RATES_tentative = {}
             while not converged:
                 mp.current_dt = current_dt
                 try:
@@ -509,6 +519,18 @@ def run_non_steady_state_solver_coupled(
                     finally:
                         mp.in_clip = False
 
+                    if enable_rate_adaptation:
+                        RATES_tentative = _update_static_coefficients(
+                            mp,
+                            c,
+                            k,
+                            diagenetic_reactions,
+                            LHS_vars,
+                            RHS_vars,
+                            CROSS_vars,
+                            species_list_partial,
+                        )
+
                 except Exception as e:
                     tb_str = "".join(
                         traceback.format_exception(type(e), e, e.__traceback__)
@@ -526,6 +548,69 @@ def run_non_steady_state_solver_coupled(
                         raise RuntimeError(
                             "Solver failed and time step is already at minimum."
                         )
+
+                # --- Rate Validation Check (A Posteriori) ---
+                if converged and enable_rate_adaptation and step >= rate_adaptation_start_step and prev_rates:
+                    violation = False
+                    violation_reason = ""
+                    for name in monitored_rate_species:
+                        if name not in RATES_tentative or name not in prev_rates:
+                            continue
+                        
+                        r_tentative = np.asarray(RATES_tentative[name])
+                        r_prev = np.asarray(prev_rates[name])
+
+                        # Convert rates (mmol/L/s) to concentration change over the step (mmol/L)
+                        # to make the threshold check independent of the time step size dt.
+                        c_change_tentative = r_tentative * current_dt
+                        c_change_prev = r_prev * prev_dt
+                        
+                        # 1. Sign change check (must be above threshold for both)
+                        mask_sign = (np.abs(c_change_prev) >= rate_threshold) & (np.abs(c_change_tentative) >= rate_threshold)
+                        if np.any(mask_sign):
+                            # Require absolute rate change to be significant (e.g. >= 5 * rate_threshold)
+                            # to prevent false positives from propagating reaction fronts hovering around 0.
+                            abs_change = np.abs(c_change_tentative - c_change_prev)
+                            is_oscillating = (c_change_tentative * c_change_prev < 0) & (abs_change >= 5.0 * rate_threshold)
+                            osc_mask = mask_sign & is_oscillating
+                            if np.any(osc_mask):
+                                idx = np.where(osc_mask)[0][0]
+                                violation = True
+                                violation_reason = (
+                                    f"Sign change (oscillation) in {name} rate at cell {idx} "
+                                    f"(prev: {r_prev[idx]:.2e}, tentative: {r_tentative[idx]:.2e}, change: {abs_change[idx]:.2e})"
+                                )
+                                break
+                        
+                        # 2. Order-of-magnitude check (prev rate must be above threshold)
+                        if enable_rate_magnitude_check:
+                            mask_magnitude = (np.abs(c_change_prev) >= rate_threshold)
+                            if np.any(mask_magnitude):
+                                ratio = np.abs(c_change_tentative[mask_magnitude]) / np.abs(c_change_prev[mask_magnitude])
+                                # Only check for rapid rate increases (ratio > 10.0)
+                                large_increase = ratio > 10.0
+                                if np.any(large_increase):
+                                    idx = np.where(mask_magnitude)[0][np.where(large_increase)[0][0]]
+                                    violation = True
+                                    violation_reason = (
+                                        f"Order-of-magnitude rate increase in {name} at cell {idx} "
+                                        f"(prev: {r_prev[idx]:.2e}, tentative: {r_tentative[idx]:.2e}, ratio: {ratio[large_increase][0]:.2f})"
+                                    )
+                                    break
+                                
+                    if violation:
+                        _log(f"  Step rejected at dt={get_time_units(current_dt):.4f~P}: {violation_reason}. Rollback.")
+                        # Restore state
+                        for s_obj in species_struct:
+                            s_obj["var"].value[:] = s_obj["var"].old.value
+                        
+                        # Force convergence loop to continue
+                        converged = False
+                        current_dt = dt_controller.update(0.0, step_success=False)
+                        if current_dt <= mp.dt_min * 1.01:
+                            raise RuntimeError(
+                                "Rate validation failed and time step is already at minimum."
+                            )
 
             # --- Calculate Convergence Metrics ---
             # Using Normalized RMS change to reduce sensitivity to grid resolution
@@ -546,16 +631,27 @@ def run_non_steady_state_solver_coupled(
 
             total_time += current_dt
 
-            # --- Adapt Time Step for Next Iteration ---
-            # Use dt_target_change for adaptation, but default to something sane if missing
-            adaptive_target = getattr(mp, "dt_target_change", 1e-4)
+            # --- Update Rate History for Next Step ---
+            if enable_rate_adaptation:
+                prev_dt = current_dt
+                for name in monitored_rate_species:
+                    if name in RATES_tentative:
+                        prev_rates[name] = np.copy(RATES_tentative[name])
 
-            dt_controller.update(
-                error_metric=rms_change,
-                dt_cfl=None,  # DISABLE hard CFL cap for implicit solver
-                step_success=True,
-                target_error=adaptive_target,
-            )
+            # --- Adapt Time Step for Next Iteration ---
+            if enable_rate_adaptation:
+                # Bypass RMS-based PID adaptation. Just grow dt by growth_factor.
+                dt_controller._dt = min(dt_controller._dt * dt_controller.growth_factor, dt_controller.dt_max)
+                dt_controller._dt_prev = dt_controller._dt
+            else:
+                # Use dt_target_change for adaptation, but default to something sane if missing
+                adaptive_target = getattr(mp, "dt_target_change", 1e-4)
+                dt_controller.update(
+                    error_metric=rms_change,
+                    dt_cfl=None,  # DISABLE hard CFL cap for implicit solver
+                    step_success=True,
+                    target_error=adaptive_target,
+                )
             if step % mp.backup_step == 0:
                 gc.collect()
                 save_state(c, f"{mp.plot_name}_bak.npz")
