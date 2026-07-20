@@ -392,6 +392,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
             output_path=output_path,
             video_path=video_path,
             gui=gui_enabled,
+            report_step=getattr(mp, "report_step", 1),
         )
         print(f"[Parent] Starting LivePlotter (gui={gui_enabled})...", flush=True)
         plotter.start()
