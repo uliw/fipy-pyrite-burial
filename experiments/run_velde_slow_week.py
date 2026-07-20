@@ -32,19 +32,22 @@ if __name__ == "__main__":
 
     p_dict = {
         "experiment": experiment,
-        # "state_data": "run_pyrite_model_year_test_fast_isotopes_full_bak.npz",
+        "state_data": "run_velde_slow_week_state.npz",
         "process_monitor": "video",  # gui | video | none
         "layout_file": "plot_layout_velde.py",
         "layout_file": "plot_layout.py",
         # Solver Parameters
-        "max_steps": 2 * 40000,  # max number of iterations
+        "enable_rate_adaptation": True,
+        "enable_rate_magnitude_check": True,
+        "rate_threshold": 1e-6,
+        "max_steps": int(1e6),  # max number of iterations
         "max_depth": 0.5,  # meters
         "t_end": Q_("10 kyr").to("seconds").magnitude,
-        "dt_min": Q_("1 day").to("seconds").magnitude,  # time step in years
-        "dt_init": Q_("1 week").to("seconds").magnitude,  # initial dt
-        "dt_max": Q_("1 week").to("seconds").magnitude,  # time step in years
+        "dt_min": Q_("0.1 seconds").to("seconds").magnitude,  # time step in years
+        "dt_init": Q_("1 second").to("seconds").magnitude,  # initial dt
+        "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
         "dt_target_change": 1,  # target change per step (for dt adaptation)
-        "report_step": 50,  # how often to update plot
+        "report_step": 20,  # how often to update plot
         "BT0": Q_("4 cm^2/year").to("m^2/second").magnitude,
         "BT_depth": Q_("6 cm").to("meter").magnitude,  # Bioturbation depth in m
         "BT_attenuation": Q_("2 cm").to("meter").magnitude,  # xbm of Velde et al.
@@ -62,23 +65,23 @@ if __name__ == "__main__":
     p_dict["diagenetic_reactions"] = [
         # fast poc
         [rn.aerobic_respiration, {"poc_species": "POC_fast", "poc_k": "POC_fast"}],
-        [rn.dissimilatory_iron_reduction, {"poc_species": "POC_fast", "poc_k": "POC_fast"}],
+        [
+            rn.dissimilatory_iron_reduction,
+            {"poc_species": "POC_fast", "poc_k": "POC_fast"},
+        ],
         [rn.sulfate_reduction, {"poc_species": "POC_fast", "poc_k": "POC_fast"}],
         # slow poc
         [rn.aerobic_respiration, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
-        [rn.dissimilatory_iron_reduction, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
+        [
+            rn.dissimilatory_iron_reduction,
+            {"poc_species": "POC_slow", "poc_k": "POC_slow"},
+        ],
         [rn.sulfate_reduction, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
         [rn.hs_oxidation_velde, k],
         [rn.sulfide_mediated_iron_reduction_velde, k],
         [rn.Fe2_oxidation, k],
-        [rn.FeS_precipitation_terminal, k],
-        [rn.FeS_dissolution, k],
+        [rn.FeS_precipitation_dissolution_linearized, k],
         [rn.FeS_oxidation, k],
-    ]
-
-    p_dict["instantenous_reactions"] = [
-        # [rn.FeS_equilibrium_clip, k],
-        # [rn.Fe2_sorption_clip, 1.0],
     ]
 
     (
