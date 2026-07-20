@@ -28,6 +28,7 @@ class LivePlotter:
         fps: int = 15,
         title: Optional[str] = None,
         gui: bool = True,
+        report_step: int = 1,
     ):
         self.layout_path = layout_path
         self.display_length = display_length
@@ -37,6 +38,7 @@ class LivePlotter:
         self.fps = fps
         self.codec = "libvpx-vp9",
         self.gui = gui
+        self.report_step = report_step
         # Use 'spawn' to avoid inheriting PETSc/MPI signal handlers and state
         self._ctx = mp.get_context("spawn")
         self._queue = self._ctx.Queue()
@@ -143,11 +145,12 @@ class LivePlotter:
 
                 try:
                     plt_desc = plot_data_new.load_layout_from_file(df, self.layout_path, self.measured_data_path)
+                    outfile_path = self.output_path if (self.report_step >= 10) else None
                     if fig is None:
                         fig, ax_objects = plot_data_new.plot(
                             df,
                             self.display_length,
-                            outfile=None,
+                            outfile=outfile_path,
                             show=False,
                             plot_description=plt_desc,
                             measured_data_path=self.measured_data_path,
@@ -158,7 +161,7 @@ class LivePlotter:
                         plot_data_new.plot(
                             df,
                             self.display_length,
-                            outfile=None,
+                            outfile=outfile_path,
                             show=False,
                             fig_handle=fig,
                             plot_description=plt_desc,
