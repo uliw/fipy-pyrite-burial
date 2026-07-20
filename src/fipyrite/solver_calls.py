@@ -578,13 +578,14 @@ def run_non_steady_state_solver_coupled(
                                 violation = True
                                 violation_reason = (
                                     f"Sign change (oscillation) in {name} rate at cell {idx} "
-                                    f"(prev: {r_prev[idx]:.2e}, tentative: {r_tentative[idx]:.2e}, change: {abs_change[idx]:.2e})"
+                                    f"(prev rate: {r_prev[idx]:.2e}, tentative rate: {r_tentative[idx]:.2e}, conc_change: {abs_change[idx]:.2e} mmol/L)"
                                 )
                                 break
                         
                         # 2. Order-of-magnitude check (prev rate must be above threshold)
                         if enable_rate_magnitude_check:
-                            mask_magnitude = (np.abs(c_change_prev) >= rate_threshold)
+                            # The concentration change must be significant, AND the rate itself must be >= 1e-8 mmol/L/s
+                            mask_magnitude = (np.abs(c_change_prev) >= rate_threshold) & (np.abs(r_prev) >= 1e-8)
                             if np.any(mask_magnitude):
                                 ratio = np.abs(c_change_tentative[mask_magnitude]) / np.abs(c_change_prev[mask_magnitude])
                                 # Only check for rapid rate increases (ratio > 10.0)
