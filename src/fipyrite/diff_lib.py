@@ -1142,7 +1142,6 @@ def add_explicit_source(
     RHS[species] = RHS[species] + scaled_rate
     if update_rates:
         RATES[species] += getattr(scaled_rate, "value", scaled_rate)
-        RATES[species] += scaled_rate
     if reaction is not None:
         key = f"r_{reaction}_{species}"
         if key not in RATES:
