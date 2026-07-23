@@ -630,13 +630,15 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
     #          ≈ k_prec_eff · [dMM_domega·dO_dFe2·Fe2  +  dMM_domega·dO_dTS2·TS2  +  prec_res_rate_explicit]
     # ══════════════════════════════════════════════════════════════════════
     k_prec_eff = k.FeS_isp * is_prec  # zero in dissolution cells (no fac_vol!)
+    k_diss_eff = k.FeS_isd * is_diss
     
     df = nx.maximum(omega - 1.0, 1e-20)
     mm_factor_prec = df / (Km + df)
     dMM_domega_prec = Km / (Km + df)**2
 
     # ── (a) Implicit diagonal in Fe2_total ───────────────────────────────
-    prec_coeff_Fe2 = k_prec_eff * dMM_domega_prec * dO_dFe2  # [1/s]
+    is_prec_active = nx.where(omega >= 1.0, 1.0, 0.0)
+    prec_coeff_Fe2 = k_prec_eff * dMM_domega_prec * dO_dFe2 * is_prec_active  # [1/s]
     prec_rate_Fe2 = prec_coeff_Fe2 * Fe2_val
 
     add_implicit_coupling_new(  # FeS  +=  prec_coeff_Fe2 · Fe2_total (CROSS)
@@ -654,7 +656,7 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
     )
 
     # ── (b) Implicit cross in TS2 ────────────────────────────────────────
-    prec_coeff_TS2 = k_prec_eff * dMM_domega_prec * dO_dTS2
+    prec_coeff_TS2 = k_prec_eff * dMM_domega_prec * dO_dTS2 * is_prec_active
     prec_rate_TS2 = prec_coeff_TS2 * TS2_val
 
     add_implicit_coupling_new(  # FeS  +=  prec_coeff_TS2 · TS2       (CROSS)
@@ -683,6 +685,8 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
     # ── Stoichiometric off-diagonal sinks ────────────────────────────────
     CROSS["Fe2_total"].append(("TS2", -prec_coeff_TS2 * phi))
     CROSS["TS2"].append(("Fe2_total", -prec_coeff_Fe2 * phi))
+    RATES["Fe2_total"] -= prec_rate_TS2 * phi
+    RATES["TS2"] -= prec_rate_Fe2 * phi
 
     # ── (c) Explicit residual ─────────────────────────────────────────────
     prec_res_rate = k_prec_eff * mm_factor_prec - prec_coeff_Fe2 * Fe2_val - prec_coeff_TS2 * TS2_val
@@ -708,7 +712,8 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
     dMM_domega_diss = Km / (Km + us)**2
 
     # ── (a) FeS self-implicit ─────────────────────────────────────────────
-    diss_coeff_FeS = k_diss_eff * mm_factor_diss
+    is_diss_active = nx.where(omega < 1.0, 1.0, 0.0)
+    diss_coeff_FeS = k_diss_eff * mm_factor_diss * is_diss_active
     diss_rate_FeS = diss_coeff_FeS * FeS_val
 
     add_implicit_coupling_new(  # Fe2_total  +=  diss_coeff_FeS · FeS  (CROSS)
@@ -739,8 +744,9 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
     )
 
     # ── (b,c) Cross-suppression: dissolution rate decreases as Fe2/TS2 rise ─
-    diss_cross_Fe2 = k_diss_eff * FeS_val * dMM_domega_diss * dO_dFe2
-    diss_cross_TS2 = k_diss_eff * FeS_val * dMM_domega_diss * dO_dTS2
+    diss_cross_Fe2 = k_diss_eff * FeS_val * dMM_domega_diss * dO_dFe2 * is_diss_active
+    diss_cross_TS2 = k_diss_eff * FeS_val * dMM_domega_diss * dO_dTS2 * is_diss_active
+    diss_res_rate = diss_cross_Fe2 * Fe2_val + diss_cross_TS2 * TS2_val
 
     # FeS: positive cross = less net dissolution when Fe2/TS2 rise (source inhibition)
     CROSS["FeS"].append(("Fe2_total", +diss_cross_Fe2 * (1.0 - phi)))
@@ -750,9 +756,11 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
     CROSS["Fe2_total"].append(("TS2", -diss_cross_TS2 * (1.0 - phi)))
     CROSS["TS2"].append(("Fe2_total", -diss_cross_Fe2 * (1.0 - phi)))
     CROSS["TS2"].append(("TS2", -diss_cross_TS2 * (1.0 - phi)))
+    RATES["FeS"] += diss_res_rate * (1.0 - phi)
+    RATES["Fe2_total"] -= diss_res_rate * (1.0 - phi)
+    RATES["TS2"] -= diss_res_rate * (1.0 - phi)
 
     # ── (d) Explicit constant for dissolution ─────────────────────────────
-    diss_res_rate = diss_cross_Fe2 * Fe2_val + diss_cross_TS2 * TS2_val
 
     add_explicit_source(
         RHS, RATES, "Fe2_total", diss_res_rate, mp=mp, has_solid=has_solid
@@ -813,6 +821,7 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
         )
 
         CROSS["TS2_32"].append(("Fe2_total", -prec_coeff_Fe2 * f32_hs * phi))
+        RATES["TS2_32"] -= prec_rate_Fe2 * f32_hs * phi
         add_implicit_sink(
             LHS,
             RATES,
@@ -861,6 +870,9 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
         # Cross-suppression on TS2_32 (coupled off-diagonally)
         CROSS["TS2_32"].append(("Fe2_total", -diss_cross_Fe2 * f32_FeS * (1.0 - phi)))
         CROSS["TS2_32"].append(("TS2", -diss_cross_TS2 * f32_FeS * (1.0 - phi)))
+
+        RATES["FeS_32"] += diss_res_rate * f32_FeS * (1.0 - phi)
+        RATES["TS2_32"] -= diss_res_rate * f32_FeS * (1.0 - phi)
 
         # Explicit residual corrections for dissolution
         add_explicit_source(
