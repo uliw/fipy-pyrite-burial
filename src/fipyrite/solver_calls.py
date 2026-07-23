@@ -23,6 +23,7 @@ from .diff_lib import (
     get_time_units,
     save_data,
     save_data_async,
+    save_state,
 )
 from .live_plot_lib import write_to_queue_async
 
@@ -229,7 +230,7 @@ def _build_passive_eqs(
         D_total = np.maximum(getattr(D_mol, name) + D_mol.D_bio, 1e-20)
 
         # Advection velocity
-        vel = mp.w - mp.advection if props["type"] == "dissolved" else mp.w
+        vel = getattr(mp, "w", 0.0) - getattr(mp, "advection", 0.0) if props["type"] == "dissolved" else getattr(mp, "w", 0.0)
         u_var = CellVariable(mesh=mesh, value=vel, rank=1)
 
         # Terms with conservative phi handling
@@ -443,7 +444,7 @@ def run_non_steady_state_solver_coupled(
 
     # Global CFL bound (optional safety)
     dx = mesh.cellVolumes.min() ** (1 / mesh.dim)
-    v_max = max(abs(mp.w), abs(mp.advection))
+    v_max = max(abs(getattr(mp, "w", 0.0)), abs(getattr(mp, "advection", 0.0)))
     D_max = 0.0
     for s in species_list_partial:
         D_s = np.max(getattr(D_mol, s) + D_mol.D_bio)
@@ -725,12 +726,15 @@ def run_non_steady_state_solver_coupled(
                     f"Steady State Met: rms_change {rms_change:.2e} < tolerance {mp.dt_tolerance:.2e}"
                 )
                 status = "Steady State Converged"
-                Fe3_lost = c.Fe3.value[0] - c.Fe3.value[-1]
-                Fe2_gained = c.Fe2_total.value[-1] - c.Fe2_total.value[0]
                 dt = get_time_units(mp.dt_max)
-                _log(
-                    f"dt = {dt:~P.2f}, Fe3_lost = {Fe3_lost:.2f}, Fe2_gained = {Fe2_gained:.2f}"
-                )
+                if hasattr(c, "Fe3") and hasattr(c, "Fe2_total"):
+                    Fe3_lost = c.Fe3.value[0] - c.Fe3.value[-1]
+                    Fe2_gained = c.Fe2_total.value[-1] - c.Fe2_total.value[0]
+                    _log(
+                        f"dt = {dt:~P.2f}, Fe3_lost = {Fe3_lost:.2f}, Fe2_gained = {Fe2_gained:.2f}"
+                    )
+                else:
+                    _log(f"dt = {dt:~P.2f}")
                 break
 
     except KeyboardInterrupt:
