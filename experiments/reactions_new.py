@@ -796,7 +796,7 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
         f32_FeS = np.clip(f32_FeS, 0.5, 1.5)
         
         # Effective bulk dissolution rate (mmol/L_bulk/s)
-        R_diss_bulk_eff = k_diss_eff * mm_factor_diss * is_diss_active
+        R_diss_bulk_eff = diss_rate_FeS
         R_diss_32 = R_diss_bulk_eff * f32_FeS
 
         # Exact physical rate sources/sinks
