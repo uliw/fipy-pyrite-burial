@@ -92,26 +92,28 @@ def test_rate_adaptation_success(mock_save_state, mock_save_data, mock_update_co
 @patch("fipyrite.solver_calls.save_data")
 @patch("fipyrite.solver_calls.save_state")
 def test_rate_adaptation_sign_change_rollback(mock_save_state, mock_save_data, mock_update_coeffs, mock_setup_eq, solver_inputs):
-    """Test that a sign change in rates (oscillation) triggers rollback and dt reduction."""
+    """Test that consecutive sign changes in rates (oscillation) triggers rollback and dt reduction."""
     mp, c, k, mesh, D_mol, bc_map, z = solver_inputs
+    mp.max_steps = 4
     
     mock_coupled_eq = MagicMock()
     mock_setup_eq.return_value = (mock_coupled_eq, {}, {}, {})
     
-    # RATES sequence:
-    # 1. Step 1 -> accepted (2 calls)
-    # 2. Step 2 tentative -> has sign change -> rejected & rollback (2 calls)
-    # 3. Step 2 retry -> accepted (2 calls)
-    # 4. Step 3 -> accepted (2 calls)
-    rates_init = {"FeS": np.array([1e-7, 1e-7, 1e-7]), "TS2": np.array([1e-7, 1e-7, 1e-7])}
-    rates_oscillating = {"FeS": np.array([-1e-7, 1e-7, 1e-7]), "TS2": np.array([1e-7, 1e-7, 1e-7])}
-    rates_retry = {"FeS": np.array([1e-7, 1e-7, 1e-7]), "TS2": np.array([1e-7, 1e-7, 1e-7])}
+    # RATES sequence (consecutive sign flips required for rejection):
+    # 1. Step 1 -> positive rate (2 calls) -> accepted
+    # 2. Step 2 -> negative rate (2 calls) -> first flip -> accepted
+    # 3. Step 3 tentative -> positive rate (2 calls) -> second consecutive flip -> rejected & rollback
+    # 4. Step 3 retry -> negative rate (2 calls) -> accepted
+    # 5. Step 4 -> negative rate (2 calls) -> accepted
+    rates_pos = {"FeS": np.array([1e-7, 1e-7, 1e-7]), "TS2": np.array([1e-7, 1e-7, 1e-7])}
+    rates_neg = {"FeS": np.array([-1e-7, 1e-7, 1e-7]), "TS2": np.array([1e-7, 1e-7, 1e-7])}
     
     mock_update_coeffs.side_effect = [
-        rates_init, rates_init,          # Step 1
-        rates_oscillating, rates_oscillating, # Step 2 tentative -> rejected
-        rates_retry, rates_retry,        # Step 2 retry -> accepted
-        rates_retry, rates_retry         # Step 3
+        rates_pos, rates_pos,          # Step 1
+        rates_neg, rates_neg,          # Step 2
+        rates_pos, rates_pos,          # Step 3 tentative -> rejected (consecutive flip)
+        rates_neg, rates_neg,          # Step 3 retry -> accepted
+        rates_neg, rates_neg           # Step 4
     ]
     
     # Track dt values to see if it cut
@@ -125,14 +127,15 @@ def test_rate_adaptation_sign_change_rollback(mock_save_state, mock_save_data, m
         mp, c, ["FeS", "TS2"], ["FeS", "TS2"], k, MagicMock(), MagicMock(), mesh, D_mol, bc_map, z
     )
     
-    # Verify rejection and rollback happened
+    # Verify rejection and rollback happened at Step 3
     # dts should contain:
     # 1. Step 1: 5.0 (dt_init)
-    # 2. Step 2 tentative: 6.0 (5.0 * 1.2 growth)
-    # 3. Step 2 retry: 3.0 (6.0 * 0.5 cut)
-    # 4. Step 3: 3.6 (3.0 * 1.2 growth)
-    assert len(dts) >= 4
-    assert dts[2] == pytest.approx(3.0)
+    # 2. Step 2: 6.0 (5.0 * 1.2 growth)
+    # 3. Step 3 tentative: 7.2 (6.0 * 1.2 growth)
+    # 4. Step 3 retry: 3.6 (7.2 * 0.5 cut)
+    # 5. Step 4: 4.32 (3.6 * 1.2 growth)
+    assert len(dts) >= 5
+    assert dts[3] == pytest.approx(3.6)
 
 @patch("fipyrite.solver_calls._setup_static_coupled_equation")
 @patch("fipyrite.solver_calls._update_static_coefficients")

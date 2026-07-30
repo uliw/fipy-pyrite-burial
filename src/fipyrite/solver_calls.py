@@ -440,7 +440,9 @@ def run_non_steady_state_solver_coupled(
     rate_adaptation_start_step = getattr(mp, "rate_adaptation_start_step", 3)
     enable_rate_magnitude_check = getattr(mp, "enable_rate_magnitude_check", False)
     prev_rates = {}
+    prev_rates_2 = {}
     prev_dt = getattr(mp, "dt_init", mp.dt_min)
+    prev_dt_2 = prev_dt
 
     # Global CFL bound (optional safety)
     dx = mesh.cellVolumes.min() ** (1 / mesh.dim)
@@ -569,17 +571,30 @@ def run_non_steady_state_solver_coupled(
                         # 1. Sign change check (must be above threshold for both)
                         mask_sign = (np.abs(c_change_prev) >= rate_threshold) & (np.abs(c_change_tentative) >= rate_threshold)
                         if np.any(mask_sign):
-                            # Require absolute rate change to be significant (e.g. >= 5 * rate_threshold)
-                            # to prevent false positives from propagating reaction fronts hovering around 0.
                             abs_change = np.abs(c_change_tentative - c_change_prev)
-                            is_oscillating = (c_change_tentative * c_change_prev < 0) & (abs_change >= 5.0 * rate_threshold)
-                            osc_mask = mask_sign & is_oscillating
+                            # Tentative step flips sign if prev and tentative have opposite signs
+                            flipped_tentative = (c_change_tentative * c_change_prev < 0) & (abs_change >= 5.0 * rate_threshold)
+                            
+                            # We only reject the step if the sign flips consecutively (i.e. it also flipped in the previous step).
+                            # This allows a reaction front (which flips sign exactly once when crossing a cell) to propagate
+                            # without trapping the solver in small timestep loops.
+                            if name in prev_rates_2:
+                                r_prev_2 = np.asarray(prev_rates_2[name])
+                                c_change_prev_2 = r_prev_2 * prev_dt_2
+                                mask_sign_prev = (np.abs(c_change_prev_2) >= rate_threshold) & (np.abs(c_change_prev) >= rate_threshold)
+                                abs_change_prev = np.abs(c_change_prev - c_change_prev_2)
+                                flipped_prev = (c_change_prev * c_change_prev_2 < 0) & (abs_change_prev >= 5.0 * rate_threshold)
+                                osc_mask = mask_sign & mask_sign_prev & flipped_tentative & flipped_prev
+                            else:
+                                osc_mask = np.zeros_like(mask_sign, dtype=bool)
+
                             if np.any(osc_mask):
                                 idx = np.where(osc_mask)[0][0]
                                 violation = True
+                                r_prev_2 = np.asarray(prev_rates_2[name])
                                 violation_reason = (
-                                    f"Sign change (oscillation) in {name} rate at cell {idx} "
-                                    f"(prev rate: {r_prev[idx]:.2e}, tentative rate: {r_tentative[idx]:.2e}, conc_change: {abs_change[idx]:.2e} mmol/L)"
+                                    f"Consecutive sign changes (oscillation) in {name} rate at cell {idx} "
+                                    f"(prev2 rate: {r_prev_2[idx]:.2e}, prev rate: {r_prev[idx]:.2e}, tentative rate: {r_tentative[idx]:.2e}, conc_change: {abs_change[idx]:.2e} mmol/L)"
                                 )
                                 break
                         
@@ -635,9 +650,12 @@ def run_non_steady_state_solver_coupled(
 
             # --- Update Rate History for Next Step ---
             if enable_rate_adaptation:
+                prev_dt_2 = prev_dt
                 prev_dt = current_dt
                 for name in monitored_rate_species:
                     if name in RATES_tentative:
+                        if name in prev_rates:
+                            prev_rates_2[name] = np.copy(prev_rates[name])
                         prev_rates[name] = np.copy(RATES_tentative[name])
 
             # --- Adapt Time Step for Next Iteration ---
