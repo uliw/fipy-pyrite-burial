@@ -27,7 +27,7 @@ class MockMP:
         self.phi = 0.8
         self.solver_backend = "default"
         self.tolerance = 1e-12
-        self.dt_tolerance = 1e-12
+        self.dt_tolerance = -1.0
         self.adaptive_solver_tolerance = False
         self.rate_adaptation_start_step = 2
         self.enable_rate_magnitude_check = True
@@ -43,8 +43,8 @@ class MockD:
 def solver_inputs():
     mesh = Grid1D(nx=3)
     c = data_container({
-        "FeS": CellVariable(mesh=mesh, value=1.0),
-        "TS2": CellVariable(mesh=mesh, value=1.0),
+        "FeS": CellVariable(mesh=mesh, value=1.0, hasOld=True),
+        "TS2": CellVariable(mesh=mesh, value=1.0, hasOld=True),
     })
     mp = MockMP()
     k = data_container()
@@ -116,10 +116,9 @@ def test_rate_adaptation_sign_change_rollback(mock_save_state, mock_save_data, m
     
     # Track dt values to see if it cut
     dts = []
-    original_sweep = mock_coupled_eq.sweep
     def sweep_side_effect(dt, solver):
         dts.append(dt)
-        return original_sweep(dt, solver)
+        return 0.0
     mock_coupled_eq.sweep.side_effect = sweep_side_effect
     
     step, rms = run_non_steady_state_solver_coupled(
@@ -164,10 +163,9 @@ def test_rate_adaptation_magnitude_rollback(mock_save_state, mock_save_data, moc
     
     # Track dt values to see if it cut
     dts = []
-    original_sweep = mock_coupled_eq.sweep
     def sweep_side_effect(dt, solver):
         dts.append(dt)
-        return original_sweep(dt, solver)
+        return 0.0
     mock_coupled_eq.sweep.side_effect = sweep_side_effect
     
     step, rms = run_non_steady_state_solver_coupled(
@@ -198,10 +196,9 @@ def test_rate_adaptation_noise_ignored(mock_save_state, mock_save_data, mock_upd
     ]
     
     dts = []
-    original_sweep = mock_coupled_eq.sweep
     def sweep_side_effect(dt, solver):
         dts.append(dt)
-        return original_sweep(dt, solver)
+        return 0.0
     mock_coupled_eq.sweep.side_effect = sweep_side_effect
     
     step, rms = run_non_steady_state_solver_coupled(

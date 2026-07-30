@@ -770,117 +770,38 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
 
     # ── Isotopes ──────────────────────────────────────────────────────────
     if mp.isotopes:
-        # Precipitation Fractionation
+        # 1. Precipitation (TS2_32 -> FeS_32)
         hs_32 = partition_equilibrium_isotope_32(
             c.TS2_32, mp.hs_frac, mp.h2s_frac, mp.h2s_hs_alpha
         )
-        
-        # Safeguard ratio to prevent division by zero / numerical noise near zero
         hs_val_np = np.asarray(hs_val)
         hs_32_val = np.asarray(hs_32)
+        
         f32_default = 1.0 / (1.0 + mp.VCDT)
-        f32_hs = np.where(hs_val_np > 1e-12, hs_32_val / (hs_val_np + 1e-30), f32_default)
+        f32_hs = np.where(hs_val_np > 1e-6, hs_32_val / (hs_val_np + 1e-30), f32_default)
         f32_hs = np.clip(f32_hs, 0.5, 1.5)
         
-        # DEBUG print
-        # if np.any(prec_rate_TS2 > 0.0):
-        #     idx = np.where(prec_rate_TS2 > 0.0)[0][0]
-        #     li_safe = np.maximum(hs_32_val[idx], 1e-30)
-        #     c_safe = np.maximum(hs_val_np[idx], li_safe)
-        #     h = c_safe - li_safe
-        #     ratio = h / li_safe
-            # d_hs_computed = 1000 * (ratio - mp.VCDT) / mp.VCDT
-            # print(f"DEBUG PREC: idx={idx}, hs_val={hs_val_np[idx]:.4e}, hs_32={hs_32_val[idx]:.4e}, calculated_f32_hs={f32_hs[idx]:.6f}, computed_d_hs={d_hs_computed:.2f} permil, default_f32={f32_default:.6f}")
+        # Effective bulk precipitation rate (mmol/L_bulk/s)
+        R_prec_bulk_eff = k_prec_eff * mm_factor_prec * is_prec_active
+        R_prec_32 = R_prec_bulk_eff * f32_hs
 
-        # FeS_32 precipitation: coupled to Fe2_total (bulk) and TS2_32 (isotope)
-        add_implicit_coupling_new(
-            CROSS,
-            RATES,
-            LHS,
-            target_species="FeS_32",
-            source_species="Fe2_total",
-            coeff=prec_coeff_Fe2 * f32_hs,
-            rate=prec_rate_Fe2 * f32_hs,
-            mp=mp,
-            has_solid=has_solid_prec,
-            add_lhs_sink=False,  # Fe2_total diagonal already registered
-            stoich_ratio=1.0,
-        )
-        add_implicit_coupling_new(
-            CROSS,
-            RATES,
-            LHS,
-            target_species="FeS_32",
-            source_species="TS2",
-            coeff=prec_coeff_TS2 * f32_hs,
-            rate=prec_rate_TS2 * f32_hs,
-            mp=mp,
-            has_solid=has_solid_prec,
-            add_lhs_sink=False,
-            stoich_ratio=1.0,
-        )
+        # Exact physical rate sources/sinks
+        add_explicit_source(RHS, RATES, "TS2_32", -R_prec_32, mp=mp, has_solid=False)
+        add_explicit_source(RHS, RATES, "FeS_32", R_prec_32, mp=mp, has_solid=True)
 
-        CROSS["TS2_32"].append(("Fe2_total", -prec_coeff_Fe2 * f32_hs * phi))
-        RATES["TS2_32"] -= prec_rate_Fe2 * f32_hs * phi
-        add_implicit_sink(
-            LHS,
-            RATES,
-            "TS2_32",
-            prec_coeff_TS2,
-            prec_rate_TS2 * f32_hs,
-            mp=mp,
-            has_solid=has_solid_prec,
-        )
-
-        # Explicit residual corrections for precipitation
-        add_explicit_source(
-            RHS, RATES, "FeS_32", prec_res_rate * f32_hs, mp=mp, has_solid=has_solid_prec
-        )
-        add_explicit_source(
-            RHS, RATES, "TS2_32", -prec_res_rate * f32_hs, mp=mp, has_solid=has_solid_prec
-        )
-
-        # Dissolution (Congruent - No Fractionation)
+        # 2. Dissolution (FeS_32 -> TS2_32)
         FeS_val_np = np.asarray(c.FeS.value)
         FeS_32_val = np.asarray(c.FeS_32.value)
-        f32_default = 1.0 / (1.0 + mp.VCDT)
-        f32_FeS = np.where(FeS_val_np > 1e-12, FeS_32_val / (FeS_val_np + 1e-30), f32_default)
+        f32_FeS = np.where(FeS_val_np > 1e-6, FeS_32_val / (FeS_val_np + 1e-30), f32_default)
         f32_FeS = np.clip(f32_FeS, 0.5, 1.5)
         
-        diss_rate_FeS_32 = diss_coeff_FeS * c.FeS_32.value
+        # Effective bulk dissolution rate (mmol/L_bulk/s)
+        R_diss_bulk_eff = k_diss_eff * mm_factor_diss * is_diss_active
+        R_diss_32 = R_diss_bulk_eff * f32_FeS
 
-        # TS2_32 production: coupled to FeS_32 dissolution (source-implicit)
-        add_implicit_coupling_new(
-            CROSS,
-            RATES,
-            LHS,
-            target_species="TS2_32",
-            source_species="FeS_32",
-            coeff=diss_coeff_FeS,
-            rate=diss_rate_FeS_32,
-            mp=mp,
-            has_solid=has_solid,
-            add_lhs_sink=True,  # Registers LHS diagonal sink for FeS_32
-            stoich_ratio=1.0,
-        )
-        # Cross-suppression on FeS_32
-        CROSS["FeS_32"].append(("Fe2_total", +diss_cross_Fe2 * f32_FeS * (1.0 - phi)))
-        CROSS["FeS_32"].append(("TS2", +diss_cross_TS2 * f32_FeS * (1.0 - phi)))
-        
-        # Cross-suppression on TS2_32 (coupled off-diagonally)
-        CROSS["TS2_32"].append(("Fe2_total", -diss_cross_Fe2 * f32_FeS * (1.0 - phi)))
-        CROSS["TS2_32"].append(("TS2", -diss_cross_TS2 * f32_FeS * (1.0 - phi)))
-
-        RATES["FeS_32"] += diss_res_rate * f32_FeS * (1.0 - phi)
-        RATES["TS2_32"] -= diss_res_rate * f32_FeS * (1.0 - phi)
-
-        # Explicit residual corrections for dissolution
-        add_explicit_source(
-            RHS, RATES, "TS2_32", diss_res_rate * f32_FeS, mp=mp, has_solid=has_solid
-        )
-        add_explicit_source(
-            RHS, RATES, "FeS_32", -diss_res_rate * f32_FeS, mp=mp, has_solid=has_solid
-        )
+        # Exact physical rate sources/sinks
+        add_explicit_source(RHS, RATES, "FeS_32", -R_diss_32, mp=mp, has_solid=True)
+        add_explicit_source(RHS, RATES, "TS2_32", R_diss_32, mp=mp, has_solid=False)
 
 
 def sulfide_mediated_iron_reduction_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
