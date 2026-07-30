@@ -197,16 +197,6 @@ def diagenetic_reactions(mp, c, k, f):
 # PROCESS FUNCTIONS (The Biogeochemistry)
 # =============================================================================
 
-
-
-
-
-
-
-        
-
-        
-
 def sulfide_speciation_clip(c, k, mp, dt, RATES, f=None):
     """Update reporting species (h2s, hs) based on total sulfide (TS2) and pH.
 
