@@ -32,17 +32,16 @@ if __name__ == "__main__":
 
     p_dict = {
         "experiment": experiment,
-        # "state_data": "run_velde_slow_week_state.npz",
+        "state_data": "run_velde_slow_ic.npz",
         "process_monitor": "video",  # gui | video | none
-        "layout_file": "plot_layout_velde.py",
         "layout_file": "plot_layout.py",
         # Solver Parameters
         "enable_rate_adaptation": True,
         "enable_rate_magnitude_check": True,
         "rate_threshold": 1e-6,
-        "max_steps": int(1e6),  # max number of iterations
+        "max_steps": int(400),  # max number of iterations
         "max_depth": 0.5,  # meters
-        "t_end": Q_("19 weeks").to("seconds").magnitude,
+        "t_end": Q_("10 kyear").to("seconds").magnitude,
         "dt_min": Q_("0.1 seconds").to("seconds").magnitude,  # time step in years
         "dt_init": Q_("1 second").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
@@ -57,6 +56,7 @@ if __name__ == "__main__":
         "reaction_constants": get_reaction_constants,  # see imports to select a different one
         "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
         "solver_precon": "ilu",  # Bypasses expensive Hypre BoomerAMG setup
+        "debug_fes_isotopes": True,
     }
 
     k = data_container()

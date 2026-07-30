@@ -32,7 +32,7 @@ if __name__ == "__main__":
 
     p_dict = {
         "experiment": experiment,
-        # "state_data": "sulfate_test_ic.npz",
+        # "state_data": "sulfate_test_state.npz",
         "process_monitor": "gui",  # gui | video | none
         "layout_file": "plot_layout_velde.py",
         "layout_file": "plot_layout.py",
@@ -71,7 +71,7 @@ if __name__ == "__main__":
         [rn.sulfate_reduction, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
         [rn.hs_oxidation_velde, k],
         [rn.sulfide_mediated_iron_reduction_velde, k],
-        # [rn.FeS_precipitation_dissolution_linearized, k],
+        [rn.FeS_precipitation_dissolution_linearized, k],
     ]
 
     (

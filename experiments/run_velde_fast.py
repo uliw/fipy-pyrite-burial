@@ -30,13 +30,13 @@ if __name__ == "__main__":
 
     p_dict = {
         "experiment": experiment,
-        # "state_data": "run_velde_test_ic.npz",
+        "state_data": "run_velde_slow_ic.npz",
         # "state_data": "run_velde_fast_week_state.npz",
         "process_monitor": "video",  # gui | video | none
         "layout_file": "plot_layout_velde.py",
         "layout_file": "plot_layout.py",
         # Solver Parameters
-        "report_step": 20,  # how often to update plot
+        "report_step": 10,  # how often to update plot
         "max_steps": int(1e6),  # max number of iterations
         "max_depth": 0.5,  # meters
         "t_end": Q_("10 kyr").to("seconds").magnitude,
@@ -70,7 +70,6 @@ if __name__ == "__main__":
         [rn.sulfate_reduction, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
         [rn.hs_oxidation_velde, k],
         [rn.sulfide_mediated_iron_reduction_velde, k],
-        [rn.Fe2_oxidation, k],
         [rn.FeS_precipitation_dissolution_linearized, k],
         [rn.FeS_oxidation, k],
     ]

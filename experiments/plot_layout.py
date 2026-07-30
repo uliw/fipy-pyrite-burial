@@ -37,7 +37,7 @@ def get_layout(df):
     Fe3_attr = {"color": "saddlebrown", "lw": lt}
     Fe2_s_attr = {"color": "indianred", "lw": lt}
     Fe2_l_attr = {"color": "#cc3311", "lw": lt}
-    FeS_attr = {"color": "#ee3377", "lw": lt}
+    FeS_attr = {"color": "#ee3377", "lw": 4}
     FeS2_attr = {"color": "darkorange", "lw": lt, "fill_only": True, "zorder": -9}
     FeS2_attr_nf = {"color": "darkorange", "lw": lt, "fill_only": False}
     dbio_attr = {"color": "#bbbbbb", "lw": lt, "fill_only": True}
