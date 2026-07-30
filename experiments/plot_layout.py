@@ -89,7 +89,7 @@ def get_layout(df):
                 # [FeS2_fe, r"FeS$_{2}$ [wt% Fe]", FeS2_attr],
                 [FeS_fe, r"FeS [wt% Fe]", FeS_attr],
                 [Fe3_fe, r"Fe$^{3+}$ [wt% Fe]", Fe3_attr],
-                [Fe2_fe_sorbed, r"Fe$^{2+}_{sorbed}$ [wt% Fe]", Fe2_s_attr],
+                # [Fe2_fe_sorbed, r"Fe$^{2+}_{sorbed}$ [wt% Fe]", Fe2_s_attr],
                 # [
                 #     total_iron,
                 #     r"TFe [wt% Fe]",
@@ -128,7 +128,7 @@ def get_layout(df):
                 # [df.f_r_FeS_precipitation_TS2, r"FeS_precipitation_TS2", FeS_attr],
                 # [df.f_Fe2_total, r"Fe$^{2+}_{liq}$", Fe2_l_attr],
                 [df.f_FeS, "FeS", FeS_attr],
-                [df.f_Fe3, r"Fe${3+}$", Fe3_attr],
+                [df.f_Fe3, r"Fe$^{3+}$", Fe3_attr],
                 # [df.f_FeS2, r"FeS$_{2}$", FeS2_attr_nf],
                 # [
                 #     df.f_r_sulfide_mediated_iron_reduction_S0,
@@ -168,7 +168,7 @@ def get_layout(df):
                 # "ylim": (-15, 75),
                 # "right": [[df.d_h2s, "d_h2s", {"color": "C1"}]],
                 # "yscale": "log",
-                "options-left": "set_ylim(-50, 40)",
+                "options-left": "set_ylim(-60, 40)",
             },
         })
 
