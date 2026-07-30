@@ -770,28 +770,107 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
         f32_default = 1.0 / (1.0 + mp.VCDT)
         f32_hs = np.where(hs_val_np > 1e-6, hs_32_val / (hs_val_np + 1e-30), f32_default)
         f32_hs = np.clip(f32_hs, 0.5, 1.5)
-        
-        # Effective bulk precipitation rate (mmol/L_bulk/s)
-        R_prec_bulk_eff = k_prec_eff * mm_factor_prec * is_prec_active
-        R_prec_32 = R_prec_bulk_eff * f32_hs
 
-        # Exact physical rate sources/sinks
-        add_explicit_source(RHS, RATES, "TS2_32", -R_prec_32, mp=mp, has_solid=False)
-        add_explicit_source(RHS, RATES, "FeS_32", R_prec_32, mp=mp, has_solid=True)
+        # Congruent matrix coupling for TS2_32 -> FeS_32
+        add_implicit_coupling_new(
+            CROSS,
+            RATES,
+            LHS,
+            target_species="FeS_32",
+            source_species="TS2_32",
+            coeff=prec_coeff_TS2,
+            rate=prec_rate_TS2 * f32_hs,
+            mp=mp,
+            has_solid=has_solid_prec,
+            add_lhs_sink=False,
+            stoich_ratio=1.0,
+        )
+        add_implicit_sink(
+            LHS,
+            RATES,
+            "TS2_32",
+            prec_coeff_TS2,
+            prec_rate_TS2 * f32_hs,
+            mp=mp,
+            has_solid=has_solid_prec,
+        )
+
+        CROSS["TS2_32"].append(("Fe2_total", -prec_coeff_Fe2 * f32_hs * phi))
+        CROSS["FeS_32"].append(("Fe2_total", +prec_coeff_Fe2 * f32_hs * phi))
+        RATES["TS2_32"] -= prec_rate_Fe2 * f32_hs * phi
+        RATES["FeS_32"] += prec_rate_Fe2 * f32_hs * phi
+
+        prec_res_rate_32 = prec_res_rate * f32_hs
+        add_explicit_source(RHS, RATES, "FeS_32", prec_res_rate_32, mp=mp, has_solid=has_solid_prec)
+        add_explicit_source(RHS, RATES, "TS2_32", -prec_res_rate_32, mp=mp, has_solid=has_solid_prec)
 
         # 2. Dissolution (FeS_32 -> TS2_32)
         FeS_val_np = np.asarray(c.FeS.value)
         FeS_32_val = np.asarray(c.FeS_32.value)
-        f32_FeS = np.where(FeS_val_np > 1e-6, FeS_32_val / (FeS_val_np + 1e-30), f32_default)
+        f32_FeS = np.where(FeS_val_np > 1e-3, FeS_32_val / (FeS_val_np + 1e-30), f32_hs)
         f32_FeS = np.clip(f32_FeS, 0.5, 1.5)
-        
-        # Effective bulk dissolution rate (mmol/L_bulk/s)
-        R_diss_bulk_eff = diss_rate_FeS
-        R_diss_32 = R_diss_bulk_eff * f32_FeS
 
-        # Exact physical rate sources/sinks
-        add_explicit_source(RHS, RATES, "FeS_32", -R_diss_32, mp=mp, has_solid=True)
-        add_explicit_source(RHS, RATES, "TS2_32", R_diss_32, mp=mp, has_solid=False)
+        add_implicit_coupling_new(
+            CROSS,
+            RATES,
+            LHS,
+            target_species="TS2_32",
+            source_species="FeS_32",
+            coeff=diss_coeff_FeS,
+            rate=diss_rate_FeS * f32_FeS,
+            mp=mp,
+            has_solid=has_solid,
+            add_lhs_sink=True,
+            stoich_ratio=1.0,
+        )
+
+        CROSS["FeS_32"].append(("Fe2_total", +diss_cross_Fe2 * f32_FeS * (1.0 - phi)))
+        CROSS["FeS_32"].append(("TS2", +diss_cross_TS2 * f32_FeS * (1.0 - phi)))
+        CROSS["TS2_32"].append(("Fe2_total", -diss_cross_Fe2 * f32_FeS * (1.0 - phi)))
+        CROSS["TS2_32"].append(("TS2", -diss_cross_TS2 * f32_FeS * (1.0 - phi)))
+
+        diss_res_rate_32 = diss_res_rate * f32_FeS
+        add_explicit_source(RHS, RATES, "TS2_32", diss_res_rate_32, mp=mp, has_solid=has_solid)
+        add_explicit_source(RHS, RATES, "FeS_32", -diss_res_rate_32, mp=mp, has_solid=has_solid)
+
+        # Optional debug logger (defaults to True if isotopes enabled)
+        if getattr(mp, "debug_fes_isotopes", True):
+            _debug_fes_isotopes_report(c, mp, omega, is_prec_active, is_diss_active, f32_hs, f32_FeS)
+
+
+def _debug_fes_isotopes_report(c, mp, omega, is_prec_active, is_diss_active, f32_hs, f32_FeS):
+    import numpy as np
+    from fipyrite.diff_lib import get_delta
+    
+    d_TS2 = get_delta(c.TS2.value, c.TS2_32.value, mp.VCDT)
+    d_FeS = get_delta(c.FeS.value, c.FeS_32.value, mp.VCDT)
+    omega_np = np.asarray(omega)
+    fes_val = np.asarray(c.FeS.value)
+    ts2_val = np.asarray(c.TS2.value)
+    
+    experiment_name = getattr(mp, 'experiment', 'pyrite_model')
+    log_file = f"{experiment_name}.log"
+    
+    max_omega = float(np.max(omega_np)) if len(omega_np) > 0 else 0.0
+    max_fes = float(np.max(fes_val)) if len(fes_val) > 0 else 0.0
+    valid_d_fes = d_FeS[~np.isnan(d_FeS)]
+    max_d_fes = float(np.max(valid_d_fes)) if len(valid_d_fes) > 0 else np.nan
+    min_d_fes = float(np.min(valid_d_fes)) if len(valid_d_fes) > 0 else np.nan
+
+    # Identify cells where FeS is present (> 1e-8) OR Omega > 0.5
+    mask = (fes_val > 1e-8) | (omega_np >= 0.5)
+    idx_cells = np.where(mask)[0]
+    
+    if len(idx_cells) > 0:
+        with open(log_file, "a") as f:
+            f.write(f"  [DEBUG FeS ISOTOPES] max_Omega={max_omega:.4f}, max_FeS={max_fes:.3e}, d_FeS_range=[{min_d_fes:.1f}, {max_d_fes:.1f}]‰ ({len(idx_cells)} active cells)\n")
+            for i in idx_cells[:20]:
+                f.write(
+                    f"    Cell {i:4d}: Omega={omega_np[i]:.4f}, "
+                    f"TS2={ts2_val[i]:.3e}, d_TS2={d_TS2[i]:.2f}‰, "
+                    f"FeS={fes_val[i]:.3e}, d_FeS={d_FeS[i]:.2f}‰, "
+                    f"f32_hs={f32_hs[i]:.6f}, f32_FeS={f32_FeS[i]:.6f}\n"
+                )
 
 
 def sulfide_mediated_iron_reduction_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
@@ -960,63 +1039,3 @@ def sulfide_mediated_iron_reduction_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
 
 
-def hs_oxidation_bak(c, k, lim, LHS, RHS, RATES, CROSS, mp):
-    """Reaction: 1 HS + 0.5 O2 -> 1 S0."""
-    has_solid = False  # True if the reactants contain a solid phase species
-    # H2S Sink - LIQUID
-    # Ref: H2S
-    coeff_TS2 = k.TS2_O2 * c.O2 * mp.hs_frac
-
-    # O2 Sink (0.5x) - LIQUID
-    coeff_O2 = 0.5 * k.TS2_O2 * c.TS2 * mp.hs_frac
-    add_implicit_sink(
-        LHS,
-        RATES,
-        "O2",
-        coeff_O2,
-        coeff_O2 * c.O2,
-        mp=mp,
-        has_solid=has_solid,
-        c=c,
-    )
-
-    # S0 Source (1.0x) - SOLID, Couple to H2S
-    add_coupled_reaction(
-        CROSS=CROSS,
-        LHS=LHS,
-        RATES=RATES,
-        mp=mp,
-        master_species="TS2",
-        reactants={},
-        products={"S0": 1.0},
-        coeff_master=coeff_TS2,
-        rate_master=coeff_TS2 * c.TS2,
-        has_solid=has_solid,
-        reaction_name="hs_oxidation",
-        ref_species="TS2",
-    )
-
-    if mp.isotopes:
-        alpha = 1.0 + (mp.TS2_O2_alpha - 1.0) * lim["TS2_alpha_explicit"]
-        hs_32 = partition_equilibrium_isotope_32(
-            c.TS2_32, mp.hs_frac, mp.h2s_frac, mp.h2s_hs_alpha
-        )
-        coeff_TS2_32 = calculate_fractionated_coeff_32(
-            coeff_TS2, c.TS2 * mp.hs_frac, hs_32, alpha, eps=1e-20
-        )
-
-        # S0_32 coupled to H2S_32
-        add_coupled_reaction(
-            CROSS=CROSS,
-            LHS=LHS,
-            RATES=RATES,
-            mp=mp,
-            master_species="TS2_32",
-            reactants={},
-            products={"S0_32": 1.0},
-            coeff_master=coeff_TS2_32,
-            rate_master=coeff_TS2_32 * c.TS2_32,
-            has_solid=has_solid,
-            reaction_name="hs_oxidation_32",
-            ref_species="TS2",
-        )
