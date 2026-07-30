@@ -150,7 +150,6 @@ def _get_solver(mp: Any) -> Any:
         if getattr(mp, "solver_monitor", False):
             PETSc.Options().setValue("ksp_monitor", "")
             PETSc.Options().setValue("ksp_converged_reason", "")
-        PETSc.Options().setValue("ksp_converged_use_initial_residual_norm", "")
 
         # PETSc version-specific fix for converged reason constants
         if not hasattr(PETSc.KSP.ConvergedReason, "CONVERGED_ATOL_NORMAL"):
@@ -685,10 +684,12 @@ def run_non_steady_state_solver_coupled(
                 time_str = f" Time: {get_time_units(total_time):.2f~P}"
                 if mp.isotopes:
                     d34s = get_total_delta(c, mp)
+                    fes_mask = c.FeS.value > 1e-5
+                    d_fes_max = float(np.nanmax(get_delta(c.FeS.value[fes_mask], c.FeS_32.value[fes_mask], mp.VCDT))) if np.any(fes_mask) else np.nan
                     _log(
                         f"Step {step:4d}, {time_str}, "
                         f"dt: {get_time_units(current_dt):.2f~P}, RMS Chg: {rms_change:.2e}, "
-                        f"d34S = {d34s:.2f}, "
+                        f"d34S = {d34s:.2f}, max_dFeS = {d_fes_max:.1f}, "
                         f"Total Fe {m_fe:.2e}"
                     )
                     d34S = get_delta(2 * c.FeS2[-1], c.FeS2_32[-1], mp.VCDT)
