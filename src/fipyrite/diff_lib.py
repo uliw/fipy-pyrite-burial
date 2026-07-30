@@ -148,8 +148,8 @@ def get_delta(c, li, r):
         ratio = h / li_safe
 
         # 2. Thresholding for NaN
-        # If total concentration is effectively zero, delta is undefined (NaN)
-        d = np.where(c_safe < 1e-4, np.nan, 1000 * (ratio - r) / r)
+        # If total concentration is effectively zero (< 1e-3 mmol/L = 1 uM), delta is undefined (NaN)
+        d = np.where(c_safe < 1e-3, np.nan, 1000 * (ratio - r) / r)
 
         # 3. Clipping Extreme Values
         # Delta values below -999 or above extreme limits are usually numerical artifacts at trace levels.
