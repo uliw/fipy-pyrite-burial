@@ -1,5 +1,6 @@
 # Auto-generated reaction functions
 
+from fipy.tools import numerix as nx
 from fipyrite.diff_lib import add_coupled_reaction, add_implicit_sink, calculate_fractionated_coeff_32, partition_equilibrium_isotope_32
 
 def aerobic_respiration(c, k, lim, LHS, RHS, RATES, CROSS, mp):
@@ -92,9 +93,18 @@ def hs_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     has_solid = False
     HS = c.TS2 * mp.hs_frac
     k_val = mp.k.get('TS2_O2') if hasattr(mp, 'k') else k.get('TS2_O2', 0.0)
-    rate_base = k_val * HS * c.O2
+
+    # Smooth Sigmoidal / Tanh switches for O2 and TS2
+    # Km chosen so that tanh(C / Km) >= 0.995 (>= 99.5% full rate) when C >= 0.5e-3 mmol/L
+    Km_O2 = 0.5e-3 / 3.0
+    Km_TS2 = 0.5e-3 / 3.0
+    lim_O2 = nx.tanh(c.O2 / Km_O2)
+    lim_TS2 = nx.tanh(c.TS2 / Km_TS2)
+    lim_dual = lim_O2 * lim_TS2
+
+    rate_base = k_val * HS * c.O2 * lim_dual
     rate_master = rate_base
-    coeff_master = k_val * 1.0 * mp.hs_frac * c.O2
+    coeff_master = k_val * 1.0 * mp.hs_frac * c.O2 * lim_dual
     add_coupled_reaction(
         CROSS=CROSS,
         LHS=LHS,
@@ -110,7 +120,7 @@ def hs_oxidation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
         ref_species='TS2',
         stoich_ref=2.0,
     )
-    coeff_O2 = ((1) / 2.0) * k_val * HS * 1.0
+    coeff_O2 = ((1) / 2.0) * k_val * HS * 1.0 * lim_dual
     add_implicit_sink(LHS, RATES, 'O2', coeff_O2, ((1) / 2.0) * rate_base, mp=mp, has_solid=has_solid, c=c)
     if mp.isotopes:
         alpha = 1.0 + (mp.TS2_O2_alpha - 1.0) * lim['TS2_alpha_explicit']
