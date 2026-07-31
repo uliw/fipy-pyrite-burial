@@ -148,13 +148,10 @@ def get_delta(c, li, r):
         ratio = h / li_safe
 
         # 2. Thresholding for NaN
-        # If total concentration is effectively zero (< 1e-3 mmol/L = 1 uM), delta is undefined (NaN)
-        d = np.where(c_safe < 1e-3, np.nan, 1000 * (ratio - r) / r)
+        # If light isotope concentration is below 1 nmol/L (1e-6 mmol/L), delta is undefined (NaN)
+        d = np.where(li < 1e-6, np.nan, 1000 * (ratio - r) / r)
 
         # 3. Clipping Extreme Values
-        # Delta values below -999 or above extreme limits are usually numerical artifacts at trace levels.
-        # -1000 is the mathematical limit for 100% light isotope (0% heavy),
-        # so anything significantly below -1000 is impossible.
         d = np.clip(d, -1000.0, 1000.0)
 
     return d
@@ -164,12 +161,17 @@ def get_delta_from_concentration(c, li, r):
     """Calculate the delta from the mass of light and heavy isotope.
 
     :param c: total mass/concentration
-    :param l: light isotope mass/concentration
+    :param li: light isotope mass/concentration
     :param r: reference ratio
 
     """
-    h = c - li
-    d = 1000 * (h / li - r) / r
+    with np.errstate(divide="ignore", invalid="ignore"):
+        li_safe = np.maximum(li, 1e-30)
+        c_safe = np.maximum(c, li_safe)
+        h = c_safe - li_safe
+        ratio = h / li_safe
+        d = np.where(li < 1e-6, np.nan, 1000 * (ratio - r) / r)
+        d = np.clip(d, -1000.0, 1000.0)
 
     return d
 
