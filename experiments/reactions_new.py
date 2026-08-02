@@ -827,14 +827,15 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
         CROSS["FeS_32"].append(("Fe2_total", +diss_cross_Fe2 * f32_FeS * (1.0 - phi)))
         CROSS["FeS_32"].append(("TS2", +diss_cross_TS2 * f32_FeS * (1.0 - phi)))
         CROSS["TS2_32"].append(("Fe2_total", -diss_cross_Fe2 * f32_FeS * (1.0 - phi)))
-        CROSS["TS2_32"].append(("TS2", -diss_cross_TS2 * f32_FeS * (1.0 - phi)))
+        CROSS["TS2_32"].append(("TS2_32", -diss_cross_TS2 * (1.0 - phi)))
 
         diss_res_rate_32 = diss_res_rate * f32_FeS
         add_explicit_source(RHS, RATES, "TS2_32", diss_res_rate_32, mp=mp, has_solid=has_solid)
         add_explicit_source(RHS, RATES, "FeS_32", -diss_res_rate_32, mp=mp, has_solid=has_solid)
 
-        # Optional debug logger (defaults to True if isotopes enabled)
-        if getattr(mp, "debug_fes_isotopes", True):
+        # Verbose debug logger (disabled by default to prevent log bloat)
+        import os
+        if getattr(mp, "debug_verbose_fes", False) or os.environ.get("DEBUG_VERBOSE_FES"):
             _debug_fes_isotopes_report(c, mp, omega, is_prec_active, is_diss_active, f32_hs, f32_FeS)
 
 
