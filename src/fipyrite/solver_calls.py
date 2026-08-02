@@ -443,6 +443,45 @@ def run_non_steady_state_solver_coupled(
     prev_dt = getattr(mp, "dt_init", mp.dt_min)
     prev_dt_2 = prev_dt
 
+    # --- Initialize Dynamic Isotope dt Limiter ---
+    enable_isotope_dt_limiter = getattr(mp, "enable_isotope_dt_limiter", False)
+    isotope_limiter_species = getattr(mp, "isotope_limiter_species", "FeS")
+    isotope_onset_threshold = getattr(mp, "isotope_onset_threshold", 1e-5)
+    dt_max_isotope = getattr(mp, "dt_max_isotope", None)
+
+    if enable_isotope_dt_limiter and getattr(mp, "isotopes", False):
+        dz = getattr(mp, "reaction_zone_spacing", 0.0001)
+        w = max(getattr(mp, "w", 0.0), 1e-20)
+        
+        # Base CFL limit: dz / w
+        dx_eff = dz
+        
+        # Account for kinetics if FeS is monitored
+        if isotope_limiter_species == "FeS" and hasattr(k, "FeS_isp"):
+            D_TS2 = np.max(D_mol.TS2) if hasattr(D_mol, "TS2") else 1e-9
+            Hplus = getattr(k, "Hplus", 10**-7.5 * 1e3)
+            FeS_sp = getattr(k, "FeS_sp", 10**-3.5 * 1e3)
+            hs_frac = getattr(mp, "hs_frac", 0.5)
+            Fe2_pw = 0.1 * getattr(mp, "Fe2_diss", 1.0)
+            
+            omega_den = Hplus * FeS_sp + 1e-30
+            dO_dTS2 = Fe2_pw * hs_frac / omega_den
+            k_prec = k.FeS_isp
+            k_eff = k_prec * 2.0 * dO_dTS2
+            
+            if k_eff > 0:
+                lambda_rxn = np.sqrt(D_TS2 / k_eff)
+            else:
+                lambda_rxn = dz
+            dx_eff = max(dz, lambda_rxn)
+            
+        if dt_max_isotope is None:
+            # safety factor of 0.4 ensures we are safely within grid-cell CFL limit (e.g. CFL=0.38)
+            dt_max_isotope = 0.4 * dx_eff / w
+        
+        mp.dt_max_isotope = dt_max_isotope
+        _log(f"Isotope dt Limiter: Calculated dt_max_isotope = {get_time_units(dt_max_isotope):.4f~P} (dx_eff = {dx_eff*1000:.3f} mm, w = {w*3.1536e7*100:.3f} cm/yr)")
+
     # Global CFL bound (optional safety)
     dx = mesh.cellVolumes.min() ** (1 / mesh.dim)
     v_max = max(abs(getattr(mp, "w", 0.0)), abs(getattr(mp, "advection", 0.0)))
@@ -671,6 +710,14 @@ def run_non_steady_state_solver_coupled(
                     step_success=True,
                     target_error=adaptive_target,
                 )
+
+            # --- Apply Dynamic Isotope dt Limiter ---
+            if enable_isotope_dt_limiter and getattr(mp, "isotopes", False):
+                if isotope_limiter_species in c:
+                    max_conc = np.max(c[isotope_limiter_species].value)
+                    if max_conc > isotope_onset_threshold:
+                        dt_controller._dt = min(dt_controller._dt, dt_max_isotope)
+                        dt_controller._dt_prev = min(dt_controller._dt_prev, dt_max_isotope)
             if step % mp.backup_step == 0:
                 gc.collect()
                 save_state(c, f"{mp.plot_name}_bak.npz")
