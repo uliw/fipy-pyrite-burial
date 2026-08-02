@@ -684,13 +684,24 @@ def run_non_steady_state_solver_coupled(
                 time_str = f" Time: {get_time_units(total_time):.2f~P}"
                 if mp.isotopes:
                     d34s = get_total_delta(c, mp)
-                    fes_mask = c.FeS.value > 1e-5
-                    d_fes_max = float(np.nanmax(get_delta(c.FeS.value[fes_mask], c.FeS_32.value[fes_mask], mp.VCDT))) if np.any(fes_mask) else np.nan
+                    fes_mask = c.FeS.value > 1e-3
+                    d_fes = get_delta(c.FeS.value[fes_mask], c.FeS_32.value[fes_mask], mp.VCDT) if np.any(fes_mask) else np.array([])
+                    v_fes = d_fes[~np.isnan(d_fes)]
+                    min_dFeS = float(np.min(v_fes)) if len(v_fes) > 0 else np.nan
+                    max_dFeS = float(np.max(v_fes)) if len(v_fes) > 0 else np.nan
+
+                    ts2_mask = c.TS2.value > 1e-3
+                    d_ts2 = get_delta(c.TS2.value[ts2_mask], c.TS2_32.value[ts2_mask], mp.VCDT) if np.any(ts2_mask) else np.array([])
+                    v_ts2 = d_ts2[~np.isnan(d_ts2)]
+                    min_dTS2 = float(np.min(v_ts2)) if len(v_ts2) > 0 else np.nan
+                    max_dTS2 = float(np.max(v_ts2)) if len(v_ts2) > 0 else np.nan
+
                     _log(
                         f"Step {step:4d}, {time_str}, "
-                        f"dt: {get_time_units(current_dt):.2f~P}, RMS Chg: {rms_change:.2e}, "
-                        f"d34S = {d34s:.2f}, max_dFeS = {d_fes_max:.1f}, "
-                        f"Total Fe {m_fe:.2e}"
+                        f"dt: {get_time_units(current_dt):.2f~P}, RMS: {rms_change:.2e}, "
+                        f"d34S = {d34s:.2f}, "
+                        f"dTS2: [{min_dTS2:.1f}, {max_dTS2:.1f}]‰, "
+                        f"dFeS: [{min_dFeS:.1f}, {max_dFeS:.1f}]‰"
                     )
                     d34S = get_delta(2 * c.FeS2[-1], c.FeS2_32[-1], mp.VCDT)
                     if mp.title is None:
