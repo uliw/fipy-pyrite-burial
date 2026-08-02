@@ -212,3 +212,47 @@ def test_rate_adaptation_noise_ignored(mock_save_state, mock_save_data, mock_upd
     assert len(dts) == 3
     assert dts[1] == pytest.approx(6.0)
     assert dts[2] == pytest.approx(7.2)
+
+@patch("fipyrite.solver_calls._setup_static_coupled_equation")
+@patch("fipyrite.solver_calls._update_static_coefficients")
+@patch("fipyrite.solver_calls.save_data")
+@patch("fipyrite.solver_calls.save_state")
+def test_isotope_dt_limiter(mock_save_state, mock_save_data, mock_update_coeffs, mock_setup_eq, solver_inputs):
+    """Test that the dynamic isotope dt limiter caps dt once species concentration exceeds threshold."""
+    mp, c, k, mesh, D_mol, bc_map, z = solver_inputs
+    
+    mp.isotopes = True
+    mp.enable_isotope_dt_limiter = True
+    mp.isotope_limiter_species = "FeS"
+    mp.isotope_onset_threshold = 1e-5
+    mp.reaction_zone_spacing = 0.0001
+    mp.w = 1e-5  # fast sedimentation to yield dt_max_isotope = 4.0 s
+    
+    c["FeS"].setValue(0.0)
+    
+    mock_coupled_eq = MagicMock()
+    mock_setup_eq.return_value = (mock_coupled_eq, {}, {}, {})
+    
+    rates = {"FeS": np.array([1e-8, 1e-8, 1e-8]), "TS2": np.array([1e-8, 1e-8, 1e-8])}
+    mock_update_coeffs.return_value = rates
+    
+    dts = []
+    def sweep_side_effect(dt, solver):
+        dts.append(dt)
+        if len(dts) == 2:
+            c["FeS"].setValue(2e-5)
+        return 0.0
+    mock_coupled_eq.sweep.side_effect = sweep_side_effect
+    
+    step, rms = run_non_steady_state_solver_coupled(
+        mp, c, ["FeS", "TS2"], ["FeS", "TS2"], k, MagicMock(), MagicMock(), mesh, D_mol, bc_map, z
+    )
+    
+    # Step 1: FeS = 0.0 -> next dt grows to 6.0 s
+    # Step 2: FeS = 2e-5 -> onset detected! next dt grows to 7.2 s but capped to dt_max_isotope = 4.0 s
+    # Step 3: dt = 4.0 s
+    assert len(dts) == 3
+    assert dts[0] == pytest.approx(5.0)
+    assert dts[1] == pytest.approx(6.0)
+    assert dts[2] == pytest.approx(4.0)
+
