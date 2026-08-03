@@ -8,7 +8,7 @@ import time
 import traceback
 from dataclasses import dataclass
 from functools import reduce
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Callable
 
 from fipy import CellVariable
 from fipy.terms.diffusionTerm import DiffusionTerm
@@ -385,9 +385,207 @@ def _update_static_coefficients(
         cross_list = f_res.raw_CROSS[s]
         for v_cross, (source_name, coeff) in zip(CROSS_vars[s], cross_list):
             v_cross.setValue(get_val(coeff))
-
     RATES_numpy = {key: get_val(val) for key, val in RATES.items()}
     return RATES_numpy
+
+
+def _calculate_dt_max_isotope(mp: Any, k: Any, D_mol: Any) -> float:
+    """Calculates the maximum timestep constraint for isotope coupling dynamically
+    based on the pseudo-first-order kinetic relaxation rate k_eff.
+
+    Formula:
+        dt_max_isotope = min(dt_max_user, gamma / k_eff)
+    where gamma = 200.0 is the dimensionless kinetic coupling factor.
+    """
+    dt_max_user = float(getattr(mp, "dt_max_isotope", getattr(mp, "dt_max", 604800.0)))
+    
+    isotope_limiter_species = getattr(mp, "isotope_limiter_species", "FeS")
+    if isotope_limiter_species == "FeS" and hasattr(k, "FeS_isp"):
+        k_prec = float(getattr(k, "FeS_isp", 0.0))
+        Hplus = float(getattr(k, "Hplus", 3.162e-5))
+        FeS_sp = float(getattr(k, "FeS_sp", 0.3162))
+        hs_frac = float(getattr(mp, "hs_frac", 0.76))
+        
+        bc_Fe3 = float(getattr(mp, "bc_Fe3", 0.0))
+        w = max(float(getattr(mp, "w", 0.0)), 1e-20)
+        phi_val = getattr(mp, "phi", 0.8)
+        if hasattr(phi_val, "value"):
+            phi_val = phi_val.value[0] if hasattr(phi_val.value, "__getitem__") else float(phi_val.value)
+        phi_val = float(phi_val)
+        Fe2_diss = float(getattr(mp, "Fe2_diss", 1.0))
+        
+        if bc_Fe3 > 0.0:
+            Fe2_pw = (bc_Fe3 * Fe2_diss) / (w * phi_val)
+        else:
+            Fe2_pw = 0.1
+            
+        omega_den = Hplus * FeS_sp + 1e-30
+        dO_dTS2 = Fe2_pw * hs_frac / omega_den
+        k_eff = k_prec * 2.0 * dO_dTS2
+        
+        if k_eff > 0:
+            gamma = float(getattr(mp, "isotope_gamma", 200.0))
+            dt_kinetic = gamma / k_eff
+            return float(min(dt_max_user, dt_kinetic))
+
+    return dt_max_user
+
+
+def _validate_rates(
+    monitored_rate_species: List[str],
+    RATES_tentative: Dict[str, np.ndarray],
+    prev_rates: Dict[str, np.ndarray],
+    prev_rates_2: Dict[str, np.ndarray],
+    current_dt: float,
+    prev_dt: float,
+    prev_dt_2: float,
+    rate_threshold: float,
+    enable_rate_magnitude_check: bool,
+) -> Tuple[bool, str]:
+    """Performs rate validation checks (consecutive sign changes and magnitude checks)."""
+    violation = False
+    violation_reason = ""
+    for name in monitored_rate_species:
+        if name not in RATES_tentative or name not in prev_rates:
+            continue
+        
+        r_tentative = np.asarray(RATES_tentative[name])
+        r_prev = np.asarray(prev_rates[name])
+
+        c_change_tentative = r_tentative * current_dt
+        c_change_prev = r_prev * prev_dt
+        
+        # 1. Sign change check
+        mask_sign = (np.abs(c_change_prev) >= rate_threshold) & (np.abs(c_change_tentative) >= rate_threshold)
+        if np.any(mask_sign):
+            abs_change = np.abs(c_change_tentative - c_change_prev)
+            flipped_tentative = (c_change_tentative * c_change_prev < 0) & (abs_change >= 5.0 * rate_threshold)
+            
+            if name in prev_rates_2:
+                r_prev_2 = np.asarray(prev_rates_2[name])
+                c_change_prev_2 = r_prev_2 * prev_dt_2
+                mask_sign_prev = (np.abs(c_change_prev_2) >= rate_threshold) & (np.abs(c_change_prev) >= rate_threshold)
+                abs_change_prev = np.abs(c_change_prev - c_change_prev_2)
+                flipped_prev = (c_change_prev * c_change_prev_2 < 0) & (abs_change_prev >= 5.0 * rate_threshold)
+                osc_mask = mask_sign & mask_sign_prev & flipped_tentative & flipped_prev
+            else:
+                osc_mask = np.zeros_like(mask_sign, dtype=bool)
+
+            if np.any(osc_mask):
+                idx = np.where(osc_mask)[0][0]
+                violation = True
+                r_prev_2 = np.asarray(prev_rates_2[name])
+                violation_reason = (
+                    f"Consecutive sign changes (oscillation) in {name} rate at cell {idx} "
+                    f"(prev2 rate: {r_prev_2[idx]:.2e}, prev rate: {r_prev[idx]:.2e}, tentative rate: {r_tentative[idx]:.2e}, conc_change: {abs_change[idx]:.2e} mmol/L)"
+                )
+                break
+        
+        # 2. Order-of-magnitude check
+        if enable_rate_magnitude_check:
+            mask_magnitude = (np.abs(c_change_prev) >= rate_threshold) & (np.abs(r_prev) >= 1e-8)
+            if np.any(mask_magnitude):
+                ratio = np.abs(c_change_tentative[mask_magnitude]) / np.abs(c_change_prev[mask_magnitude])
+                large_increase = ratio > 10.0
+                if np.any(large_increase):
+                    idx = np.where(mask_magnitude)[0][np.where(large_increase)[0][0]]
+                    violation = True
+                    violation_reason = (
+                        f"Order-of-magnitude rate increase in {name} at cell {idx} "
+                        f"(prev: {r_prev[idx]:.2e}, tentative: {r_tentative[idx]:.2e}, ratio: {ratio[large_increase][0]:.2f})"
+                    )
+                    break
+                    
+    return violation, violation_reason
+
+
+def _report_step_status(
+    step: int,
+    total_time: float,
+    current_dt: float,
+    rms_change: float,
+    mp: Any,
+    c: Any,
+    z: np.ndarray,
+    species_list_full: List[str],
+    D_mol: Any,
+    diagenetic_reactions: Any,
+    equilibrium_reactions: Any,
+    plot_queue: Optional[Any],
+    _log: Callable[[str], None],
+) -> None:
+    """Logs current step status parameters and triggers async data/plot saving."""
+    from .diff_lib import get_delta, get_total_delta
+    
+    phi = mp.phi
+    dz = np.diff(z)
+    fe_total_bulk = phi * c.Fe2_total + (1 - phi) * (c.Fe3 + c.FeS + c.FeS2)
+    m_fe = np.sum(dz * fe_total_bulk[:-1]).value
+    time_str = f" Time: {get_time_units(total_time):.2f~P}"
+    
+    if mp.isotopes:
+        d34s = get_total_delta(c, mp)
+        fes_mask = c.FeS.value > 1e-3
+        d_fes = get_delta(c.FeS.value[fes_mask], c.FeS_32.value[fes_mask], mp.VCDT) if np.any(fes_mask) else np.array([])
+        v_fes = d_fes[~np.isnan(d_fes)]
+        min_dFeS = float(np.min(v_fes)) if len(v_fes) > 0 else np.nan
+        max_dFeS = float(np.max(v_fes)) if len(v_fes) > 0 else np.nan
+
+        ts2_mask = c.TS2.value > 1e-3
+        d_ts2 = get_delta(c.TS2.value[ts2_mask], c.TS2_32.value[ts2_mask], mp.VCDT) if np.any(ts2_mask) else np.array([])
+        v_ts2 = d_ts2[~np.isnan(d_ts2)]
+        min_dTS2 = float(np.min(v_ts2)) if len(v_ts2) > 0 else np.nan
+        max_dTS2 = float(np.max(v_ts2)) if len(v_ts2) > 0 else np.nan
+
+        _log(
+            f"Step {step:4d}, {time_str}, "
+            f"dt: {get_time_units(current_dt):.2f~P}, RMS: {rms_change:.2e}, "
+            f"d34S = {d34s:.2f}, "
+            f"dTS2: [{min_dTS2:.1f}, {max_dTS2:.1f}]‰, "
+            f"dFeS: [{min_dFeS:.1f}, {max_dFeS:.1f}]‰"
+        )
+        if mp.title is None:
+            title_str = time_str + r", $\delta^{34}$S = " + f"{d34s:.1f} [mUr]"
+        else:
+            title_str = mp.title
+    else:
+        _log(
+            f"Step {step:4d}, {time_str}, "
+            f"dt: {get_time_units(current_dt):.2f~P}, RMS Chg: {rms_change:.2e}, "
+            f"Total Fe {m_fe:.2e}"
+        )
+        if mp.title is None:
+            title_str = time_str
+        else:
+            title_str = mp.title
+
+    if plot_queue is not None:
+        write_to_queue_async(
+            plot_queue,
+            mp,
+            c,
+            mp.k,
+            species_list_full,
+            z,
+            D_mol,
+            diagenetic_reactions,
+            equilibrium_reactions,
+            current_dt,
+            title_str,
+        )
+    else:
+        save_data_async(
+            mp,
+            c,
+            mp.k,
+            species_list_full,
+            z,
+            D_mol,
+            diagenetic_reactions,
+            equilibrium_reactions,
+            current_dt,
+            title=title_str,
+        )
 
 
 def run_non_steady_state_solver_coupled(
@@ -412,7 +610,6 @@ def run_non_steady_state_solver_coupled(
     2. Runs a time loop where reaction terms are updated and solved.
     3. Adapts the time step using a PID-controlled logic.
     """
-    #     import numpy as np
     from .diff_lib import get_delta, get_total_delta, save_state
 
     start_wall = time.time()
@@ -447,40 +644,15 @@ def run_non_steady_state_solver_coupled(
     enable_isotope_dt_limiter = getattr(mp, "enable_isotope_dt_limiter", False)
     isotope_limiter_species = getattr(mp, "isotope_limiter_species", "FeS")
     isotope_onset_threshold = getattr(mp, "isotope_onset_threshold", 1e-5)
-    dt_max_isotope = getattr(mp, "dt_max_isotope", None)
 
     if enable_isotope_dt_limiter and getattr(mp, "isotopes", False):
-        dz = getattr(mp, "reaction_zone_spacing", 0.0001)
-        w = max(getattr(mp, "w", 0.0), 1e-20)
-        
-        # Base CFL limit: dz / w
-        dx_eff = dz
-        
-        # Account for kinetics if FeS is monitored
-        if isotope_limiter_species == "FeS" and hasattr(k, "FeS_isp"):
-            D_TS2 = np.max(D_mol.TS2) if hasattr(D_mol, "TS2") else 1e-9
-            Hplus = getattr(k, "Hplus", 10**-7.5 * 1e3)
-            FeS_sp = getattr(k, "FeS_sp", 10**-3.5 * 1e3)
-            hs_frac = getattr(mp, "hs_frac", 0.5)
-            Fe2_pw = 0.1 * getattr(mp, "Fe2_diss", 1.0)
-            
-            omega_den = Hplus * FeS_sp + 1e-30
-            dO_dTS2 = Fe2_pw * hs_frac / omega_den
-            k_prec = k.FeS_isp
-            k_eff = k_prec * 2.0 * dO_dTS2
-            
-            if k_eff > 0:
-                lambda_rxn = np.sqrt(D_TS2 / k_eff)
-            else:
-                lambda_rxn = dz
-            dx_eff = max(dz, lambda_rxn)
-            
-        if dt_max_isotope is None:
-            # safety factor of 0.4 ensures we are safely within grid-cell CFL limit (e.g. CFL=0.38)
-            dt_max_isotope = 0.4 * dx_eff / w
-        
+        dt_max_isotope = _calculate_dt_max_isotope(mp, k, D_mol)
         mp.dt_max_isotope = dt_max_isotope
-        _log(f"Isotope dt Limiter: Calculated dt_max_isotope = {get_time_units(dt_max_isotope):.4f~P} (dx_eff = {dx_eff*1000:.3f} mm, w = {w*3.1536e7*100:.3f} cm/yr)")
+        w = max(getattr(mp, "w", 0.0), 1e-20)
+        dz = getattr(mp, "reaction_zone_spacing", 0.0001)
+        msg = f"Isotope dt Limiter: Calculated dt_max_isotope = {get_time_units(dt_max_isotope):.4f~P} (dz = {dz*1000:.3f} mm, w = {w*3.1536e7*100:.3f} cm/yr)"
+        _log(msg)
+        print(msg)
 
     # Global CFL bound (optional safety)
     dx = mesh.cellVolumes.min() ** (1 / mesh.dim)
@@ -549,7 +721,6 @@ def run_non_steady_state_solver_coupled(
                     coupled_eq.sweep(
                         dt=current_dt,
                         solver=solver,
-                        # underRelaxation=0.9, # currently failing
                     )
                     converged = True
 
@@ -592,74 +763,22 @@ def run_non_steady_state_solver_coupled(
 
                 # --- Rate Validation Check (A Posteriori) ---
                 if converged and enable_rate_adaptation and step >= rate_adaptation_start_step and prev_rates:
-                    violation = False
-                    violation_reason = ""
-                    for name in monitored_rate_species:
-                        if name not in RATES_tentative or name not in prev_rates:
-                            continue
-                        
-                        r_tentative = np.asarray(RATES_tentative[name])
-                        r_prev = np.asarray(prev_rates[name])
-
-                        # Convert rates (mmol/L/s) to concentration change over the step (mmol/L)
-                        # to make the threshold check independent of the time step size dt.
-                        c_change_tentative = r_tentative * current_dt
-                        c_change_prev = r_prev * prev_dt
-                        
-                        # 1. Sign change check (must be above threshold for both)
-                        mask_sign = (np.abs(c_change_prev) >= rate_threshold) & (np.abs(c_change_tentative) >= rate_threshold)
-                        if np.any(mask_sign):
-                            abs_change = np.abs(c_change_tentative - c_change_prev)
-                            # Tentative step flips sign if prev and tentative have opposite signs
-                            flipped_tentative = (c_change_tentative * c_change_prev < 0) & (abs_change >= 5.0 * rate_threshold)
-                            
-                            # We only reject the step if the sign flips consecutively (i.e. it also flipped in the previous step).
-                            # This allows a reaction front (which flips sign exactly once when crossing a cell) to propagate
-                            # without trapping the solver in small timestep loops.
-                            if name in prev_rates_2:
-                                r_prev_2 = np.asarray(prev_rates_2[name])
-                                c_change_prev_2 = r_prev_2 * prev_dt_2
-                                mask_sign_prev = (np.abs(c_change_prev_2) >= rate_threshold) & (np.abs(c_change_prev) >= rate_threshold)
-                                abs_change_prev = np.abs(c_change_prev - c_change_prev_2)
-                                flipped_prev = (c_change_prev * c_change_prev_2 < 0) & (abs_change_prev >= 5.0 * rate_threshold)
-                                osc_mask = mask_sign & mask_sign_prev & flipped_tentative & flipped_prev
-                            else:
-                                osc_mask = np.zeros_like(mask_sign, dtype=bool)
-
-                            if np.any(osc_mask):
-                                idx = np.where(osc_mask)[0][0]
-                                violation = True
-                                r_prev_2 = np.asarray(prev_rates_2[name])
-                                violation_reason = (
-                                    f"Consecutive sign changes (oscillation) in {name} rate at cell {idx} "
-                                    f"(prev2 rate: {r_prev_2[idx]:.2e}, prev rate: {r_prev[idx]:.2e}, tentative rate: {r_tentative[idx]:.2e}, conc_change: {abs_change[idx]:.2e} mmol/L)"
-                                )
-                                break
-                        
-                        # 2. Order-of-magnitude check (prev rate must be above threshold)
-                        if enable_rate_magnitude_check:
-                            # The concentration change must be significant, AND the rate itself must be >= 1e-8 mmol/L/s
-                            mask_magnitude = (np.abs(c_change_prev) >= rate_threshold) & (np.abs(r_prev) >= 1e-8)
-                            if np.any(mask_magnitude):
-                                ratio = np.abs(c_change_tentative[mask_magnitude]) / np.abs(c_change_prev[mask_magnitude])
-                                # Only check for rapid rate increases (ratio > 10.0)
-                                large_increase = ratio > 10.0
-                                if np.any(large_increase):
-                                    idx = np.where(mask_magnitude)[0][np.where(large_increase)[0][0]]
-                                    violation = True
-                                    violation_reason = (
-                                        f"Order-of-magnitude rate increase in {name} at cell {idx} "
-                                        f"(prev: {r_prev[idx]:.2e}, tentative: {r_tentative[idx]:.2e}, ratio: {ratio[large_increase][0]:.2f})"
-                                    )
-                                    break
-                                
+                    violation, violation_reason = _validate_rates(
+                        monitored_rate_species,
+                        RATES_tentative,
+                        prev_rates,
+                        prev_rates_2,
+                        current_dt,
+                        prev_dt,
+                        prev_dt_2,
+                        rate_threshold,
+                        enable_rate_magnitude_check,
+                    )
                     if violation:
                         _log(f"  Step rejected at dt={get_time_units(current_dt):.4f~P}: {violation_reason}. Rollback.")
-                        # Restore state
                         for s_obj in species_struct:
                             s_obj["var"].value[:] = s_obj["var"].old.value
                         
-                        # Force convergence loop to continue
                         converged = False
                         current_dt = dt_controller.update(0.0, step_success=False)
                         if current_dt <= mp.dt_min * 1.01:
@@ -668,8 +787,6 @@ def run_non_steady_state_solver_coupled(
                             )
 
             # --- Calculate Convergence Metrics ---
-            # Using Normalized RMS change to reduce sensitivity to grid resolution
-            # RMS = sqrt( mean( (c_new - c_old)**2 ) )
             rms_change = max(
                 float(
                     np.sqrt(np.mean((s_obj["var"].value - s_obj["var"].old.value) ** 2))
@@ -679,8 +796,6 @@ def run_non_steady_state_solver_coupled(
 
             # --- Dynamically adapt solver tolerance to prevent false steady-state convergence ---
             if getattr(mp, "adaptive_solver_tolerance", False):
-                # Keep solver tolerance tighter than current step-to-step changes (rms_change),
-                # capped between mp.tolerance (minimum) and 1e-4 (maximum/loosest).
                 new_tol = max(mp.tolerance, min(1e-4, rms_change * 0.1))
                 solver.tolerance = new_tol
 
@@ -698,15 +813,13 @@ def run_non_steady_state_solver_coupled(
 
             # --- Adapt Time Step for Next Iteration ---
             if enable_rate_adaptation:
-                # Bypass RMS-based PID adaptation. Just grow dt by growth_factor.
                 dt_controller._dt = min(dt_controller._dt * dt_controller.growth_factor, dt_controller.dt_max)
                 dt_controller._dt_prev = dt_controller._dt
             else:
-                # Use dt_target_change for adaptation, but default to something sane if missing
                 adaptive_target = getattr(mp, "dt_target_change", 1e-4)
                 dt_controller.update(
                     error_metric=rms_change,
-                    dt_cfl=None,  # DISABLE hard CFL cap for implicit solver
+                    dt_cfl=None,
                     step_success=True,
                     target_error=adaptive_target,
                 )
@@ -718,86 +831,30 @@ def run_non_steady_state_solver_coupled(
                     if max_conc > isotope_onset_threshold:
                         dt_controller._dt = min(dt_controller._dt, dt_max_isotope)
                         dt_controller._dt_prev = min(dt_controller._dt_prev, dt_max_isotope)
+
             if step % mp.backup_step == 0:
                 gc.collect()
                 save_state(c, f"{mp.plot_name}_bak.npz")
 
             # Reporting
-            if step % mp.report_step == 0:  # Force reporting for debug
-                phi = mp.phi
-                dz = np.diff(z)
-                fe_total_bulk = phi * c.Fe2_total + (1 - phi) * (c.Fe3 + c.FeS + c.FeS2)
-                m_fe = np.sum(dz * fe_total_bulk[:-1]).value
-                time_str = f" Time: {get_time_units(total_time):.2f~P}"
-                if mp.isotopes:
-                    d34s = get_total_delta(c, mp)
-                    fes_mask = c.FeS.value > 1e-3
-                    d_fes = get_delta(c.FeS.value[fes_mask], c.FeS_32.value[fes_mask], mp.VCDT) if np.any(fes_mask) else np.array([])
-                    v_fes = d_fes[~np.isnan(d_fes)]
-                    min_dFeS = float(np.min(v_fes)) if len(v_fes) > 0 else np.nan
-                    max_dFeS = float(np.max(v_fes)) if len(v_fes) > 0 else np.nan
-
-                    ts2_mask = c.TS2.value > 1e-3
-                    d_ts2 = get_delta(c.TS2.value[ts2_mask], c.TS2_32.value[ts2_mask], mp.VCDT) if np.any(ts2_mask) else np.array([])
-                    v_ts2 = d_ts2[~np.isnan(d_ts2)]
-                    min_dTS2 = float(np.min(v_ts2)) if len(v_ts2) > 0 else np.nan
-                    max_dTS2 = float(np.max(v_ts2)) if len(v_ts2) > 0 else np.nan
-
-                    _log(
-                        f"Step {step:4d}, {time_str}, "
-                        f"dt: {get_time_units(current_dt):.2f~P}, RMS: {rms_change:.2e}, "
-                        f"d34S = {d34s:.2f}, "
-                        f"dTS2: [{min_dTS2:.1f}, {max_dTS2:.1f}]‰, "
-                        f"dFeS: [{min_dFeS:.1f}, {max_dFeS:.1f}]‰"
-                    )
-                    d34S = get_delta(2 * c.FeS2[-1], c.FeS2_32[-1], mp.VCDT)
-                    if mp.title is None:
-                        title_str = (
-                            time_str + r", $\delta^{34}$S = " + f"{d34s:.1f} [mUr]"
-                        )
-                    else:
-                        title_str = mp.title
-                else:
-                    _log(
-                        f"Step {step:4d}, {time_str}, "
-                        f"dt: {get_time_units(current_dt):.2f~P}, RMS Chg: {rms_change:.2e}, "
-                        f"Total Fe {m_fe:.2e}"
-                    )
-                    if mp.title is None:
-                        title_str = time_str
-                    else:
-                        title_str = mp.title
-
-                if plot_queue is not None:
-                    write_to_queue_async(
-                        plot_queue,
-                        mp,
-                        c,
-                        k,
-                        species_list_full,
-                        z,
-                        D_mol,
-                        diagenetic_reactions,
-                        equilibrium_reactions,
-                        current_dt,
-                        title_str,
-                    )
-                else:
-                    save_data_async(
-                        mp,
-                        c,
-                        k,
-                        species_list_full,
-                        z,
-                        D_mol,
-                        diagenetic_reactions,
-                        equilibrium_reactions,
-                        current_dt,
-                        title=title_str,
-                    )
+            if step % mp.report_step == 0:
+                _report_step_status(
+                    step,
+                    total_time,
+                    current_dt,
+                    rms_change,
+                    mp,
+                    c,
+                    z,
+                    species_list_full,
+                    D_mol,
+                    diagenetic_reactions,
+                    equilibrium_reactions,
+                    plot_queue,
+                    _log,
+                )
 
             # Steady State Check
-            # if c.Fe3[-10] < 70:
             if rms_change < mp.dt_tolerance:
                 _log(
                     f"Steady State Met: rms_change {rms_change:.2e} < tolerance {mp.dt_tolerance:.2e}"
