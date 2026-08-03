@@ -226,7 +226,8 @@ def test_isotope_dt_limiter(mock_save_state, mock_save_data, mock_update_coeffs,
     mp.isotope_limiter_species = "FeS"
     mp.isotope_onset_threshold = 1e-5
     mp.reaction_zone_spacing = 0.0001
-    mp.w = 1e-5  # fast sedimentation to yield dt_max_isotope = 4.0 s
+    mp.w = 1e-5
+    mp.dt_max_isotope = 4.0  # Explicitly set limit for test
     
     c["FeS"].setValue(0.0)
     
