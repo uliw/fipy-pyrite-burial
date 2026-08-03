@@ -766,10 +766,16 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
         )
         hs_val_np = np.asarray(hs_val)
         hs_32_val = np.asarray(hs_32)
+        TS2_val_np = np.asarray(c.TS2.value)
+        TS2_32_val = np.asarray(c.TS2_32.value)
         
         f32_default = 1.0 / (1.0 + mp.VCDT)
         f32_hs = np.where(hs_val_np > 1e-6, hs_32_val / (hs_val_np + 1e-30), f32_default)
         f32_hs = np.clip(f32_hs, 0.5, 1.5)
+
+        # Bulk ratio of total sulfide for porewater sink (prevents d34S_TS2 distortion)
+        f32_TS2 = np.where(TS2_val_np > 1e-6, TS2_32_val / (TS2_val_np + 1e-30), f32_default)
+        f32_TS2 = np.clip(f32_TS2, 0.5, 1.5)
 
         # Congruent matrix coupling for TS2_32 -> FeS_32
         add_implicit_coupling_new(
@@ -790,19 +796,20 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
             RATES,
             "TS2_32",
             prec_coeff_TS2,
-            prec_rate_TS2 * f32_hs,
+            prec_rate_TS2 * f32_TS2,
             mp=mp,
             has_solid=has_solid_prec,
         )
 
-        CROSS["TS2_32"].append(("Fe2_total", -prec_coeff_Fe2 * f32_hs * phi))
+        CROSS["TS2_32"].append(("Fe2_total", -prec_coeff_Fe2 * f32_TS2 * phi))
         CROSS["FeS_32"].append(("Fe2_total", +prec_coeff_Fe2 * f32_hs * phi))
-        RATES["TS2_32"] -= prec_rate_Fe2 * f32_hs * phi
+        RATES["TS2_32"] -= prec_rate_Fe2 * f32_TS2 * phi
         RATES["FeS_32"] += prec_rate_Fe2 * f32_hs * phi
 
-        prec_res_rate_32 = prec_res_rate * f32_hs
-        add_explicit_source(RHS, RATES, "FeS_32", prec_res_rate_32, mp=mp, has_solid=has_solid_prec)
-        add_explicit_source(RHS, RATES, "TS2_32", -prec_res_rate_32, mp=mp, has_solid=has_solid_prec)
+        prec_res_rate_32_hs = prec_res_rate * f32_hs
+        prec_res_rate_32_TS2 = prec_res_rate * f32_TS2
+        add_explicit_source(RHS, RATES, "FeS_32", prec_res_rate_32_hs, mp=mp, has_solid=has_solid_prec)
+        add_explicit_source(RHS, RATES, "TS2_32", -prec_res_rate_32_TS2, mp=mp, has_solid=has_solid_prec)
 
         # 2. Dissolution (FeS_32 -> TS2_32)
         FeS_val_np = np.asarray(c.FeS.value)
