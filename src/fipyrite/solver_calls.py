@@ -136,6 +136,8 @@ def _get_solver(mp: Any) -> Any:
     """Initialize and return the FiPy solver based on configuration."""
     backend = mp.solver_backend
     tol = mp.tolerance
+    if getattr(mp, "isotopes", False):
+        tol = min(tol, 1e-10)
 
     if backend == "default":
         from fipy import DefaultSolver
