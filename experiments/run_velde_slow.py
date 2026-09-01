@@ -39,12 +39,12 @@ if __name__ == "__main__":
         "enable_rate_adaptation": True,
         "enable_rate_magnitude_check": True,
         "rate_threshold": 1e-6,
-        "max_steps": int(400),  # max number of iterations
+        "max_steps": int(1e6),  # max number of iterations
         "max_depth": 0.5,  # meters
-        "t_end": Q_("10 kyear").to("seconds").magnitude,
-        "dt_min": Q_("0.1 seconds").to("seconds").magnitude,  # time step in years
-        "dt_init": Q_("1 second").to("seconds").magnitude,  # initial dt
-        "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
+        "t_end": Q_("1000 years").to("seconds").magnitude,
+        "dt_min": Q_("1 seconds").to("seconds").magnitude,  # time step in years
+        "dt_init": Q_("1 minute").to("seconds").magnitude,  # initial dt
+        "dt_max": Q_("1 week").to("seconds").magnitude,  # time step in years
         "dt_target_change": 1,  # target change per step (for dt adaptation)
         "report_step": 10,  # how often to update plot
         "BT0": Q_("4 cm^2/year").to("m^2/second").magnitude,
@@ -52,11 +52,13 @@ if __name__ == "__main__":
         "BT_attenuation": Q_("2 cm").to("meter").magnitude,  # xbm of Velde et al.
         "POC_O2_ratio": 1,  # Velde uses a 1:1 ratio
         "isotopes": True,
-        # "bc_POC_fast": Q_("1000 umol/(cm^2 * year)").to("mol/(m^2 * second)").magnitude,
         "reaction_constants": get_reaction_constants,  # see imports to select a different one
         "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
         "solver_precon": "ilu",  # Bypasses expensive Hypre BoomerAMG setup
-        "debug_fes_isotopes": True,
+        "debug_fes_isotopes": False,
+         # "enable_isotope_dt_limiter": True,
+        "isotope_limiter_species": "FeS",        # default
+        "isotope_onset_threshold": 1e-5,         # default (mmol/L)
     }
 
     k = data_container()
@@ -78,9 +80,11 @@ if __name__ == "__main__":
         ],
         [rn.sulfate_reduction, {"poc_species": "POC_slow", "poc_k": "POC_slow"}],
         [rn.hs_oxidation_velde, k],
+        [rn.Fe2_oxidation, k],
         [rn.sulfide_mediated_iron_reduction_velde, k],
         [rn.FeS_precipitation_dissolution_linearized, k],
         [rn.FeS_oxidation, k],
+        
     ]
 
     (
