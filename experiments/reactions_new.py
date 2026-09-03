@@ -549,30 +549,24 @@ def S0_disproportionation(c, k, lim, LHS, RHS, RATES, CROSS, mp):
 
 def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """
-    FeS precipitation / dissolution with Newton-linearised saturation ratio Ω.
+    FeS precipitation / dissolution with Picard (Quasi-Linear) formulation.
 
     Precipitation (Ω ≥ 1):  Fe2⁺ + HS⁻  →  FeS(s)
-        R_prec = k_prec_eff · (Ω^{n+1} - 1)
+        R_prec = k_prec_eff · (Ω - 1) / (Km + Ω - 1)
+               = prec_coeff_TS2 · TS2^{n+1}
+        where prec_coeff_TS2 = k_prec_eff · mm_factor_prec / (TS2 + 1e-30)
 
     Dissolution   (Ω < 1):  FeS(s)  →  Fe2⁺ + HS⁻
-        R_diss = k_diss · FeS · (1 - Ω^{n+1})
+        R_diss = k_diss_eff · FeS · (1 - Ω) / (Km + 1 - Ω)
+               = diss_coeff_FeS · FeS^{n+1}
+        where diss_coeff_FeS = k_diss_eff · mm_factor_diss
 
     Ω = (Fe2_total · Fe2_diss · TS2 · hs_frac) / (H⁺ · Ksp)
 
-    Newton linearisation around the current sweep iterate (*):
-        Ω^{n+1} ≈ ω* + dO_dFe2·(Fe2^{n+1} − Fe2*)
-                      + dO_dTS2·(TS2^{n+1} − TS2*)
-
-    Each branch maps to three contributions:
-        (a) implicit diagonal  → add_implicit_coupling_new / add_implicit_sink
-        (b) implicit cross     → direct CROSS.append (helpers only wire one diagonal per call)
-        (c) explicit residual  → add_explicit_source  (can be negative: corrects double-count)
-
-    Key differences vs. original FeS_precipitation_terminal:
-        - No Michaelis-Menten limiter (stability from implicit scheme, not rate capping)
-        - No dt-dependent rate capping (eliminated by design)
-        - Dissolution branch added; requires k.FeS_diss in the rate constant object
-        - Requires sweep loop: call .sweep() 3-10× per timestep until residuals converge
+    Advantages of Picard form:
+        - Zero explicit residual (no catastrophic cancellation in fast kinetics)
+        - Exact diagonal coupling with 1:1 stoichiometry
+        - Exact isotope ratio inheritance with zero off-diagonal stiffness
     """
     import numpy as np
     
@@ -592,22 +586,7 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
     omega_den = k.Hplus * k.FeS_sp + 1e-30
     omega = Fe2_pw * hs_val / omega_den
 
-    # ── ∂Ω/∂(transported variable) ───────────────────────────────────────
-    # ∂Ω/∂(Fe2_total) = Fe2_diss · hs_val  / omega_den
-    # ∂Ω/∂(TS2)       = Fe2_pw   · hs_frac / omega_den
-    # Useful identity: dO_dFe2·Fe2_val = dO_dTS2·TS2_val = ω*  (symmetry check)
-    dO_dFe2 = mp.Fe2_diss * hs_val / omega_den
-    dO_dTS2 = Fe2_pw * mp.hs_frac / omega_den
-
-    # Explicit residual after factoring out the two implicit terms:
-    #   omega_res = ω* − dO_dFe2·Fe2* − dO_dTS2·TS2* = ω* − ω* − ω* = −ω*
-    # Kept as a general expression rather than the analytic shortcut for
-    # numerical safety near zero concentrations.
-    omega_res = omega - dO_dFe2 * Fe2_val - dO_dTS2 * TS2_val
-
-    # ── Per-cell branch selector (no dt dependence) ───────────────────────
-    # Smoothed linear ramp Heaviside transition to prevent discontinuous rate jumps
-    # when cells cross the solubility boundary (omega = 1.0).
+    # ── Per-cell branch selector ──────────────────────────────────────────
     epsilon = 0.05
     is_prec = nx.minimum(nx.maximum((omega - (1.0 - epsilon)) / (2.0 * epsilon), 0.0), 1.0)
     is_diss = 1.0 - is_prec
@@ -615,44 +594,23 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
     Km = 0.5
 
     # ══════════════════════════════════════════════════════════════════════
-    # PRECIPITATION BRANCH
-    #   R_prec = k_prec_eff · (Ω - 1) / (Km + Ω - 1)
-    #          ≈ k_prec_eff · [dMM_domega·dO_dFe2·Fe2  +  dMM_domega·dO_dTS2·TS2  +  prec_res_rate_explicit]
+    # PRECIPITATION BRANCH (Picard Form: implicit in TS2)
     # ══════════════════════════════════════════════════════════════════════
-    k_prec_eff = k.FeS_isp * is_prec  # zero in dissolution cells (no fac_vol!)
-    k_diss_eff = k.FeS_isd * is_diss
+    k_prec_eff = k.FeS_isp * is_prec
     
     df = nx.maximum(omega - 1.0, 1e-20)
     mm_factor_prec = df / (Km + df)
-    dMM_domega_prec = Km / (Km + df)**2
-
-    # ── (a) Implicit diagonal in Fe2_total ───────────────────────────────
     is_prec_active = nx.where(omega >= 1.0, 1.0, 0.0)
-    prec_coeff_Fe2 = k_prec_eff * dMM_domega_prec * dO_dFe2 * is_prec_active  # [1/s]
-    prec_rate_Fe2 = prec_coeff_Fe2 * Fe2_val
 
-    add_implicit_coupling_new(  # FeS  +=  prec_coeff_Fe2 · Fe2_total (CROSS)
-        CROSS,
-        RATES,
-        LHS,  # Fe2_total  −=  prec_coeff_Fe2       (LHS diagonal)
-        target_species="FeS",
-        source_species="Fe2_total",
-        coeff=prec_coeff_Fe2,
-        rate=prec_rate_Fe2,
-        mp=mp,
-        has_solid=has_solid_prec,
-        add_lhs_sink=True,
-        stoich_ratio=1.0,
-    )
-
-    # ── (b) Implicit cross in TS2 ────────────────────────────────────────
-    prec_coeff_TS2 = k_prec_eff * dMM_domega_prec * dO_dTS2 * is_prec_active
+    # Picard pseudo-first-order coefficient in TS2 [1/s]
+    prec_coeff_TS2 = (k_prec_eff * mm_factor_prec / TS2_val) * is_prec_active
     prec_rate_TS2 = prec_coeff_TS2 * TS2_val
 
-    add_implicit_coupling_new(  # FeS  +=  prec_coeff_TS2 · TS2       (CROSS)
+    # (a) FeS source coupled to TS2
+    add_implicit_coupling_new(
         CROSS,
         RATES,
-        LHS,  # TS2 diagonal handled separately below
+        LHS,
         target_species="FeS",
         source_species="TS2",
         coeff=prec_coeff_TS2,
@@ -662,7 +620,9 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
         add_lhs_sink=False,
         stoich_ratio=1.0,
     )
-    add_implicit_sink(  # TS2  −=  prec_coeff_TS2 · TS2       (LHS diagonal)
+
+    # (b) TS2 diagonal sink
+    add_implicit_sink(
         LHS,
         RATES,
         "TS2",
@@ -672,44 +632,28 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
         has_solid=has_solid_prec,
     )
 
-    # ── Stoichiometric off-diagonal sinks ────────────────────────────────
+    # (c) Fe2_total 1:1 stoichiometric sink coupled to TS2
     CROSS["Fe2_total"].append(("TS2", -prec_coeff_TS2 * phi))
-    CROSS["TS2"].append(("Fe2_total", -prec_coeff_Fe2 * phi))
     RATES["Fe2_total"] -= prec_rate_TS2 * phi
-    RATES["TS2"] -= prec_rate_Fe2 * phi
-
-    # ── (c) Explicit residual ─────────────────────────────────────────────
-    prec_res_rate = k_prec_eff * mm_factor_prec - prec_coeff_Fe2 * Fe2_val - prec_coeff_TS2 * TS2_val
-
-    add_explicit_source(
-        RHS, RATES, "FeS", prec_res_rate, mp=mp, has_solid=has_solid_prec
-    )
-    add_explicit_source(
-        RHS, RATES, "Fe2_total", -prec_res_rate, mp=mp, has_solid=has_solid_prec
-    )
-    add_explicit_source(
-        RHS, RATES, "TS2", -prec_res_rate, mp=mp, has_solid=has_solid_prec
-    )
 
     # ══════════════════════════════════════════════════════════════════════
-    # DISSOLUTION BRANCH
-    #   R_diss = k_diss · FeS · (1 − Ω) / (Km + 1 - Ω)
+    # DISSOLUTION BRANCH (Picard Form: implicit in FeS)
     # ══════════════════════════════════════════════════════════════════════
-    k_diss_eff = k.FeS_isd * is_diss  # zero in precipitation cells
+    k_diss_eff = k.FeS_isd * is_diss
     
     us = nx.maximum(1.0 - omega, 1e-20)
     mm_factor_diss = us / (Km + us)
-    dMM_domega_diss = Km / (Km + us)**2
-
-    # ── (a) FeS self-implicit ─────────────────────────────────────────────
     is_diss_active = nx.where(omega < 1.0, 1.0, 0.0)
+
+    # Picard pseudo-first-order coefficient in FeS [1/s]
     diss_coeff_FeS = k_diss_eff * mm_factor_diss * is_diss_active
     diss_rate_FeS = diss_coeff_FeS * FeS_val
 
-    add_implicit_coupling_new(  # Fe2_total  +=  diss_coeff_FeS · FeS  (CROSS)
+    # (a) FeS diagonal sink & Fe2_total source
+    add_implicit_coupling_new(
         CROSS,
         RATES,
-        LHS,  # FeS        −=  diss_coeff_FeS        (LHS diagonal)
+        LHS,
         target_species="Fe2_total",
         source_species="FeS",
         coeff=diss_coeff_FeS,
@@ -719,10 +663,12 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
         add_lhs_sink=True,
         stoich_ratio=1.0,
     )
-    add_implicit_coupling_new(  # TS2  +=  diss_coeff_FeS · FeS        (CROSS)
+
+    # (b) TS2 source coupled to FeS
+    add_implicit_coupling_new(
         CROSS,
         RATES,
-        LHS,  # FeS diagonal already registered above
+        LHS,
         target_species="TS2",
         source_species="FeS",
         coeff=diss_coeff_FeS,
@@ -733,32 +679,9 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
         stoich_ratio=1.0,
     )
 
-    # ── (b,c) Cross-suppression: dissolution rate decreases as Fe2/TS2 rise ─
-    diss_cross_Fe2 = k_diss_eff * FeS_val * dMM_domega_diss * dO_dFe2 * is_diss_active
-    diss_cross_TS2 = k_diss_eff * FeS_val * dMM_domega_diss * dO_dTS2 * is_diss_active
-    diss_res_rate = diss_cross_Fe2 * Fe2_val + diss_cross_TS2 * TS2_val
-
-    # FeS: positive cross = less net dissolution when Fe2/TS2 rise (source inhibition)
-    CROSS["FeS"].append(("Fe2_total", +diss_cross_Fe2 * (1.0 - phi)))
-    CROSS["FeS"].append(("TS2", +diss_cross_TS2 * (1.0 - phi)))
-    # Fe2, TS2: negative cross = less source production as Fe2/TS2 rise
-    CROSS["Fe2_total"].append(("Fe2_total", -diss_cross_Fe2 * (1.0 - phi)))
-    CROSS["Fe2_total"].append(("TS2", -diss_cross_TS2 * (1.0 - phi)))
-    CROSS["TS2"].append(("Fe2_total", -diss_cross_Fe2 * (1.0 - phi)))
-    CROSS["TS2"].append(("TS2", -diss_cross_TS2 * (1.0 - phi)))
-    RATES["FeS"] += diss_res_rate * (1.0 - phi)
-    RATES["Fe2_total"] -= diss_res_rate * (1.0 - phi)
-    RATES["TS2"] -= diss_res_rate * (1.0 - phi)
-
-    # ── (d) Explicit constant for dissolution ─────────────────────────────
-
-    add_explicit_source(
-        RHS, RATES, "Fe2_total", diss_res_rate, mp=mp, has_solid=has_solid
-    )
-    add_explicit_source(RHS, RATES, "TS2", diss_res_rate, mp=mp, has_solid=has_solid)
-    add_explicit_source(RHS, RATES, "FeS", -diss_res_rate, mp=mp, has_solid=has_solid)
-
-    # ── Isotopes ──────────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════
+    # ISOTOPES
+    # ══════════════════════════════════════════════════════════════════════
     if mp.isotopes:
         # 1. Precipitation (TS2_32 -> FeS_32)
         hs_32 = partition_equilibrium_isotope_32(
@@ -777,20 +700,25 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
         f32_TS2 = np.where(TS2_val_np > 1e-6, TS2_32_val / (TS2_val_np + 1e-30), f32_default)
         f32_TS2 = np.clip(f32_TS2, 0.5, 1.5)
 
-        # Congruent matrix coupling for TS2_32 -> FeS_32
+        ratio_hs_ts2 = np.where(f32_TS2 > 1e-10, f32_hs / f32_TS2, 1.0)
+        prec_coeff_FeS_32 = prec_coeff_TS2 * ratio_hs_ts2
+
+        # (a) FeS_32 solid source
         add_implicit_coupling_new(
             CROSS,
             RATES,
             LHS,
             target_species="FeS_32",
             source_species="TS2_32",
-            coeff=prec_coeff_TS2,
+            coeff=prec_coeff_FeS_32,
             rate=prec_rate_TS2 * f32_hs,
             mp=mp,
             has_solid=has_solid_prec,
             add_lhs_sink=False,
             stoich_ratio=1.0,
         )
+
+        # (b) TS2_32 porewater diagonal sink
         add_implicit_sink(
             LHS,
             RATES,
@@ -800,16 +728,6 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
             mp=mp,
             has_solid=has_solid_prec,
         )
-
-        CROSS["TS2_32"].append(("Fe2_total", -prec_coeff_Fe2 * f32_TS2 * phi))
-        CROSS["FeS_32"].append(("Fe2_total", +prec_coeff_Fe2 * f32_hs * phi))
-        RATES["TS2_32"] -= prec_rate_Fe2 * f32_TS2 * phi
-        RATES["FeS_32"] += prec_rate_Fe2 * f32_hs * phi
-
-        prec_res_rate_32_hs = prec_res_rate * f32_hs
-        prec_res_rate_32_TS2 = prec_res_rate * f32_TS2
-        add_explicit_source(RHS, RATES, "FeS_32", prec_res_rate_32_hs, mp=mp, has_solid=has_solid_prec)
-        add_explicit_source(RHS, RATES, "TS2_32", -prec_res_rate_32_TS2, mp=mp, has_solid=has_solid_prec)
 
         # 2. Dissolution (FeS_32 -> TS2_32)
         FeS_val_np = np.asarray(c.FeS.value)
@@ -830,15 +748,6 @@ def FeS_precipitation_dissolution_linearized(c, k, lim, LHS, RHS, RATES, CROSS, 
             add_lhs_sink=True,
             stoich_ratio=1.0,
         )
-
-        CROSS["FeS_32"].append(("Fe2_total", +diss_cross_Fe2 * f32_FeS * (1.0 - phi)))
-        CROSS["FeS_32"].append(("TS2", +diss_cross_TS2 * f32_FeS * (1.0 - phi)))
-        CROSS["TS2_32"].append(("Fe2_total", -diss_cross_Fe2 * f32_FeS * (1.0 - phi)))
-        CROSS["TS2_32"].append(("TS2_32", -diss_cross_TS2 * (1.0 - phi)))
-
-        diss_res_rate_32 = diss_res_rate * f32_FeS
-        add_explicit_source(RHS, RATES, "TS2_32", diss_res_rate_32, mp=mp, has_solid=has_solid)
-        add_explicit_source(RHS, RATES, "FeS_32", -diss_res_rate_32, mp=mp, has_solid=has_solid)
 
         # Verbose debug logger (disabled by default to prevent log bloat)
         import os
