@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 """
 Define a specific modeling scenario.
 

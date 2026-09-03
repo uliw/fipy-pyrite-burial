@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 """
 Define a specific modeling scenario.
 
@@ -32,13 +33,22 @@ if __name__ == "__main__":
 
     p_dict = {
         "experiment": experiment,
-        "state_data": "run_velde_slow_ic.npz",
+        # "state_data": "run_velde_slow_ic.npz",
+        "state_data": "run_velde_slow_state.npz",
         "process_monitor": "video",  # gui | video | none
+        # "process_monitor": "gui",  # gui | video | none
         "layout_file": "plot_layout.py",
         # Solver Parameters
         "enable_rate_adaptation": True,
         "enable_rate_magnitude_check": True,
         "rate_threshold": 1e-6,
+        "rate_sign_min_change": 1e-9,            # mol/(m^3*s) minimum rate change to consider oscillation
+        "rate_sign_min_consecutive_cells": 10,   # minimum number of consecutive cells affected
+        # Failure Ceiling & Hold Parameters
+        "enable_failure_ceiling": True,
+        "failure_ceiling_factor": 0.7,           # cap dt at 70% of failed dt (e.g. 23.8h -> 16.67h)
+        "failure_hold_steps": 10,                # hold ceiling for 10 successful steps AT the ceiling
+        "ceiling_growth_factor": 1.05,            # increase ceiling by 20% after 10 successful steps at ceiling
         "max_steps": int(1e6),  # max number of iterations
         "max_depth": 0.5,  # meters
         "t_end": Q_("1000 years").to("seconds").magnitude,
@@ -46,7 +56,7 @@ if __name__ == "__main__":
         "dt_init": Q_("1 minute").to("seconds").magnitude,  # initial dt
         "dt_max": Q_("1 week").to("seconds").magnitude,  # time step in years
         "dt_target_change": 1,  # target change per step (for dt adaptation)
-        "report_step": 10,  # how often to update plot
+        "report_step": 50,  # how often to update plot
         "BT0": Q_("4 cm^2/year").to("m^2/second").magnitude,
         "BT_depth": Q_("6 cm").to("meter").magnitude,  # Bioturbation depth in m
         "BT_attenuation": Q_("2 cm").to("meter").magnitude,  # xbm of Velde et al.
