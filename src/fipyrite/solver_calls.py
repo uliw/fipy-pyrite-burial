@@ -3,12 +3,33 @@
 from __future__ import annotations
 
 import gc
+import gzip
 import math
+import os
+import shutil
 import time
 import traceback
 from dataclasses import dataclass
 from functools import reduce
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Callable
+
+
+def _compress_log_file(log_path: str) -> Optional[str]:
+    """
+    Compresses the log file using gzip after closing the file handle and removes the original plain file.
+    """
+    if not os.path.exists(log_path):
+        return None
+    gz_path = f"{log_path}.gz"
+    try:
+        with open(log_path, "rb") as f_in, gzip.open(gz_path, "wb") as f_out:
+            shutil.copyfileobj(f_in, f_out)
+        os.remove(log_path)
+        return gz_path
+    except Exception as e:
+        print(f"Warning: Failed to compress log file {log_path}: {e}", flush=True)
+        return None
+
 
 from fipy import CellVariable
 from fipy.terms.diffusionTerm import DiffusionTerm
@@ -884,6 +905,7 @@ def run_non_steady_state_solver_coupled(
         f"Final Report: {status} in {step} steps. Total Wall Time: {time.time() - start_wall:.2f}s"
     )
     _log_file.close()
+    _compress_log_file(log_path)
 
     # Always write the final data and state synchronously to prevent data loss on termination/interrupt
     try:
