@@ -98,7 +98,7 @@ class AdaptiveDT:
 
     def register_failure(self, failed_dt: float) -> float:
         """Record step failure and set a temporary ceiling."""
-        self._dt = max(self._dt * self.cut_factor, self.dt_min)
+        self._dt = max(failed_dt * self.cut_factor, self.dt_min)
         if self.enable_failure_ceiling:
             self._failed_dt = failed_dt
             self._dt_ceiling = max(self.dt_min, failed_dt * self.failure_ceiling_factor)
@@ -533,6 +533,33 @@ def _find_consecutive_trues(mask: np.ndarray, min_consecutive: int) -> Tuple[boo
     return False, -1, 0
 
 
+def _compute_inner_residual(
+    species_struct: List[Dict[str, Any]],
+    prev_iterate: Dict[str, np.ndarray],
+    inner_tol: float = 1e-4,
+    atol_default: float = 1e-6,
+) -> float:
+    """
+    Computes normalized relative change across all active species between successive inner sweeps:
+        err = max_{species, cells} ( |c^{m+1} - c^m| / (inner_tol * |c^{m+1}| + atol) )
+    Returns value <= 1.0 when inner convergence criterion is met.
+    """
+    max_err_ratio = 0.0
+    for s_obj in species_struct:
+        name = s_obj["name"]
+        curr_val = s_obj["var"].value
+        prev_val = prev_iterate[name]
+        diff = np.abs(curr_val - prev_val)
+        scale = inner_tol * np.abs(curr_val) + atol_default
+        ratio = diff / scale
+        if np.any(np.isnan(ratio)) or np.any(np.isinf(ratio)):
+            return float("inf")
+        err_ratio = float(np.max(ratio))
+        if err_ratio > max_err_ratio:
+            max_err_ratio = err_ratio
+    return max_err_ratio
+
+
 def _validate_rates(
     monitored_rate_species: List[str],
     RATES_tentative: Dict[str, np.ndarray],
@@ -628,6 +655,7 @@ def _report_step_status(
     equilibrium_reactions: Any,
     plot_queue: Optional[Any],
     _log: Callable[[str], None],
+    sweeps: Optional[int] = None,
 ) -> None:
     """Logs current step status parameters and triggers async data/plot saving."""
     from .diff_lib import get_delta, get_total_delta
@@ -637,6 +665,7 @@ def _report_step_status(
     fe_total_bulk = phi * c.Fe2_total + (1 - phi) * (c.Fe3 + c.FeS + c.FeS2)
     m_fe = np.sum(dz * fe_total_bulk[:-1]).value
     time_str = f" Time: {get_time_units(total_time):.2f~P}"
+    sweeps_str = f", sweeps: {sweeps}" if sweeps is not None else ""
     
     if mp.isotopes:
         d34s = get_total_delta(c, mp)
@@ -654,7 +683,7 @@ def _report_step_status(
 
         _log(
             f"Step {step:4d}, {time_str}, "
-            f"dt: {get_time_units(current_dt):.2f~P}, RMS: {rms_change:.2e}, "
+            f"dt: {get_time_units(current_dt):.2f~P}, RMS: {rms_change:.2e}{sweeps_str}, "
             f"d34S = {d34s:.2f}, "
             f"dTS2: [{min_dTS2:.1f}, {max_dTS2:.1f}]‰, "
             f"dFeS: [{min_dFeS:.1f}, {max_dFeS:.1f}]‰"
@@ -666,7 +695,7 @@ def _report_step_status(
     else:
         _log(
             f"Step {step:4d}, {time_str}, "
-            f"dt: {get_time_units(current_dt):.2f~P}, RMS Chg: {rms_change:.2e}, "
+            f"dt: {get_time_units(current_dt):.2f~P}, RMS Chg: {rms_change:.2e}{sweeps_str}, "
             f"Total Fe {m_fe:.2e}"
         )
         if mp.title is None:
@@ -763,6 +792,17 @@ def run_non_steady_state_solver_coupled(
     prev_dt = getattr(mp, "dt_init", mp.dt_min)
     prev_dt_2 = prev_dt
 
+    # --- Initialize Inner Sweeping Loop (Method 1: Picard / Newton Iteration) ---
+    enable_inner_sweeping = getattr(mp, "enable_inner_sweeping", False)
+    max_inner_sweeps = int(getattr(mp, "max_inner_sweeps", 10))
+    inner_tol = float(getattr(mp, "inner_tol", 1e-4))
+    inner_relaxation = float(getattr(mp, "inner_relaxation", 1.0))
+    enable_adaptive_damping = getattr(mp, "enable_adaptive_damping", True)
+    inner_sweep_equilibrium = getattr(mp, "inner_sweep_equilibrium", True)
+    adaptive_sweeps_dt = getattr(mp, "adaptive_sweeps_dt", True)
+    sweep_target_optimal = int(getattr(mp, "sweep_target_optimal", 3))
+    sweep_max_acceptable = int(getattr(mp, "sweep_max_acceptable", 6))
+
     # --- Initialize Dynamic Isotope dt Limiter ---
     enable_isotope_dt_limiter = getattr(mp, "enable_isotope_dt_limiter", False)
     isotope_limiter_species = getattr(mp, "isotope_limiter_species", "FeS")
@@ -827,33 +867,120 @@ def run_non_steady_state_solver_coupled(
             # --- Solve Step (with automatic retry on failure) ---
             converged = False
             RATES_tentative = {}
+            last_inner_sweeps = 1
+            last_inner_err = 0.0
             while not converged:
                 mp.current_dt = current_dt
                 try:
-                    # Update static coefficient variables in-place
-                    RATES = _update_static_coefficients(
-                        mp,
-                        c,
-                        k,
-                        diagenetic_reactions,
-                        LHS_vars,
-                        RHS_vars,
-                        CROSS_vars,
-                        species_list_partial,
-                    )
+                    if enable_inner_sweeping:
+                        inner_converged = False
+                        current_theta = inner_relaxation
+                        prev_inner_err = None
 
-                    coupled_eq.sweep(
-                        dt=current_dt,
-                        solver=solver,
-                    )
+                        for inner_iter in range(1, max_inner_sweeps + 1):
+                            # Cache iterate value before updating
+                            prev_iterate = {
+                                s_obj["name"]: np.copy(s_obj["var"].value)
+                                for s_obj in species_struct
+                            }
+
+                            # Update static coefficient variables in-place using current iterate
+                            RATES = _update_static_coefficients(
+                                mp,
+                                c,
+                                k,
+                                diagenetic_reactions,
+                                LHS_vars,
+                                RHS_vars,
+                                CROSS_vars,
+                                species_list_partial,
+                            )
+
+                            coupled_eq.sweep(
+                                dt=current_dt,
+                                solver=solver,
+                            )
+
+                            # Compute raw error of this solve
+                            raw_inner_err = _compute_inner_residual(
+                                species_struct, prev_iterate, inner_tol=inner_tol
+                            )
+
+                            # Adaptive Damping: detect oscillation or error growth
+                            if enable_adaptive_damping and inner_iter >= 2 and prev_inner_err is not None:
+                                if raw_inner_err > prev_inner_err:
+                                    # Residual grew: damp the update to arrest oscillation
+                                    current_theta = max(current_theta * 0.7, 0.4)
+                                elif raw_inner_err <= prev_inner_err * 0.8 and current_theta < inner_relaxation:
+                                    # Monotonic contraction: relax theta back towards base relaxation
+                                    current_theta = min(current_theta * 1.15, inner_relaxation)
+
+                            # Apply under-relaxation if theta < 1.0
+                            if current_theta < 1.0:
+                                for s_obj in species_struct:
+                                    s_name = s_obj["name"]
+                                    s_obj["var"].setValue(
+                                        (1.0 - current_theta) * prev_iterate[s_name]
+                                        + current_theta * s_obj["var"].value
+                                    )
+                                last_inner_err = _compute_inner_residual(
+                                    species_struct, prev_iterate, inner_tol=inner_tol
+                                )
+                            else:
+                                last_inner_err = raw_inner_err
+
+                            # Intermediate equilibrium projection
+                            if inner_sweep_equilibrium:
+                                mp.in_clip = True
+                                try:
+                                    equilibrium_reactions(mp, c, k, None, RATES, current_dt)
+                                finally:
+                                    mp.in_clip = False
+
+                            # Check inner convergence
+                            if last_inner_err <= 1.0:
+                                inner_converged = True
+                                last_inner_sweeps = inner_iter
+                                break
+
+                            prev_inner_err = last_inner_err
+
+                        if not inner_converged:
+                            raise RuntimeError(
+                                f"Inner Picard sweep failed to converge in {max_inner_sweeps} iterations (scaled_err={last_inner_err:.2e})"
+                            )
+
+                        if not inner_sweep_equilibrium:
+                            mp.in_clip = True
+                            try:
+                                equilibrium_reactions(mp, c, k, None, RATES, current_dt)
+                            finally:
+                                mp.in_clip = False
+                    else:
+                        # Legacy single sweep
+                        RATES = _update_static_coefficients(
+                            mp,
+                            c,
+                            k,
+                            diagenetic_reactions,
+                            LHS_vars,
+                            RHS_vars,
+                            CROSS_vars,
+                            species_list_partial,
+                        )
+
+                        coupled_eq.sweep(
+                            dt=current_dt,
+                            solver=solver,
+                        )
+
+                        mp.in_clip = True
+                        try:
+                            equilibrium_reactions(mp, c, k, None, RATES, current_dt)
+                        finally:
+                            mp.in_clip = False
+
                     converged = True
-
-                    # post transport clips
-                    mp.in_clip = True
-                    try:
-                        equilibrium_reactions(mp, c, k, None, RATES, current_dt)
-                    finally:
-                        mp.in_clip = False
 
                     if enable_rate_adaptation:
                         RATES_tentative = _update_static_coefficients(
@@ -871,8 +998,8 @@ def run_non_steady_state_solver_coupled(
                     tb_str = "".join(
                         traceback.format_exception(type(e), e, e.__traceback__)
                     )
-                    print(
-                        f"  Step failed at dt={get_time_units(current_dt):.2f~P}:\n\n {tb_str}\n Cutting dt."
+                    _log(
+                        f"  Step failed at dt={get_time_units(current_dt):.2f~P}: {e}\n  Cutting dt and retrying."
                     )
                     # Restore state from FiPy's built-in old-value store
                     for s_obj in species_struct:
@@ -954,7 +1081,21 @@ def run_non_steady_state_solver_coupled(
                         prev_rates[name] = np.copy(RATES_tentative[name])
 
             # --- Adapt Time Step for Next Iteration ---
-            if enable_rate_adaptation:
+            if enable_inner_sweeping and adaptive_sweeps_dt:
+                effective_max = dt_controller.get_effective_max(_log=_log)
+                if last_inner_sweeps <= sweep_target_optimal:
+                    # Converged easily in few sweeps -> grow dt
+                    dt_controller._dt = min(
+                        dt_controller._dt * dt_controller.growth_factor, effective_max
+                    )
+                elif last_inner_sweeps <= sweep_max_acceptable:
+                    # Healthy convergence in moderate sweeps -> maintain dt
+                    dt_controller._dt = min(dt_controller._dt, effective_max)
+                else:
+                    # Took many sweeps -> damp dt slightly to stay in comfortable zone
+                    dt_controller._dt = max(dt_controller._dt * 0.85, dt_controller.dt_min)
+                dt_controller._dt_prev = dt_controller._dt
+            elif enable_rate_adaptation:
                 effective_max = dt_controller.get_effective_max(_log=_log)
                 dt_controller._dt = min(dt_controller._dt * dt_controller.growth_factor, effective_max)
                 dt_controller._dt_prev = dt_controller._dt
@@ -995,6 +1136,7 @@ def run_non_steady_state_solver_coupled(
                     equilibrium_reactions,
                     plot_queue,
                     _log,
+                    sweeps=last_inner_sweeps if enable_inner_sweeping else None,
                 )
 
             # Steady State Check
