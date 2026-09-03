@@ -71,17 +71,38 @@ class AdaptiveDT:
     kI: float = 0.175
     kD: float = 0.01
 
+    enable_failure_ceiling: bool = False
+    failure_ceiling_factor: float = 0.7
+    failure_hold_steps: int = 10
+    ceiling_growth_factor: float = 1.05
+
     _dt: float = 0.0
     _err_prev: float | None = None  # Delay initialization
     _dt_prev: float = 0.0
+    _dt_ceiling: float | None = None
+    _failed_dt: float | None = None
+    _steps_at_ceiling: int = 0
 
     def __post_init__(self) -> None:
         self._dt = max(self.dt_min, min(self.dt_initial, self.dt_max))
         self._dt_prev = self._dt
+        if self.enable_failure_ceiling:
+            self._dt_ceiling = self.dt_max
+            self._failed_dt = self.dt_max
+            self._steps_at_ceiling = 0
 
     @property
     def dt(self) -> float:
         """Return current time step."""
+        return self._dt
+
+    def register_failure(self, failed_dt: float) -> float:
+        """Record step failure and set a temporary ceiling."""
+        self._dt = max(self._dt * self.cut_factor, self.dt_min)
+        if self.enable_failure_ceiling:
+            self._failed_dt = failed_dt
+            self._dt_ceiling = max(self.dt_min, failed_dt * self.failure_ceiling_factor)
+            self._steps_at_ceiling = 0
         return self._dt
 
     def cfl_limit(self, dx: float, vel: float, D: float) -> float:
@@ -89,6 +110,31 @@ class AdaptiveDT:
         adv_limit = math.inf if vel == 0 else dx / abs(vel)
         dif_limit = math.inf if D == 0 else dx * dx / (2 * D)
         return self.dt_cfl_factor * min(adv_limit, dif_limit)
+
+    def get_effective_max(self, _log: Optional[Callable[[str], None]] = None) -> float:
+        """Return effective maximum dt considering the dynamic failure ceiling and hold period."""
+        if self.enable_failure_ceiling and self._dt_ceiling is not None:
+            # Only count steps towards the hold period once dt has actually reached the ceiling
+            if self._dt >= self._dt_ceiling * 0.98:
+                self._steps_at_ceiling += 1
+
+            if self._steps_at_ceiling >= self.failure_hold_steps:
+                # Hold period at ceiling has elapsed; increase ceiling if ceiling_growth_factor > 1.0
+                if self.ceiling_growth_factor > 1.0 and self._dt_ceiling < self.dt_max:
+                    old_ceiling = self._dt_ceiling
+                    self._dt_ceiling = min(
+                        self._dt_ceiling * self.ceiling_growth_factor,
+                        self.dt_max,
+                    )
+                    self._steps_at_ceiling = 0  # Reset for another hold period at the new ceiling
+                    if _log is not None:
+                        _log(
+                            f"  Ceiling hold of {self.failure_hold_steps} steps completed: raising dt ceiling from {get_time_units(old_ceiling):.2f~P} to {get_time_units(self._dt_ceiling):.2f~P}."
+                        )
+                return min(self._dt_ceiling, self.dt_max)
+            else:
+                return min(self._dt_ceiling, self.dt_max)
+        return self.dt_max
 
     def update(
         self,
@@ -116,6 +162,8 @@ class AdaptiveDT:
             self._dt = max(self._dt * self.cut_factor, self.dt_min)
             return self._dt
 
+        effective_max = self.get_effective_max()
+
         # 2. PID Control (H211B)
         if self.pid:
             # We want max_change to be around target_error
@@ -136,11 +184,11 @@ class AdaptiveDT:
 
             # Dampen and limit the factor
             factor = max(self.cut_factor, min(self.growth_factor, factor))
-            self._dt = max(self.dt_min, min(self._dt * factor, self.dt_max))
+            self._dt = max(self.dt_min, min(self._dt * factor, effective_max))
         else:
             # Simplistic growth/cut logic
             if error_metric < target_error:
-                self._dt = min(self._dt * self.growth_factor, self.dt_max)
+                self._dt = min(self._dt * self.growth_factor, effective_max)
             else:
                 self._dt = max(self._dt * self.cut_factor, self.dt_min)
 
@@ -694,6 +742,12 @@ def run_non_steady_state_solver_coupled(
         dt_min=mp.dt_min,
         dt_max=mp.dt_max,
         dt_initial=getattr(mp, "dt_init", mp.dt_min),
+        growth_factor=float(getattr(mp, "dt_growth_factor", 1.2)),
+        cut_factor=float(getattr(mp, "dt_cut_factor", 0.5)),
+        enable_failure_ceiling=getattr(mp, "enable_failure_ceiling", False),
+        failure_ceiling_factor=float(getattr(mp, "failure_ceiling_factor", 0.7)),
+        failure_hold_steps=int(getattr(mp, "failure_hold_steps", 10)),
+        ceiling_growth_factor=float(getattr(mp, "ceiling_growth_factor", 1.05)),
     )
 
     # --- Initialize Rate-Change-Based Timestep Adaptation ---
@@ -764,6 +818,7 @@ def run_non_steady_state_solver_coupled(
         while total_time < mp.t_end and step < mp.max_steps:
             step += 1
             current_dt = dt_controller.dt
+            step_first_attempt = True
 
             # updateOld() stores current -> var.old; used below for RMS and restore
             for s_obj in species_struct:
@@ -824,7 +879,15 @@ def run_non_steady_state_solver_coupled(
                         s_obj["var"].value[:] = s_obj["var"].old.value
 
                     # Cut time step and retry
-                    current_dt = dt_controller.update(0.0, step_success=False)
+                    if step_first_attempt:
+                        current_dt = dt_controller.register_failure(current_dt)
+                        step_first_attempt = False
+                        if dt_controller.enable_failure_ceiling and dt_controller._dt_ceiling is not None:
+                            _log(
+                                f"  Failure ceiling activated: dt capped at {get_time_units(dt_controller._dt_ceiling):.2f~P} for at least {dt_controller.failure_hold_steps} steps."
+                            )
+                    else:
+                        current_dt = dt_controller.update(0.0, step_success=False)
                     if current_dt <= mp.dt_min * 1.01:
                         raise RuntimeError(
                             "Solver failed and time step is already at minimum."
@@ -851,7 +914,15 @@ def run_non_steady_state_solver_coupled(
                             s_obj["var"].value[:] = s_obj["var"].old.value
                         
                         converged = False
-                        current_dt = dt_controller.update(0.0, step_success=False)
+                        if step_first_attempt:
+                            current_dt = dt_controller.register_failure(current_dt)
+                            step_first_attempt = False
+                            if dt_controller.enable_failure_ceiling and dt_controller._dt_ceiling is not None:
+                                _log(
+                                    f"  Failure ceiling activated: dt capped at {get_time_units(dt_controller._dt_ceiling):.2f~P} for at least {dt_controller.failure_hold_steps} steps."
+                                )
+                        else:
+                            current_dt = dt_controller.update(0.0, step_success=False)
                         if current_dt <= mp.dt_min * 1.01:
                             raise RuntimeError(
                                 "Rate validation failed and time step is already at minimum."
@@ -884,7 +955,8 @@ def run_non_steady_state_solver_coupled(
 
             # --- Adapt Time Step for Next Iteration ---
             if enable_rate_adaptation:
-                dt_controller._dt = min(dt_controller._dt * dt_controller.growth_factor, dt_controller.dt_max)
+                effective_max = dt_controller.get_effective_max(_log=_log)
+                dt_controller._dt = min(dt_controller._dt * dt_controller.growth_factor, effective_max)
                 dt_controller._dt_prev = dt_controller._dt
             else:
                 adaptive_target = getattr(mp, "dt_target_change", 1e-4)
