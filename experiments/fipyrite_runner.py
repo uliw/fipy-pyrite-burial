@@ -17,6 +17,7 @@ import json
 import time
 import subprocess
 import re
+import gzip
 import psutil
 
 # --- Configuration Constants ---
@@ -65,10 +66,14 @@ def kill_process_tree(proc):
 
 def get_last_step_and_status(log_path):
     """
-    Parses the log file to get the maximum step number and execution status.
+    Parses the log file (or compressed .log.gz) to get the maximum step number and execution status.
     Returns (last_step, status).
     """
-    if not os.path.exists(log_path):
+    target_path = log_path
+    if not os.path.exists(target_path) and os.path.exists(log_path + ".gz"):
+        target_path = log_path + ".gz"
+
+    if not os.path.exists(target_path):
         return 0, "NO_LOG"
     
     last_step = 0
@@ -77,7 +82,8 @@ def get_last_step_and_status(log_path):
     completed = False
     
     try:
-        with open(log_path, "r", errors="ignore") as f:
+        open_fn = gzip.open if target_path.endswith(".gz") else open
+        with open_fn(target_path, "rt", errors="ignore") as f:
             lines = f.readlines()[-50:]  # Read the last 50 lines to inspect end status
             
         for line in lines:
@@ -98,7 +104,7 @@ def get_last_step_and_status(log_path):
             if match:
                 last_step = max(last_step, int(match.group(1)))
     except Exception as e:
-        log_msg(f"Error parsing log file {log_path}: {e}")
+        log_msg(f"Error parsing log file {target_path}: {e}")
         
     if converged:
         return last_step, "COMPLETED"
@@ -111,12 +117,17 @@ def get_last_step_and_status(log_path):
 
 def append_log_to_history(log_path, history_path, chunk_number, exit_reason=""):
     """
-    Appends the content of the current chunk's log file to a history log file.
+    Appends the content of the current chunk's log file (or .log.gz) to a history log file.
     """
-    if not os.path.exists(log_path):
+    target_path = log_path
+    if not os.path.exists(target_path) and os.path.exists(log_path + ".gz"):
+        target_path = log_path + ".gz"
+
+    if not os.path.exists(target_path):
         return
     try:
-        with open(log_path, "r", errors="ignore") as f:
+        open_fn = gzip.open if target_path.endswith(".gz") else open
+        with open_fn(target_path, "rt", errors="ignore") as f:
             content = f.read()
         
         with open(history_path, "a") as f_hist:
