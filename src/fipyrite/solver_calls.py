@@ -454,6 +454,37 @@ def _calculate_dt_max_isotope(mp: Any, k: Any, D_mol: Any) -> float:
     return dt_max_user
 
 
+def _find_consecutive_trues(mask: np.ndarray, min_consecutive: int) -> Tuple[bool, int, int]:
+    """
+    Check if a boolean mask has at least `min_consecutive` consecutive True values.
+    Returns (found, start_idx, count).
+    """
+    if min_consecutive <= 1:
+        if np.any(mask):
+            idx = int(np.where(mask)[0][0])
+            return True, idx, 1
+        return False, -1, 0
+
+    if len(mask) < min_consecutive:
+        return False, -1, 0
+
+    padded = np.empty(len(mask) + 2, dtype=bool)
+    padded[0] = False
+    padded[-1] = False
+    padded[1:-1] = mask
+    diff = np.diff(padded.astype(int))
+    starts = np.where(diff == 1)[0]
+    ends = np.where(diff == -1)[0]
+    lengths = ends - starts
+    valid = lengths >= min_consecutive
+    if np.any(valid):
+        first_valid = int(np.where(valid)[0][0])
+        idx = int(starts[first_valid])
+        consec_count = int(lengths[first_valid])
+        return True, idx, consec_count
+    return False, -1, 0
+
+
 def _validate_rates(
     monitored_rate_species: List[str],
     RATES_tentative: Dict[str, np.ndarray],
@@ -464,6 +495,8 @@ def _validate_rates(
     prev_dt_2: float,
     rate_threshold: float,
     enable_rate_magnitude_check: bool,
+    rate_sign_min_change: float = 2e-8,
+    rate_sign_min_consecutive_cells: int = 1,
 ) -> Tuple[bool, str]:
     """Performs rate validation checks (consecutive sign changes and magnitude checks)."""
     violation = False
@@ -482,25 +515,36 @@ def _validate_rates(
         mask_sign = (np.abs(c_change_prev) >= rate_threshold) & (np.abs(c_change_tentative) >= rate_threshold)
         if np.any(mask_sign):
             abs_change = np.abs(c_change_tentative - c_change_prev)
-            flipped_tentative = (c_change_tentative * c_change_prev < 0) & (abs_change >= 5.0 * rate_threshold)
+            abs_rate_change_tentative = np.abs(r_tentative - r_prev)
+            flipped_tentative = (
+                (c_change_tentative * c_change_prev < 0)
+                & (abs_change >= 5.0 * rate_threshold)
+                & (abs_rate_change_tentative >= rate_sign_min_change)
+            )
             
             if name in prev_rates_2:
                 r_prev_2 = np.asarray(prev_rates_2[name])
                 c_change_prev_2 = r_prev_2 * prev_dt_2
                 mask_sign_prev = (np.abs(c_change_prev_2) >= rate_threshold) & (np.abs(c_change_prev) >= rate_threshold)
                 abs_change_prev = np.abs(c_change_prev - c_change_prev_2)
-                flipped_prev = (c_change_prev * c_change_prev_2 < 0) & (abs_change_prev >= 5.0 * rate_threshold)
+                abs_rate_change_prev = np.abs(r_prev - r_prev_2)
+                flipped_prev = (
+                    (c_change_prev * c_change_prev_2 < 0)
+                    & (abs_change_prev >= 5.0 * rate_threshold)
+                    & (abs_rate_change_prev >= rate_sign_min_change)
+                )
                 osc_mask = mask_sign & mask_sign_prev & flipped_tentative & flipped_prev
             else:
                 osc_mask = np.zeros_like(mask_sign, dtype=bool)
 
-            if np.any(osc_mask):
-                idx = np.where(osc_mask)[0][0]
+            has_consec, idx, consec_count = _find_consecutive_trues(osc_mask, rate_sign_min_consecutive_cells)
+            if has_consec:
                 violation = True
                 r_prev_2 = np.asarray(prev_rates_2[name])
+                cell_desc = f"across {consec_count} consecutive cells starting at cell {idx}" if consec_count > 1 else f"at cell {idx}"
                 violation_reason = (
-                    f"Consecutive sign changes (oscillation) in {name} rate at cell {idx} "
-                    f"(prev2 rate: {r_prev_2[idx]:.2e}, prev rate: {r_prev[idx]:.2e}, tentative rate: {r_tentative[idx]:.2e}, conc_change: {abs_change[idx]:.2e} mmol/L)"
+                    f"Consecutive sign changes (oscillation) in {name} rate {cell_desc} "
+                    f"(prev2 rate: {r_prev_2[idx]:.2e}, prev rate: {r_prev[idx]:.2e}, tentative rate: {r_tentative[idx]:.2e}, rate_change: {abs_rate_change_tentative[idx]:.2e} mol/(m^3*s), conc_change: {abs_change[idx]:.2e} mmol/L)"
                 )
                 break
         
@@ -658,6 +702,8 @@ def run_non_steady_state_solver_coupled(
     rate_threshold = getattr(mp, "rate_threshold", 1e-8)
     rate_adaptation_start_step = getattr(mp, "rate_adaptation_start_step", 3)
     enable_rate_magnitude_check = getattr(mp, "enable_rate_magnitude_check", False)
+    rate_sign_min_change = float(getattr(mp, "rate_sign_min_change", 2e-8))
+    rate_sign_min_consecutive_cells = int(getattr(mp, "rate_sign_min_consecutive_cells", 1))
     prev_rates = {}
     prev_rates_2 = {}
     prev_dt = getattr(mp, "dt_init", mp.dt_min)
@@ -796,6 +842,8 @@ def run_non_steady_state_solver_coupled(
                         prev_dt_2,
                         rate_threshold,
                         enable_rate_magnitude_check,
+                        rate_sign_min_change=rate_sign_min_change,
+                        rate_sign_min_consecutive_cells=rate_sign_min_consecutive_cells,
                     )
                     if violation:
                         _log(f"  Step rejected at dt={get_time_units(current_dt):.4f~P}: {violation_reason}. Rollback.")
