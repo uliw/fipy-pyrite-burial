@@ -126,9 +126,18 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         "dt_max": Q_("1 year").to("seconds").magnitude,  # time step in years
         "tolerance": 1e-12,  # convergence criterion
         "dt_tolerance": 1e-12,  # steady state threshold (stop simulation)
+        # parameters controlling the dynamic time step adaption
         "dt_target_change": 100,  # target change per step (for dt adaptation)
         "solver_backend": "default",  # see solver_calls for options
         # "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
+        "enable_rate_adaptation": True,
+        "enable_rate_magnitude_check": True,
+        "rate_threshold": 1e-6,
+        "rate_sign_min_change": 1e-9,            # mol/(m^3*s) minimum rate change to consider oscillation
+        "rate_sign_min_consecutive_cells": 10,
+        # "enable_isotope_dt_limiter": True,
+        "isotope_limiter_species": "FeS",        # default
+        "isotope_onset_threshold": 1e-5,         # default (mmol/L)
         # ---------  Other ------------------------------------ #
         "current_dt": 0.0,  # place holder
         "display_length": 2,  #
