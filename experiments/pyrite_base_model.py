@@ -130,6 +130,10 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         "dt_target_change": 100,  # target change per step (for dt adaptation)
         "solver_backend": "default",  # see solver_calls for options
         # "solver_backend": "LinearGMRESSolver",  # see solver_calls for options
+         "enable_failure_ceiling": True,
+        "failure_ceiling_factor": 0.7,           # cap dt at 70% of failed dt (e.g. 35h -> 24.5h)
+        "failure_hold_steps": 10,                # hold ceiling for 10 successful steps
+        "ceiling_growth_factor": 1.05,           # cautiously relax ceiling by 5% per step after hold
         "enable_rate_adaptation": True,
         "enable_rate_magnitude_check": True,
         "rate_threshold": 1e-6,
