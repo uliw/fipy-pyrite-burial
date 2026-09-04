@@ -790,6 +790,304 @@ def _debug_fes_isotopes_report(c, mp, omega, is_prec_active, is_diss_active, f32
                 )
 
 
+def FeS_precipitation_dissolution_symmetrical_picard(c, k, lim, LHS, RHS, RATES, CROSS, mp):
+    """
+    FeS precipitation / dissolution with Symmetrical Picard Linearization.
+
+    In FeS precipitation: Fe2⁺ + HS⁻ → FeS(s)
+    Both Fe2⁺ and HS⁻ are depleted simultaneously with 1:1 stoichiometry.
+    In standard Picard linearization, the implicit diagonal sink is placed
+    solely on TS2, leaving Fe2⁺ with zero diagonal damping and vulnerable to
+    severe negative overshoots when Fe2⁺ is the limiting reactant.
+
+    Symmetrical Picard Linearization partitions the precipitation rate symmetrically
+    (or according to a user-specified weighting parameter w_Fe) across both reactants:
+        R_prec = R_prec,Fe + R_prec,TS2
+               = prec_coeff_Fe2 · Fe2_total^{n+1} + prec_coeff_TS2 · TS2^{n+1}
+    where:
+        prec_coeff_Fe2 = w_Fe · R_prec / (Fe2_total + 1e-30)
+        prec_coeff_TS2 = (1 - w_Fe) · R_prec / (TS2 + 1e-30)
+        (default w_Fe = 0.5)
+
+    Both Fe2_total and TS2 receive:
+        - A positive diagonal sink on LHS proportional to 1/C (infinite damping barrier as C -> 0)
+        - Symmetrical off-diagonal cross coupling to the other reactant in CROSS
+    FeS receives coupled production from both Fe2_total and TS2 in CROSS.
+
+    At convergence:
+        prec_coeff_Fe2 · Fe2_total + prec_coeff_TS2 · TS2 = R_prec (exact rate, 0 RHS residual).
+
+    Dissolution (Ω < 1) remains unimolecular in FeS(s), which is already naturally
+    symmetric across its two 1:1 products (Fe2⁺ and HS⁻).
+    """
+    import numpy as np
+
+    phi = mp.phi
+    has_solid = True  # True for dissolution branch (solid reactant FeS)
+    has_solid_prec = (
+        False  # False for precipitation branch (liquid reactants Fe2_pw, HS-)
+    )
+
+    # ── Current sweep iterate ─────────────────────────────────────────────
+    Fe2_val = nx.maximum(c.Fe2_total.value, 1e-20)
+    TS2_val = nx.maximum(c.TS2.value, 1e-20)
+    FeS_val = nx.maximum(c.FeS.value, 1e-20)
+
+    Fe2_pw = Fe2_val * mp.Fe2_diss
+    hs_val = TS2_val * mp.hs_frac
+    omega_den = k.Hplus * k.FeS_sp + 1e-30
+    omega = Fe2_pw * hs_val / omega_den
+
+    # ── Per-cell branch selector ──────────────────────────────────────────
+    epsilon = 0.05
+    is_prec = nx.minimum(nx.maximum((omega - (1.0 - epsilon)) / (2.0 * epsilon), 0.0), 1.0)
+    is_diss = 1.0 - is_prec
+
+    Km = 0.5
+
+    # ══════════════════════════════════════════════════════════════════════
+    # PRECIPITATION BRANCH (Symmetrical Picard Form: split across Fe2 & TS2)
+    # ══════════════════════════════════════════════════════════════════════
+    k_prec_eff = k.FeS_isp * is_prec
+
+    df = nx.maximum(omega - 1.0, 1e-20)
+    mm_factor_prec = df / (Km + df)
+    is_prec_active = nx.where(omega >= 1.0, 1.0, 0.0)
+
+    # Reactant weighting:
+    # - "auto" (default): Patankar limiting-reactant weighting:
+    #       w_Fe = TS2^p / (Fe2^p + TS2^p)
+    #       w_TS2 = Fe2^p / (Fe2^p + TS2^p)
+    #   When Fe2 >> TS2 (e.g. at depth): w_TS2 -> 1, w_Fe -> 0 (diagonal sink on limiting TS2,
+    #   breaking two-way off-diagonal feedback and eliminating spatial rate oscillations).
+    #   When TS2 >> Fe2: w_Fe -> 1, w_TS2 -> 0 (diagonal sink on limiting Fe2, preventing negative overshoots).
+    #   When Fe2 ~ TS2: smooth 50/50 symmetric split.
+    # - float: User-specified constant weighting (e.g. 0.5 for fixed 50/50 split).
+    weight_fe_cfg = getattr(mp, "fes_picard_weight_fe", "auto")
+    if isinstance(weight_fe_cfg, str) and weight_fe_cfg.lower() == "auto":
+        p = float(getattr(mp, "fes_picard_auto_power", 2.0))
+        fe2_p = Fe2_val ** p
+        ts2_p = TS2_val ** p
+        sum_p = fe2_p + ts2_p + 1e-30
+        w_Fe = ts2_p / sum_p
+        w_TS2 = fe2_p / sum_p
+    else:
+        w_Fe = float(weight_fe_cfg)
+        w_TS2 = 1.0 - w_Fe
+
+    # Total precipitation rate in porewater [mol / (m^3_pw s)]
+    R_prec = k_prec_eff * mm_factor_prec * is_prec_active
+
+    # Picard pseudo-first-order coefficients [1/s]
+    prec_coeff_Fe2 = (w_Fe * R_prec) / Fe2_val
+    prec_rate_Fe2 = prec_coeff_Fe2 * Fe2_val  # w_Fe * R_prec
+
+    prec_coeff_TS2 = (w_TS2 * R_prec) / TS2_val
+    prec_rate_TS2 = prec_coeff_TS2 * TS2_val  # w_TS2 * R_prec
+
+    # 1. FeS solid source coupled to both Fe2_total and TS2
+    add_implicit_coupling_new(
+        CROSS,
+        RATES,
+        LHS,
+        target_species="FeS",
+        source_species="Fe2_total",
+        coeff=prec_coeff_Fe2,
+        rate=prec_rate_Fe2,
+        mp=mp,
+        has_solid=has_solid_prec,
+        add_lhs_sink=False,
+        stoich_ratio=1.0,
+    )
+    add_implicit_coupling_new(
+        CROSS,
+        RATES,
+        LHS,
+        target_species="FeS",
+        source_species="TS2",
+        coeff=prec_coeff_TS2,
+        rate=prec_rate_TS2,
+        mp=mp,
+        has_solid=has_solid_prec,
+        add_lhs_sink=False,
+        stoich_ratio=1.0,
+    )
+
+    # 2. Reactants diagonal sinks (LHS)
+    add_implicit_sink(
+        LHS,
+        RATES,
+        "Fe2_total",
+        prec_coeff_Fe2,
+        prec_rate_Fe2,
+        mp=mp,
+        has_solid=has_solid_prec,
+    )
+    add_implicit_sink(
+        LHS,
+        RATES,
+        "TS2",
+        prec_coeff_TS2,
+        prec_rate_TS2,
+        mp=mp,
+        has_solid=has_solid_prec,
+    )
+
+    # 3. Reactants off-diagonal cross sinks (CROSS)
+    # Fe2_total consumed by TS2 portion of the reaction:
+    CROSS["Fe2_total"].append(("TS2", -prec_coeff_TS2 * phi))
+    RATES["Fe2_total"] -= prec_rate_TS2 * phi
+
+    # TS2 consumed by Fe2 portion of the reaction:
+    CROSS["TS2"].append(("Fe2_total", -prec_coeff_Fe2 * phi))
+    RATES["TS2"] -= prec_rate_Fe2 * phi
+
+    # ══════════════════════════════════════════════════════════════════════
+    # DISSOLUTION BRANCH (Picard Form: implicit in FeS)
+    # ══════════════════════════════════════════════════════════════════════
+    k_diss_eff = k.FeS_isd * is_diss
+
+    us = nx.maximum(1.0 - omega, 1e-20)
+    mm_factor_diss = us / (Km + us)
+    is_diss_active = nx.where(omega < 1.0, 1.0, 0.0)
+
+    # Picard pseudo-first-order coefficient in FeS [1/s]
+    diss_coeff_FeS = k_diss_eff * mm_factor_diss * is_diss_active
+    diss_rate_FeS = diss_coeff_FeS * FeS_val
+
+    # (a) FeS diagonal sink & Fe2_total source
+    add_implicit_coupling_new(
+        CROSS,
+        RATES,
+        LHS,
+        target_species="Fe2_total",
+        source_species="FeS",
+        coeff=diss_coeff_FeS,
+        rate=diss_rate_FeS,
+        mp=mp,
+        has_solid=has_solid,
+        add_lhs_sink=True,
+        stoich_ratio=1.0,
+    )
+
+    # (b) TS2 source coupled to FeS
+    add_implicit_coupling_new(
+        CROSS,
+        RATES,
+        LHS,
+        target_species="TS2",
+        source_species="FeS",
+        coeff=diss_coeff_FeS,
+        rate=diss_rate_FeS,
+        mp=mp,
+        has_solid=has_solid,
+        add_lhs_sink=False,
+        stoich_ratio=1.0,
+    )
+
+    # ══════════════════════════════════════════════════════════════════════
+    # ISOTOPES
+    # ══════════════════════════════════════════════════════════════════════
+    if mp.isotopes:
+        # 1. Precipitation (TS2_32 -> FeS_32)
+        # Symmetrical Picard operator mirroring:
+        # In bulk, TS2 receives diagonal sink prec_coeff_TS2 and off-diagonal cross sink from Fe2_total (prec_coeff_Fe2).
+        # To maintain identical time evolution of 32S and prevent severe artificial d34S drift (-700‰),
+        # TS2_32 must mirror this exact operator structure:
+        #   - Diagonal sink on TS2_32 using prec_coeff_TS2 (scaled by ratio_hs_ts2)
+        #   - Off-diagonal sink on TS2_32 coupled to Fe2_total using prec_coeff_Fe2 * f32_hs
+        # FeS_32 receives coupled source terms from both TS2_32 and Fe2_total.
+        hs_32 = partition_equilibrium_isotope_32(
+            c.TS2_32, mp.hs_frac, mp.h2s_frac, mp.h2s_hs_alpha
+        )
+        hs_val_np = np.asarray(hs_val)
+        hs_32_val = np.asarray(hs_32)
+        TS2_val_np = np.asarray(c.TS2.value)
+        TS2_32_val = np.asarray(c.TS2_32.value)
+
+        f32_default = 1.0 / (1.0 + mp.VCDT)
+        f32_hs = np.where(hs_val_np > 1e-6, hs_32_val / (hs_val_np + 1e-30), f32_default)
+        f32_hs = np.clip(f32_hs, 0.5, 1.5)
+
+        # Bulk ratio of total sulfide for porewater sink (prevents d34S_TS2 distortion)
+        f32_TS2 = np.where(TS2_val_np > 1e-6, TS2_32_val / (TS2_val_np + 1e-30), f32_default)
+        f32_TS2 = np.clip(f32_TS2, 0.5, 1.5)
+
+        ratio_hs_ts2 = np.where(f32_TS2 > 1e-10, f32_hs / f32_TS2, 1.0)
+        prec_coeff_TS2_32 = prec_coeff_TS2 * ratio_hs_ts2
+
+        # (a) FeS_32 solid source coupled to TS2_32 and Fe2_total
+        add_implicit_coupling_new(
+            CROSS,
+            RATES,
+            LHS,
+            target_species="FeS_32",
+            source_species="TS2_32",
+            coeff=prec_coeff_TS2_32,
+            rate=prec_rate_TS2 * f32_hs,
+            mp=mp,
+            has_solid=has_solid_prec,
+            add_lhs_sink=False,
+            stoich_ratio=1.0,
+        )
+        add_implicit_coupling_new(
+            CROSS,
+            RATES,
+            LHS,
+            target_species="FeS_32",
+            source_species="Fe2_total",
+            coeff=prec_coeff_Fe2 * f32_hs,
+            rate=prec_rate_Fe2 * f32_hs,
+            mp=mp,
+            has_solid=has_solid_prec,
+            add_lhs_sink=False,
+            stoich_ratio=1.0,
+        )
+
+        # (b) TS2_32 porewater diagonal sink
+        add_implicit_sink(
+            LHS,
+            RATES,
+            "TS2_32",
+            prec_coeff_TS2_32,
+            prec_rate_TS2 * f32_hs,
+            mp=mp,
+            has_solid=has_solid_prec,
+        )
+
+        # (c) TS2_32 off-diagonal cross sink coupled to Fe2_total
+        CROSS["TS2_32"].append(("Fe2_total", -prec_coeff_Fe2 * f32_hs * phi))
+        RATES["TS2_32"] -= prec_rate_Fe2 * f32_hs * phi
+
+        # 2. Dissolution (FeS_32 -> TS2_32)
+        FeS_val_np = np.asarray(c.FeS.value)
+        FeS_32_val = np.asarray(c.FeS_32.value)
+        f32_FeS = np.where(FeS_val_np > 1e-3, FeS_32_val / (FeS_val_np + 1e-30), f32_hs)
+        f32_FeS = np.clip(f32_FeS, 0.5, 1.5)
+
+        add_implicit_coupling_new(
+            CROSS,
+            RATES,
+            LHS,
+            target_species="TS2_32",
+            source_species="FeS_32",
+            coeff=diss_coeff_FeS,
+            rate=diss_rate_FeS * f32_FeS,
+            mp=mp,
+            has_solid=has_solid,
+            add_lhs_sink=True,
+            stoich_ratio=1.0,
+        )
+
+        # Verbose debug logger (disabled by default to prevent log bloat)
+        import os
+        if getattr(mp, "debug_verbose_fes", False) or os.environ.get("DEBUG_VERBOSE_FES"):
+            _debug_fes_isotopes_report(c, mp, omega, is_prec_active, is_diss_active, f32_hs, f32_FeS)
+
+
+FeS_precipitation_dissolution_symmetrical = FeS_precipitation_dissolution_symmetrical_picard
+
+
 def sulfide_mediated_iron_reduction_old(c, k, lim, LHS, RHS, RATES, CROSS, mp):
     """Fe3 iron reduction via HS-.
 
