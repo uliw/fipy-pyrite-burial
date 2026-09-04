@@ -538,9 +538,13 @@ def _compute_inner_residual(
     prev_iterate: Dict[str, np.ndarray],
     inner_tol: float = 1e-4,
     atol_default: float = 1e-6,
+    inner_norm: str = "wrms",
 ) -> float:
-    """
-    Computes normalized relative change across all active species between successive inner sweeps:
+    """Computes normalized relative error across all active species between successive inner sweeps:
+
+    For inner_norm == 'wrms':
+        err = max_{species} sqrt( (1/N) * sum_{cells} ( |c^{m+1} - c^m| / (inner_tol * |c^{m+1}| + atol) )^2 )
+    For inner_norm == 'linf':
         err = max_{species, cells} ( |c^{m+1} - c^m| / (inner_tol * |c^{m+1}| + atol) )
     Returns value <= 1.0 when inner convergence criterion is met.
     """
@@ -554,7 +558,10 @@ def _compute_inner_residual(
         ratio = diff / scale
         if np.any(np.isnan(ratio)) or np.any(np.isinf(ratio)):
             return float("inf")
-        err_ratio = float(np.max(ratio))
+        if inner_norm == "wrms":
+            err_ratio = float(np.sqrt(np.mean(ratio**2)))
+        else:
+            err_ratio = float(np.max(ratio))
         if err_ratio > max_err_ratio:
             max_err_ratio = err_ratio
     return max_err_ratio
@@ -795,13 +802,14 @@ def run_non_steady_state_solver_coupled(
     # --- Initialize Inner Sweeping Loop (Method 1: Picard / Newton Iteration) ---
     enable_inner_sweeping = getattr(mp, "enable_inner_sweeping", False)
     max_inner_sweeps = int(getattr(mp, "max_inner_sweeps", 10))
-    inner_tol = float(getattr(mp, "inner_tol", 1e-4))
+    inner_tol = float(getattr(mp, "inner_tol", 1e-3))
+    inner_norm = getattr(mp, "inner_norm", "wrms")
     inner_relaxation = float(getattr(mp, "inner_relaxation", 1.0))
     enable_adaptive_damping = getattr(mp, "enable_adaptive_damping", True)
     inner_sweep_equilibrium = getattr(mp, "inner_sweep_equilibrium", True)
     adaptive_sweeps_dt = getattr(mp, "adaptive_sweeps_dt", True)
-    sweep_target_optimal = int(getattr(mp, "sweep_target_optimal", 3))
-    sweep_max_acceptable = int(getattr(mp, "sweep_max_acceptable", 6))
+    sweep_target_optimal = int(getattr(mp, "sweep_target_optimal", 4))
+    sweep_max_acceptable = int(getattr(mp, "sweep_max_acceptable", 7))
 
     # --- Initialize Dynamic Isotope dt Limiter ---
     enable_isotope_dt_limiter = getattr(mp, "enable_isotope_dt_limiter", False)
@@ -903,7 +911,7 @@ def run_non_steady_state_solver_coupled(
 
                             # Compute raw error of this solve
                             raw_inner_err = _compute_inner_residual(
-                                species_struct, prev_iterate, inner_tol=inner_tol
+                                species_struct, prev_iterate, inner_tol=inner_tol, inner_norm=inner_norm
                             )
 
                             # Adaptive Damping: detect oscillation or error growth
@@ -924,7 +932,7 @@ def run_non_steady_state_solver_coupled(
                                         + current_theta * s_obj["var"].value
                                     )
                                 last_inner_err = _compute_inner_residual(
-                                    species_struct, prev_iterate, inner_tol=inner_tol
+                                    species_struct, prev_iterate, inner_tol=inner_tol, inner_norm=inner_norm
                                 )
                             else:
                                 last_inner_err = raw_inner_err
@@ -1084,16 +1092,16 @@ def run_non_steady_state_solver_coupled(
             if enable_inner_sweeping and adaptive_sweeps_dt:
                 effective_max = dt_controller.get_effective_max(_log=_log)
                 if last_inner_sweeps <= sweep_target_optimal:
-                    # Converged easily in few sweeps -> grow dt
+                    # Converged easily in few sweeps -> grow dt rapidly (growth_factor)
                     dt_controller._dt = min(
                         dt_controller._dt * dt_controller.growth_factor, effective_max
                     )
                 elif last_inner_sweeps <= sweep_max_acceptable:
-                    # Healthy convergence in moderate sweeps -> maintain dt
-                    dt_controller._dt = min(dt_controller._dt, effective_max)
+                    # Healthy convergence in moderate sweeps -> grow dt mildly (1.05x)
+                    dt_controller._dt = min(dt_controller._dt * 1.05, effective_max)
                 else:
-                    # Took many sweeps -> damp dt slightly to stay in comfortable zone
-                    dt_controller._dt = max(dt_controller._dt * 0.85, dt_controller.dt_min)
+                    # Approaching sweep limit -> damp dt slightly to stay in comfortable zone
+                    dt_controller._dt = max(dt_controller._dt * 0.9, dt_controller.dt_min)
                 dt_controller._dt_prev = dt_controller._dt
             elif enable_rate_adaptation:
                 effective_max = dt_controller.get_effective_max(_log=_log)
