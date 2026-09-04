@@ -88,7 +88,15 @@ def test_compute_inner_residual():
     prev_iterate = {"A": np.array([0.5, 1.0, 1.0])}
     err = _compute_inner_residual(species_struct, prev_iterate, inner_tol=1e-4)
     assert err > 1.0
-    
+
+    # WRMS vs Linf comparison: single-cell outlier
+    # In Linf, the single outlier dictates the norm. In WRMS, it is averaged across cells.
+    prev_iterate_outlier = {"A": np.array([0.5, 1.0, 1.0])}
+    err_linf = _compute_inner_residual(species_struct, prev_iterate_outlier, inner_tol=1e-4, inner_norm="linf")
+    err_wrms = _compute_inner_residual(species_struct, prev_iterate_outlier, inner_tol=1e-4, inner_norm="wrms")
+    assert err_linf > err_wrms
+    assert err_wrms == pytest.approx(err_linf / np.sqrt(3.0), rel=1e-3)
+
     # NaN check: should safely return inf
     prev_iterate = {"A": np.array([np.nan, 1.0, 1.0])}
     err = _compute_inner_residual(species_struct, prev_iterate, inner_tol=1e-4)
@@ -246,4 +254,40 @@ def test_inner_sweeping_adaptive_damping(mock_save_state, mock_save_data, mock_u
 
     assert step == 1
     assert len(sweeps) <= 6
+
+
+@patch("fipyrite.solver_calls._setup_static_coupled_equation")
+@patch("fipyrite.solver_calls._update_static_coefficients")
+@patch("fipyrite.solver_calls.save_data")
+@patch("fipyrite.solver_calls.save_state")
+def test_legacy_mode_when_inner_sweeping_disabled(mock_save_state, mock_save_data, mock_update_coeffs, mock_setup_eq, solver_setup):
+    """Test that setting enable_inner_sweeping=False strictly preserves legacy single-sweep behavior."""
+    mp, c, k, mesh, D_mol, bc_map, z = solver_setup
+    mp.max_steps = 3
+    mp.dt_init = 10.0
+    mp.enable_inner_sweeping = False
+    mp.enable_rate_adaptation = True
+
+    mock_coupled_eq = MagicMock()
+    mock_setup_eq.return_value = (mock_coupled_eq, {}, {}, {})
+    mock_update_coeffs.return_value = {"FeS": np.zeros(3), "TS2": np.zeros(3)}
+
+    sweep_call_count = 0
+    def sweep_side_effect(dt, solver):
+        nonlocal sweep_call_count
+        sweep_call_count += 1
+        # Set a different concentration; in legacy mode this must NOT trigger additional sweeps
+        c["TS2"].setValue(c["TS2"].value + 0.5)
+        return 0.0
+
+    mock_coupled_eq.sweep.side_effect = sweep_side_effect
+
+    step, rms = run_non_steady_state_solver_coupled(
+        mp, c, ["FeS", "TS2"], ["FeS", "TS2"], k, MagicMock(), MagicMock(), mesh, D_mol, bc_map, z
+    )
+
+    assert step == 3
+    # Exactly one sweep per step (total 3 sweeps across 3 steps)
+    assert sweep_call_count == 3
+
 
