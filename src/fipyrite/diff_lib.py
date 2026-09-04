@@ -1151,6 +1151,18 @@ def add_explicit_source(
         RATES[key] += getattr(scaled_rate, "value", scaled_rate)
 
 
+def smooth_ramp(x, eps=0.02):
+    """C1 continuous smooth ramp function:
+    Approximates max(x, 0) with continuous value and continuous first derivative:
+        S_eps(x) = 0                       for x <= -eps
+                 = (x + eps)^2 / (4 * eps) for -eps < x < eps
+                 = x                       for x >= eps
+    Eliminates discontinuous operator jumps across phase change boundaries (e.g. Omega = 1).
+    """
+    quad = (x + eps) * (x + eps) / (4.0 * eps)
+    return np.where(x <= -eps, 0.0, np.where(x >= eps, x, quad))
+
+
 def add_implicit_coupling_new(
     CROSS,
     RATES,
