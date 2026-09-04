@@ -19,7 +19,6 @@ TAGS
 *.npz-old
 *.mp4
 CLAUDE.md
-*.org
 *.log
 *.gz
 
