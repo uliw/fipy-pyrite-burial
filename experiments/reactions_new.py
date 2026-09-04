@@ -20,6 +20,7 @@ from fipyrite.diff_lib import (
     add_implicit_sink,
     calculate_fractionated_coeff_32,
     partition_equilibrium_isotope_32,
+    smooth_ramp,
 )
 
 from generated_equations import (
@@ -1082,7 +1083,7 @@ def FeS_precipitation_dissolution_symmetrical_picard(c, k, lim, LHS, RHS, RATES,
         # Verbose debug logger (disabled by default to prevent log bloat)
         import os
         if getattr(mp, "debug_verbose_fes", False) or os.environ.get("DEBUG_VERBOSE_FES"):
-            _debug_fes_isotopes_report(c, mp, omega, is_prec_active, is_diss_active, f32_hs, f32_FeS)
+            _debug_fes_isotopes_report(c, mp, omega, mm_factor_prec > 0, mm_factor_diss > 0, f32_hs, f32_FeS)
 
 
 FeS_precipitation_dissolution_symmetrical = FeS_precipitation_dissolution_symmetrical_picard
