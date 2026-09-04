@@ -1,0 +1,22 @@
+#+TITLE: Title
+#+AUTHOR:Ulrich G. Wortmann
+#+STARTUP: showall latexpreview shrink inlineimages
+#+OPTIONS: todo:nil tasks:nil tags:nil toc:nil
+#+EXCLUDE_TAGS: noexport answer
+#+latex_compiler: lualatex
+#+LATEX_CLASS: koma-article
+#+latex_class_options: [11pt,letter]
+#+latex_header: \newlength\bibitemsep
+#+latex_header: \hypersetup{colorlinks=true,linkcolor=Navy,filecolor=Navy,urlcolor=Navy,citecolor=Navy,anchorcolor=Navy}
+
+
+
+\maketitle
+
+* Picard iterations vs vs specific triggers 
+
+| Type   | Iterations | Time [yr] |
+|---------+------------+------|
+| Legacy |      45597 |  210 |
+| Picard |       9370 |  140 |
+
