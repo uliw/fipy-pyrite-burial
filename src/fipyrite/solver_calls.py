@@ -801,7 +801,7 @@ def run_non_steady_state_solver_coupled(
 
     # --- Initialize Inner Sweeping Loop (Method 1: Picard / Newton Iteration) ---
     enable_inner_sweeping = getattr(mp, "enable_inner_sweeping", False)
-    max_inner_sweeps = int(getattr(mp, "max_inner_sweeps", 10))
+    max_inner_sweeps = int(getattr(mp, "max_inner_sweeps", 15))
     inner_tol = float(getattr(mp, "inner_tol", 1e-3))
     inner_norm = getattr(mp, "inner_norm", "wrms")
     inner_relaxation = float(getattr(mp, "inner_relaxation", 1.0))
@@ -810,6 +810,7 @@ def run_non_steady_state_solver_coupled(
     adaptive_sweeps_dt = getattr(mp, "adaptive_sweeps_dt", True)
     sweep_target_optimal = int(getattr(mp, "sweep_target_optimal", 4))
     sweep_max_acceptable = int(getattr(mp, "sweep_max_acceptable", 7))
+    prev_inner_sweeps_count = 1
 
     # --- Initialize Dynamic Isotope dt Limiter ---
     enable_isotope_dt_limiter = getattr(mp, "enable_isotope_dt_limiter", False)
@@ -1092,10 +1093,13 @@ def run_non_steady_state_solver_coupled(
             if enable_inner_sweeping and adaptive_sweeps_dt:
                 effective_max = dt_controller.get_effective_max(_log=_log)
                 if last_inner_sweeps <= sweep_target_optimal:
-                    # Converged easily in few sweeps -> grow dt rapidly (growth_factor)
-                    dt_controller._dt = min(
-                        dt_controller._dt * dt_controller.growth_factor, effective_max
-                    )
+                    # If previous step had high sweeps, avoid boom-bust chattering:
+                    # test stability by growing mildly (1.02x) rather than full growth_factor
+                    if prev_inner_sweeps_count > sweep_max_acceptable:
+                        growth = 1.02
+                    else:
+                        growth = dt_controller.growth_factor
+                    dt_controller._dt = min(dt_controller._dt * growth, effective_max)
                 elif last_inner_sweeps <= sweep_max_acceptable:
                     # Healthy convergence in moderate sweeps -> grow dt mildly (1.05x)
                     dt_controller._dt = min(dt_controller._dt * 1.05, effective_max)
@@ -1103,6 +1107,7 @@ def run_non_steady_state_solver_coupled(
                     # Approaching sweep limit -> damp dt slightly to stay in comfortable zone
                     dt_controller._dt = max(dt_controller._dt * 0.9, dt_controller.dt_min)
                 dt_controller._dt_prev = dt_controller._dt
+                prev_inner_sweeps_count = last_inner_sweeps
             elif enable_rate_adaptation:
                 effective_max = dt_controller.get_effective_max(_log=_log)
                 dt_controller._dt = min(dt_controller._dt * dt_controller.growth_factor, effective_max)
