@@ -143,7 +143,7 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         "isotope_limiter_species": "FeS",        # default
         # --------- Inner Sweeping Parameters (Method 1) ------- #
         "enable_inner_sweeping": True,
-        "max_inner_sweeps": 10,
+        "max_inner_sweeps": 15,
         "inner_tol": 1e-3,
         "inner_norm": "wrms",
         "inner_relaxation": 1.0,
