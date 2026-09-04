@@ -144,13 +144,14 @@ def pyrite_model(p_dict: dict, plot_queue=None, experiment="pyrite"):
         # --------- Inner Sweeping Parameters (Method 1) ------- #
         "enable_inner_sweeping": True,
         "max_inner_sweeps": 10,
-        "inner_tol": 1e-4,
+        "inner_tol": 1e-3,
+        "inner_norm": "wrms",
         "inner_relaxation": 1.0,
         "enable_adaptive_damping": True,
         "inner_sweep_equilibrium": True,
         "adaptive_sweeps_dt": True,
-        "sweep_target_optimal": 3,
-        "sweep_max_acceptable": 6,
+        "sweep_target_optimal": 4,
+        "sweep_max_acceptable": 7,
         # ---------  Other ------------------------------------ #
         "current_dt": 0.0,  # place holder
         "display_length": 2,  #
